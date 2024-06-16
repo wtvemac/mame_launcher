@@ -1,0 +1,86 @@
+// By: Eric MacDonald (eMac)
+
+import {
+	Page
+} from "./widgets/page.slint";
+import {
+	Button,
+	AboutSlint
+} from "std-widgets.slint";
+
+export global UIAbout {
+	in-out property<bool> fart-enabled: false;
+	callback do-fart();
+}
+
+export component AboutPage inherits Page {
+	spacing: 10px;
+	
+	Text {
+		text: @tr("WebTV MAME Launcher");
+		padding: 10px;
+		font-weight: 700;
+		font-size: 18px;
+	}
+
+	Text {
+		text: @tr("This was built so people don't need to use the command line to launch and play with the WebTV MAME build. This tool is optimized for original classic boxes that use flash to store its approm.");
+		padding: 10px;
+		wrap: word-wrap;
+	}
+	Text {
+		text: @tr("Built by eMac. Special thanks to Zefie, MattMan, FairPlay137 and others from the WebTV hacking community! Enjoy!");
+		padding: 10px;
+		wrap: word-wrap;
+	}
+
+	Rectangle { 
+		height: 5px;
+	}
+
+	Text {
+		text: @tr("Notes:");
+		padding: 10px;
+		font-weight: 500;
+		font-size: 15px;
+		wrap: word-wrap;
+	}
+	Text {
+		text: @tr("- Most approms don't support PAL mode properly. Some approms boot but have memory allocation issues. Other approms fail with \"CACHE ERROR\" (e.g. an access violation) when trying to access PAL assets like the options bar from the ROMFS.");
+		padding: 10px;
+		wrap: word-wrap;
+	}
+	Text {
+		text: @tr("- Older builds (pre-1000s) have unreliable modem support. Don't be suprised if you can't connect or have a slow connection with older builds.");
+		padding: 10px;
+		wrap: word-wrap;
+	}
+	Text {
+		text: @tr("- Most debug builds require the 4MB dev box configuration. The retail config only has 2MB flash which truncates 4MB debug builds.");
+		padding: 10px;
+		wrap: word-wrap;
+	}
+	Text {
+		text: @tr("- Debug builds will crash into the debugger. You can see this if you if you have verbose mode enabled and see \"app>\" the log output. You can interact with the debugger by typing into the launcher window if you have 'Console Input' enabled.");
+		padding: 10px;
+		wrap: word-wrap;
+	}
+
+	Rectangle { }
+
+	AboutSlint {
+		height: 150px;
+		vertical-stretch: 0;
+		horizontal-stretch: 0;
+	}
+
+	Button {
+		text: (UIAbout.fart-enabled) ? "Thank You, Come Again!" : @tr("PULL MY FINGER");
+		icon: (UIAbout.fart-enabled) ? @image-url("images/poop.svg") : @image-url("");
+		primary: true;
+		enabled: !UIAbout.fart-enabled;
+		clicked => {
+			UIAbout.do-fart();
+		}
+	}
+}

@@ -1,0 +1,55 @@
+// By: Eric MacDonald (eMac)
+
+import { 
+	Spinner
+} from "std-widgets.slint";
+
+export component LoadingBox inherits Rectangle {
+	x: 0px;
+	y: 0px;
+	width: 100%;
+	height: 100%;
+	background: black;
+	opacity: 0.85;
+	visible: true;
+	in property<length> size: root.width * 0.25;
+	in property<percent> progress: 50%;
+	in property<bool> indeterminate: true;
+	in property<string> message: "";
+	in property<length> message-spacing: 7px;
+	in property<length> message-font-size: 16px;
+	in property<float> message-font-weight: 800;
+	in property<brush> message-color: white;
+	
+
+	loading-spinner := Spinner {
+		horizontal-stretch: 1;
+		vertical-stretch: 1;
+		width: root.size;
+		height: root.size;
+		opacity: 1.0;
+		progress: root.progress;
+		indeterminate: root.indeterminate;
+	}
+
+	Text {
+		x: 0px;
+		y: loading-spinner.y + loading-spinner.height + root.message-spacing;
+		width: 100%;
+		height: 32px;
+		text: root.message;
+		horizontal-alignment: center;
+		opacity: 1.0;
+		font-weight: root.message-font-weight;
+		font-size: message-font-size;
+		color: root.message-color;
+	}
+
+	TouchArea {
+		x: 0px;
+		y: 0px;
+		width: 100%;
+		height: 100%;
+		enabled: root.visible;
+	}
+}

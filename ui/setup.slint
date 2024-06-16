@@ -1,0 +1,193 @@
+// By: Eric MacDonald (eMac)
+
+import {
+	Page
+} from "./widgets/page.slint";
+import { 
+	HorizontalBox,
+	Button
+} from "std-widgets.slint";
+import {
+	EditableComboBox
+} from "./widgets/editablecombobox.slint";
+import {
+	TitledVerticalBox
+} from "./widgets/titledbox.slint";
+
+export global UIPaths {
+	in-out property<string> mame_path: "";
+	in-out property<string> python_path: "";
+	in-out property<string> rommy_path: "";
+	in-out property<string> last_opened_path: "";
+	in-out property<bool> rommy_enabled: false;
+
+	callback choose-mame();
+	callback choose-python();
+	callback choose-rommy();
+	callback open-url-path(string);
+}
+
+export component SetupPage inherits Page {
+	TitledVerticalBox {
+		title: @tr("WebTV MAME Path");
+		box-spacing: 15px;
+		box-indent: 10px;
+		title-spacing: 15px;
+		padding-bottom: 20px;
+		padding-top: 10px;
+
+		VerticalLayout {
+			spacing: 8px;
+			Text {
+				text: @tr("This is the path to your compiled copy of WebTV MAME. You can download it from from:");
+				wrap: word-wrap;
+			}
+			Text {
+				text: @tr("https://github.com/FairPlay137/mame");
+				font-italic: true;
+				color: #3d94ff;
+				wrap: word-wrap;
+				TouchArea {
+					x: 0px;
+					y: 0px;
+					width: 100%;
+					height: 100%;
+					clicked => {
+						UIPaths.open-url-path(parent.text);
+					}
+				}
+			}
+			Text {
+				text: @tr("You can follow the instructions here if you're compiling from source:");
+				wrap: word-wrap;
+			}
+			Text {
+				text: @tr("https://docs.mamedev.org/initialsetup/compilingmame.html");
+				font-italic: true;
+				color: #3d94ff;
+				wrap: word-wrap;
+				TouchArea {
+					x: 0px;
+					y: 0px;
+					width: 100%;
+					height: 100%;
+					clicked => {
+						UIPaths.open-url-path(parent.text);
+					}
+				}
+			}
+		}
+
+		HorizontalBox {
+			vertical-stretch: 0;
+			padding: 0px;
+			padding-left: 5px;
+			EditableComboBox {
+				current-value <=> UIPaths.mame_path;
+				placeholder-text: @tr("/path/to/webtv1");
+			}
+			Button {
+				text: @tr("Search");
+				clicked => {
+					UIPaths.choose-mame();
+				}
+			}
+		}
+	}
+
+	TitledVerticalBox {
+		title: @tr("Python Path");
+		box-spacing: 15px;
+		box-indent: 15px;
+		title-spacing: 15px;
+		padding-bottom: 20px;
+
+		VerticalLayout {
+			spacing: 8px;
+			Text {
+				text: @tr("The path to your Python 3 executable is needed in order to run Rommy to build approms to use with MAME. This isn't required. You can download Python at:");
+				wrap: word-wrap;
+			}
+			Text {
+				text: @tr("https://www.python.org/downloads/");
+				font-italic: true;
+				color: #3d94ff;
+				wrap: word-wrap;
+				TouchArea {
+					x: 0px;
+					y: 0px;
+					width: 100%;
+					height: 100%;
+					clicked => {
+						UIPaths.open-url-path(parent.text);
+					}
+				}
+			}
+		}
+
+		HorizontalBox {
+			vertical-stretch: 0;
+			padding: 0px;
+			padding-left: 5px;
+			EditableComboBox {
+				current-value <=> UIPaths.python_path;
+				placeholder-text: @tr("/path/to/python");
+			}
+			Button {
+				text: @tr("Search");
+				clicked => {
+					UIPaths.choose-python();
+				}
+			}
+		}
+	}
+
+	TitledVerticalBox {
+		title: @tr("Rommy Path");
+		box-spacing: 15px;
+		box-indent: 15px;
+		title-spacing: 15px;
+		padding-bottom: 20px;
+
+		VerticalLayout {
+			spacing: 8px;
+			Text {
+				text: @tr("Rommy is used to create a WebTV approm image file by selecting partXXX.rom or dt.json files. This isn't required. You can download it from:");
+				wrap: word-wrap;
+			}
+			Text {
+				text: @tr("https://github.com/wtvemac/rommy");
+				font-italic: true;
+				color: #3d94ff;
+				wrap: word-wrap;
+				TouchArea {
+					x: 0px;
+					y: 0px;
+					width: 100%;
+					height: 100%;
+					clicked => {
+						UIPaths.open-url-path(parent.text);
+					}
+				}
+ 			}
+		}
+
+		HorizontalBox {
+			vertical-stretch: 0;
+			padding: 0px;
+			padding-left: 5px;
+			EditableComboBox {
+				current-value <=> UIPaths.rommy_path;
+				placeholder-text: @tr("/path/to/rommy.py");
+			}
+			Button {
+				text: @tr("Search");
+				clicked => {
+					UIPaths.choose-rommy();
+				}
+			}
+		}
+	}
+
+	Rectangle { }
+}

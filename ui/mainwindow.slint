@@ -1,0 +1,310 @@
+// By: Eric MacDonald (eMac)
+
+import "./fonts/helvetica.ttf";
+import "./fonts/monaco.ttf";
+import { 
+	Palette,
+	TabWidget,
+	VerticalBox,
+	Spinner,
+	TextEdit,
+	Button
+} from "std-widgets.slint";
+import {
+	StartPage, UIMAMEOptions,
+	SetupPage, UIPaths,
+	AboutPage, UIAbout
+} from "./pages.slint";
+import { 
+	LoadingBox
+} from "./widgets/loadingbox.slint";
+
+export { 
+	UIMAMEOptions,
+	UIPaths,
+	UIAbout
+}
+
+export component MainWindow inherits Window {
+	title: @tr("WebTV MAME Launcher");
+	// might be a good idea to save window sizes in the config file.
+	preferred-width: 800px;
+	preferred-height: 600px;
+	min-width: self.preferred-width;
+	min-height: self.preferred-height;
+	icon: @image-url("images/icon.png");
+	default-font-family: (mame-console-enabled) ? "Monaco" : "Helvetica";
+	default-font-size: 13px;
+	default-font-weight: 400;
+	padding: 0px;
+
+	in-out property<int> mame-pid: 0;
+	in-out property<bool> mame-broken: false;
+	in-out property<int> loading-depth: 0;
+	in-out property<string> loading-message: "";
+	in-out property<string> launcher-state-message: "";
+	in-out property<bool> mame-console-enabled: false;
+	in-out property<string> mame-console-text: "";
+
+	// These rectangles are hacks to capture change events so we can auto-scroll the MAME console.
+	// We update a value from Rust and this triggers a check.
+	// We only auto-scroll if the current scrolled position is at the bottom. 
+	// We assume that the user wants to continue to be at the bottom as new text is added if we're scrolled to the bottom at the start.
+	in-out property<int> check-value: 0;
+	in-out property<bool> force-scroll: false;
+	in-out property<bool> i-is-at-bottom: false;
+	property <int> i-check-value: 0;
+	if (root.mame-console-enabled && root.i-check-value != root.check-value): Rectangle {
+		init => {
+			// Only auto-scroll if we're scrolled to the bottom. This allows the user to scroll around and not be annoyed by it auto-scrolling as they're viewing things.
+			root.i-is-at-bottom = ((mame-console.viewport-y - (mame-console.visible-height + 900px)) <= (mame-console.visible-height - mame-console.viewport-height));
+
+			if(root.i-is-at-bottom || root.force-scroll) {
+				mame-console.set-selection-offsets(4294967295, 4294967295); // Scroll to end hack
+				root.force-scroll = false;
+			}
+
+			root.i-check-value = check-value;
+		}
+	}
+	// Also make sure we're at the bottom if the window height changes
+	// Width changes could be checked as well (word wrap) but that should be "okay" based on the +900px tolerance in the "am I at the bottom" code in the value check.
+	// Huge height changes (like maximize to minimize) may mess this but but in those cases the user can scroll to the bottom.
+	property <length> i-check-height: 0px;
+	if (root.mame-console-enabled && root.i-check-height != root.height): Rectangle {
+		init => {
+			root.i-is-at-bottom = ((mame-console.viewport-y - (mame-console.visible-height * 1.5)) <= (mame-console.visible-height - mame-console.viewport-height));
+
+			if(root.i-is-at-bottom) {
+				mame-console.viewport-y = mame-console.visible-height - mame-console.viewport-height;
+			}
+		}
+	}
+
+	callback send-key-to-mame(string, bool);
+	callback close-mame();
+	callback do-fart();
+
+	warning-message := VerticalLayout {
+		x: 0px;
+		y: 0px;
+		width: 100%;
+		height: 42px;
+		padding: 4px;
+
+		Rectangle {
+			width: parent.width - (parent.padding * 2);
+			height: parent.height - (parent.padding * 2);
+			visible: (root.launcher-state-message != "") ? true : false;
+			border-color: #999900;
+			border-width: 2px;
+
+			Text {
+				text: root.launcher-state-message;
+				vertical-alignment: center;
+				horizontal-alignment: center;
+			}
+		}
+	}
+
+	tab-widget := TabWidget {
+		x: 0px;
+		y: (root.launcher-state-message != "") ? warning-message.height + 3px : 3px;
+		width: 100%;
+		height: ((root.launcher-state-message != "") ? (root.height - warning-message.height) : root.height);
+		padding: 10px;
+		current-index: (root.mame-broken) ? 1 : 0;
+
+		Tab {
+			title: @tr("Start MAME");
+			StartPage {
+				opacity: (root.mame-broken) ? 0.2 : 1.0;
+			}
+		}
+		Tab {
+			title: @tr("Set me up");
+			SetupPage {}
+		}
+		Tab {
+			title: @tr("About");
+			AboutPage {}
+		}
+	}
+	// This rectangle is line across the bottom of the tabs.
+	Rectangle {
+		x: 0px;
+		y: tab-widget.y + 31px;
+		width: 100%;
+		height: 2px;
+		background: Palette.alternate-background;
+	}
+
+	LoadingBox { 
+		message: root.loading_message;
+		visible: (root.loading-depth > 0);
+	}
+
+	// MAME Console window.
+	// TouchArea is used to capture click events so they don't bubble to the bottom layers. The console is an overlay over the main window.
+	TouchArea {
+		x: 0px;
+		y: 0px;
+		width: root.width;
+		height: root.height;
+		enabled: root.mame-console-enabled;
+		padding: 0px;
+		// FocusScope is used to send keys back to MAME so we can handle crash events on bf0. Smart card serial out goes to console, hw keyboard (implemented in MAME) for input.
+		FocusScope {
+			x: 0px;
+			y: 0px;
+			width: parent.width;
+			height: parent.height;
+			enabled: root.mame-console-enabled;
+			padding: 0px;
+			key-pressed(event) => {
+				root.send-key-to-mame(event.text, event.modifiers.shift);
+
+				accept
+			}
+			Rectangle {
+				x: 0px;
+				y: 0px;
+				width: parent.width;
+				height: parent.height;
+				visible: root.mame-console-enabled;
+				padding: 0px;
+				background: #191919;
+				// Might do syntax highlighting if Slint ever has support (probably wont implement it myself)
+				// Seems like they're looking at cosmic-text
+				// https://github.com/slint-ui/slint/issues/2723
+				mame-console := TextEdit {
+					x: 0px;
+					y: 0px;
+					width: parent.width;
+					height: parent.height;
+					text: root.mame-console-text;
+					enabled: true;
+					padding: 0px;
+					read-only: true;
+					wrap: word-wrap;
+				}
+				console-copy := Image {
+					x: console-scroll-to-end.x - self.width - 12px;
+					y: 8px;
+					width: 24px;
+					height: 24px;
+					source: @image-url("images/console-copy.svg");
+					colorize: (console-copy-ta.has-hover) ? #fff : #aaa;
+					console-copy-ta := TouchArea {
+						x: 0px;
+						y: 0px;
+						height: parent.height;
+						width: parent.width;
+						clicked => {
+							tooltip-text.text = "Text Copied!";
+							tooltip.x = console-copy.x - 38px;
+							tooltip.y = console-copy.y + console-copy.height + 8px;
+							tooltip.opened = true;
+
+							mame-console.copy();
+						}
+					}
+				}
+				console-scroll-to-end := Image {
+					x: console-close.x - self.width - 12px;
+					y: 8px;
+					width: 24px;
+					height: 24px;
+					source: @image-url("images/console-scroll-to-bottom.svg");
+					colorize: (console-scroll-to-end-ta.has-hover) ? #fff : #aaa;
+					console-scroll-to-end-ta := TouchArea {
+						x: 0px;
+						y: 0px;
+						height: parent.height;
+						width: parent.width;
+						clicked => {
+							mame-console.set-selection-offsets(4294967295, 4294967295); // Scroll to end hack
+						}
+					}
+				}
+				console-close := Image {
+					x: root.width - self.width - 35px;
+					y: 8px;
+					width: 24px;
+					height: 24px;
+					source: @image-url("images/console-close.svg");
+					colorize: (console-close-ta.has-hover) ? #fff : #aaa;
+					console-close-ta := TouchArea {
+						x: 0px;
+						y: 0px;
+						height: parent.height;
+						width: parent.width;
+						clicked => {
+							root.close-mame();
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Disable overlay. Used to disable the start tab when MAME is flagged as broken.
+	TouchArea {
+		x: 0px;
+		y: tab-widget.y + 31px + 2px;
+		width: 100%;
+		height: root.height - self.y;
+		enabled: root.mame-broken && tab-widget.current-index == 0;
+	}
+
+	tooltip := Rectangle {
+		property <bool> opened: false;
+		states [
+			opened when self.opened: {
+				opacity: 0.8;
+				in {
+					animate opacity {
+						duration: 400ms;
+						delay: 0ms;
+					}
+				}
+			}
+			closed when !self.opened: {
+				opacity: 0.0;
+				in {
+					animate opacity {
+						duration: 400ms;
+						delay: 800ms;
+					}
+				}
+			}
+		]
+		x: root.width - self.width - 8px;
+		y: root.height - self.height - 8px;
+		z: 1;
+		opacity: 0.0;
+		width: tooltip-layout.preferred-width;
+		height: tooltip-layout.preferred-height;
+		visible: true;
+		background: #000;
+		border-width: 1px;
+		border-radius: 4px;
+		border-color: #444;
+
+		// Tooltip fully shown, now prepare to hide it.
+		if tooltip.opacity > 0.5: Rectangle {
+			init => {
+				tooltip.opened = false;
+			}
+		}
+
+		tooltip-layout := HorizontalLayout { 
+			z: 1;
+			padding: 6px;
+			tooltip-text := Text { 
+				z: 1;
+				text: "";
+			}
+		}
+	}
+}

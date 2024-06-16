@@ -1,0 +1,59 @@
+// By: Eric MacDonald (eMac)
+
+import { 
+	HorizontalBox
+} from "std-widgets.slint";
+
+export component TitledVerticalBox inherits VerticalLayout {
+	in property<string> title: "title";
+	in property<length> title-spacing: 5px;
+	in property<length> title-font-size: 14px;
+	in property<int> title-font-weight: 700;
+	in property<length> box-indent: 5px;
+	in property<length> box-spacing: 0px;
+
+	vertical-stretch: 0;
+	spacing: root.title-spacing;
+	padding-bottom: 10px;
+
+	Text {
+		text: root.title;
+		font-size: root.title-font-size;
+		font-weight: root.title-font-weight;
+	}
+	VerticalLayout {
+		vertical-stretch: 0;
+		padding: 0px;
+		padding-left: root.box-indent;
+		spacing: root.box-spacing;
+
+		@children
+	}
+}
+
+export component TitledHorizontalBox inherits VerticalLayout {
+	in property<string> title: "title";
+	in property<length> title-spacing: 5px;
+	in property<length> title-font-size: 14px;
+	in property<int> title-font-weight: 700;
+	in property<length> box-indent: 5px;
+	in property<length> box-spacing: 0px;
+
+	vertical-stretch: 0;
+	spacing: root.title-spacing;
+	padding-bottom: 10px;
+
+	Text {
+		text: root.title;
+		font-size: root.title-font-size;
+		font-weight: root.title-font-weight;
+	}
+	HorizontalBox {
+		vertical-stretch: 0;
+		padding: 0px;
+		padding-left: root.box-indent;
+		spacing: root.box-spacing;
+
+		@children
+	}
+}

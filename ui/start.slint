@@ -1,0 +1,259 @@
+// By: Eric MacDonald (eMac)
+
+import {
+	Page
+} from "./widgets/page.slint";
+import { 
+	HorizontalBox,
+	Button,
+	Switch,
+	Palette
+} from "std-widgets.slint";
+import {
+	EditableComboBox,
+	HintedItem
+} from "./widgets/editablecombobox.slint";
+import {
+	TitledVerticalBox,
+	TitledHorizontalBox
+} from "./widgets/titledbox.slint";
+
+export global UIMAMEOptions {
+	// Selected Box
+	in-out property<[HintedItem]> selectable_boxes: [];
+	in-out property<string> selected_box: "";
+
+	// ROM Information->BootROM
+	in-out property<[HintedItem]> selectable_bootroms: [];
+	in-out property<string> selected_bootrom: "";
+
+	// ROM Information->AppROM
+	in-out property<[HintedItem]> selectable_approms: [];
+	in-out property<string> selected_approm: "";
+
+	// ROM Information->SSID->Manufacture
+	in-out property<string> ssid-in-file: ""; // used to detect if someone typed a custom SSID. Custom SSIDs are only saved to file when someone starts MAME.
+	in-out property<[HintedItem]> selectable_ssids: []; // not used but can be in the future.
+	in-out property<string> selected_ssid: "";
+	in-out property<[HintedItem]> selectable_ssid_manufactures: [];
+	in-out property<string> selected_ssid_manufacture: "";
+
+	// Modem Endpoint
+	in-out property<[HintedItem]> selectable_bitb_endpoints: [
+		{
+			hint: "Local TouchPPP Server",
+			value: "127.0.0.1:1122"
+		},
+		{
+			hint: "eMac's Public TouchPPP Server",
+			value: "158.101.97.56:1122"
+		}
+	];
+	in-out property<string> selected_bitb_endpoint: "127.0.0.1:1122";
+
+	// Other Options
+	in-out property<bool> verbose_mode: true;
+	in-out property<bool> windowed_mode: true;
+	in-out property<bool> low_latency: true;
+	in-out property<bool> debug_mode: false;
+	in-out property<bool> skip_info_screen: true;
+	in-out property<bool> disable_mouse_input: true;
+	in-out property<bool> console_input: true;
+	in-out property<bool> disable_sound: false;
+
+	// Custom options
+	in-out property<string> custom_options: "";
+
+	callback select-box();
+	callback select-bootrom();
+	callback choose-bootrom();
+	callback choose-approm();
+	callback generate-ssid();
+	callback start-mame();
+}
+
+export component StartPage inherits Page {
+	z: 1;
+
+	TitledHorizontalBox {
+		title: @tr("Selected Box");
+
+		EditableComboBox {
+			hintedmodel: UIMAMEOptions.selectable_boxes;
+			current-value <=> UIMAMEOptions.selected_box;
+			selection-changed => {
+				UIMAMEOptions.select-box();
+			}
+		}
+	}
+
+	TitledHorizontalBox {
+		title: @tr("ROM Information");
+		box-spacing: 5px;
+		z: 1;
+
+		bootrom-section := VerticalLayout {
+			width: 30%;
+			spacing: 2px;
+			z: 2;
+			Text {
+				text: @tr("BootROM");
+			}
+			EditableComboBox {
+				hintedmodel: UIMAMEOptions.selectable_bootroms;
+				current-value <=> UIMAMEOptions.selected_bootrom;
+				selection-changed => {
+					UIMAMEOptions.select-box();
+				}
+			}
+			Button {
+				text: @tr("Choose");
+				height: 38px;
+				clicked => {
+					UIMAMEOptions.choose-bootrom();
+				}
+			}
+		}
+
+		approm-section := VerticalLayout {
+			width: 30%;
+			spacing: 2px;
+			z: 1;
+			Text {
+				text: @tr("AppROM");
+			}
+			EditableComboBox {
+				hintedmodel: UIMAMEOptions.selectable_approms;
+				current-value <=> UIMAMEOptions.selected_approm;
+			}
+			Button {
+				text: @tr("Choose");
+				height: 38px;
+				clicked => {
+					UIMAMEOptions.choose-approm();
+				}
+			}
+		}
+
+		ssid-section := VerticalLayout {
+			width: (parent.width * 0.4) - 10px;
+			spacing: 2px;
+			Text {
+				text: @tr("SSID");
+			}
+			EditableComboBox {
+				hintedmodel: UIMAMEOptions.selectable_ssids;
+				current-value <=> UIMAMEOptions.selected_ssid;
+				editable: true;
+			}
+			HorizontalLayout {
+				spacing: 2px;
+				width: 100%;
+				EditableComboBox {
+					hintedmodel: UIMAMEOptions.selectable_ssid_manufactures;
+					current-value <=> UIMAMEOptions.selected_ssid_manufacture;
+					width: 60%;
+				}
+				Button {
+					text: @tr("Generate");
+					width: (parent.width * 0.4) - 4px;
+					height: 38px;
+					padding: 0px;
+					clicked => {
+						UIMAMEOptions.generate-ssid();
+					}
+				}
+			}
+		}
+	}
+
+	TitledHorizontalBox {
+		title: @tr("Modem Endpoint");
+
+		EditableComboBox {
+			editable: true;
+			hintedmodel: UIMAMEOptions.selectable_bitb_endpoints;
+			current-value <=> UIMAMEOptions.selected_bitb_endpoint;
+			
+		}
+	}
+
+	TitledVerticalBox {
+		title: @tr("Other Options");
+	
+		HorizontalLayout {
+			width: 100%;
+			padding-bottom: 10px;
+			VerticalLayout {
+				width: 50%;
+				spacing: 5px;
+				Switch {
+					text: @tr("Verbose Mode");
+					width: 180px;
+					checked <=> UIMAMEOptions.verbose_mode;
+				}
+				Switch {
+					text: @tr("Windowed Mode");
+					width: 180px;
+					checked <=> UIMAMEOptions.windowed_mode;
+				}
+				Switch {
+					text: @tr("Attempt Low Latency");
+					width: 180px;
+					checked <=> UIMAMEOptions.low_latency;
+				}
+				Switch {
+					text: @tr("Debug Mode");
+					width: 180px;
+					checked <=> UIMAMEOptions.debug_mode;
+				}
+			}
+
+			VerticalLayout {
+				width: 50%;
+				spacing: 5px;
+				Switch {
+					text: @tr("Skip Info Screen");
+					width: 180px;
+					checked <=> UIMAMEOptions.skip_info_screen;
+				}
+				Switch {
+					text: @tr("Disable Mouse Input");
+					width: 180px;
+					checked <=> UIMAMEOptions.disable_mouse_input;
+				}
+				Switch {
+					text: @tr("Console Input");
+					width: 180px;
+					checked <=> UIMAMEOptions.console_input;
+				}
+				Switch {
+					text: @tr("Disable Sound");
+					width: 180px;
+					checked <=> UIMAMEOptions.disable_sound;
+				}
+			}
+		}
+
+		EditableComboBox {
+			editable: true;
+			current-value <=> UIMAMEOptions.custom_options;
+			placeholder-text: @tr("Add custom options here");
+		}
+	}
+
+	VerticalLayout {
+		vertical-stretch: 1;
+		padding-top: 8px;
+		spacing: 5px;
+		
+		Button {
+			text: @tr("Start MAME");
+			vertical-stretch: 1;
+			primary: true;
+			clicked => {
+				UIMAMEOptions.start-mame();
+			}
+		}
+	}
+}

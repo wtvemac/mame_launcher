@@ -1,0 +1,281 @@
+// By: Eric MacDonald (eMac)
+
+import { 
+	Palette,
+	LineEdit,
+	ScrollView
+} from "std-widgets.slint";
+
+export struct HintedItem {
+	hint: string,
+	tooltip: string,
+	value: string
+}
+
+global TooltipState {
+	property <string> text: "";
+	property <bool> visible: false;
+	property <Point> position;
+}
+
+export component EditableComboBox inherits Rectangle {
+	in property <bool> enabled: true;
+	in property <bool> editable: false;
+	in property <[string]> model: [];
+	in property <[HintedItem]> hintedmodel: [];
+	in property <string> placeholder-text: "";
+	in property <bool> use-border-style: false;
+	in property <bool> hint-before: false;
+	in property <bool> close-popup-on-click: true;
+	
+	property <bool> i-ishinted: (hintedmodel.length > 0);
+	property <int> i-index: 0;
+	property <string> i-value: "";
+	property <string> i-hint: "";
+	property <bool> i-changed: (i-value != current-value || i-hint != current-hint || i-hint != current-hint || ((hintedmodel.length > i-index) ? i-hint != hintedmodel[i-index].hint: false));
+
+	in-out property <string> current-value: (i-ishinted) ? hintedmodel[i-index].value : ((model.length > 0) ? model[i-index] : "");
+
+	out property <string> current-hint: (i-ishinted) ? hintedmodel[i-index].hint : "";
+	out property <string> current-tooltip: (hintedmodel.length > 0) ? hintedmodel[i-index].tooltip : "";
+	out property <int> item-count: ((i-ishinted) ? hintedmodel.length : model.length);
+
+	property <length> popup-item-height-adjust: 6px;
+
+	callback selection-changed;
+	callback close-popup-window;
+
+	z: 1;
+
+	// These rectangles are hacks to capture change events so we can sync up values.
+	if i-changed: Rectangle {
+		if i-ishinted: Rectangle {
+			for value[index] in root.hintedmodel: Rectangle {
+				init => {
+					if value.value == current-value {
+						root.i-index = index;
+						root.i-value = value.value;
+						root.i-hint = value.hint;
+						
+						root.current-hint = value.hint;
+						root.current-tooltip = value.tooltip;
+					}
+				}
+			}
+		}
+		if !i-ishinted: Rectangle {
+			for value[index] in root.model: Rectangle {
+				init => {
+					if value == current-value {
+						root.i-index = index;
+						root.i-value = value;
+						root.i-hint = "";
+
+						root.current-hint = "";
+						root.current-tooltip = "";
+					}
+				}
+			}
+		}
+	}
+
+	height: 38px;
+	min-width: 150px;
+	horizontal-stretch: 1;
+	border-width: 2px;
+	border-radius: 5px;
+	border-color: Palette.background;
+	background: Palette.alternate-background;
+
+	close-popup-window => {
+		popup.close();
+	}
+
+	nonedit-label := Text {
+		text: (root.hint-before) ? (((root.current-hint != "") ? current-hint + ": " : "") + root.current-value) : (root.current-value + ((root.current-hint != "") ? ": " + current-hint : ""));
+		x: 12px;
+		width: parent.width - self.x - 2px;
+		height: (!root.editable) ? (parent.height) : 0px;
+		vertical-alignment: center;
+		horizontal-alignment: left;
+		font-size: 14px;
+		color: Palette.foreground;
+		overflow: elide;
+		wrap: no-wrap;
+	}
+	editbox := LineEdit {
+		text <=> root.current-value;
+		x: 3px;
+		y: ((parent.height - self.height) / 2);
+		width: (parent.width - down-arrow.width - self.x) + ((down-arrow.width > 0) ? -10px : -3px);
+		height: (root.editable) ? (parent.height - 6px) : 0px;
+		padding: 0px;
+		enabled: (root.enabled);
+		horizontal-alignment: left;
+		font-size: nonedit-label.font-size;
+		placeholder-text: root.placeholder-text;
+	}
+	editbox-border := Rectangle {
+		x: editbox.x;
+		y: editbox.y;
+		width: editbox.width + 1px;
+		height: (root.editable) ? (editbox.height + 1px): 0px;
+		border-width: 4px;
+		border-color: (use-border-style) ? Palette.alternate-background : transparent;
+		background: transparent;
+	}
+	down-arrow := Image {
+		source: @image-url("images/chevron-down.svg");
+		x: (parent.width - self.width - 6px);
+		y: (parent.height - self.height) / 2;
+		width: (root.enabled && (model.length > 1 || hintedmodel.length > 1 || (hintedmodel.length == 1 && root.current-value != hintedmodel[0].value) || (model.length == 1 && root.current-value != model[0]))) ? self.height : 0px;
+		height: 40%;
+		colorize: Palette.foreground;
+		image-fit: contain;
+	}
+	// EMAC: add up/down/enter keypress events for accessability?
+	popopen-area := TouchArea {
+		x: (root.editable) ? (editbox.x + editbox.width) : 0px;
+		width: (root.editable) ? (down-arrow.width + 10px) : parent.width;
+		height: 100%;
+		enabled: (root.enabled && (model.length > 1 || hintedmodel.length > 1 || (hintedmodel.length == 1 && root.current-value != hintedmodel[0].value) || (model.length == 1 && root.current-value != model[0]))) || root.current-tooltip != "";
+
+
+		clicked => {
+			if (root.enabled && (model.length > 1 || hintedmodel.length > 1 || (hintedmodel.length == 1 && root.current-value != hintedmodel[0].value) || (model.length == 1 && root.current-value != model[0]))) {
+				popup.show();
+			}
+		}
+
+		tooltip := Rectangle { 
+			states [ 
+				visible when self.visible: {
+					opacity: 0.8; 
+					in {
+						animate opacity {
+							duration: 275ms;
+							delay: 700ms;
+						}
+					}
+				}
+			]
+			x: parent.mouse-x;
+			y: parent.mouse-y - self.height;
+			z: 1;
+			width: tooltip-layout.preferred-width;
+			height: tooltip-layout.preferred-height;
+			visible: parent.has-hover && root.current-tooltip != "";
+			opacity: 0.0;
+			background: #000;
+			border-width: 1px;
+			border-radius: 4px;
+			border-color: #444;
+	
+			tooltip-layout := HorizontalLayout { 
+				z: 1;
+				padding: 6px;
+				Text { 
+					z: 1;
+					text: root.current-tooltip;
+				}
+			}
+		}
+	}
+	
+	// Dropdown menu
+	// EMAC: look at issue where close-on-click messes with the scroll event. Need to use scroll wheel to scroll OR need to disable closing when you click outside. 
+	// https://github.com/slint-ui/slint/issues/4209
+	popup := PopupWindow {
+		x: 0px;
+		y: root.height;
+		width: root.width;
+		height: (root.height - root.popup-item-height-adjust) * ((root.item-count > 10) ? 10 : root.item-count);
+		close-on-click: false;//root.close-popup-on-click;
+
+		Rectangle {
+			background: Palette.alternate-background;
+			border-width: 2px;
+			border-radius: 3px;
+			border-color: Palette.background;
+		}
+		
+		// EMAC: add a scroll-to if selected item is out of view?
+		scroll-box := ScrollView {
+			width: parent.width;
+			height: parent.height;
+			viewport-width: parent.width;
+			viewport-height: (root.height - root.popup-item-height-adjust) * root.item-count;
+
+			if i-ishinted: VerticalLayout {
+				spacing: 0px;
+				for value[index] in root.hintedmodel: Rectangle {
+					height: (root.height - root.popup-item-height-adjust);
+					background: (itemsel-area.has-hover) ? Palette.foreground : Palette.alternate-background;
+					border-width: 2px;
+					border-color: (itemsel-area.has-hover) ? Palette.foreground : ((root.current-value == value.value) ? Palette.accent-background : Palette.alternate-background);
+					HorizontalLayout {
+						padding: 6px;
+						Text {
+							text: (root.hint-before) ? (((value.hint!= "") ? value.hint + ": " : "") + value.value) : (value.value + ((value.hint!= "") ? ": " + value.hint : ""));
+							color: (itemsel-area.has-hover) ? Palette.alternate-background : Palette.foreground;
+							font-size: nonedit-label.font-size;
+						}
+					}
+					itemsel-area := TouchArea {
+						clicked => {
+							root.i-index = index;
+							root.current-value = value.value;
+							root.current-hint = value.hint;
+							root.current-tooltip = value.tooltip;
+	
+							if(root.editable) {
+								editbox.focus();
+								editbox.clear-selection();
+								editbox.set-selection-offsets(500, 500);
+							}
+
+							root.selection-changed();
+
+							popup.close();
+						}
+					}
+				}
+			}
+			if !i-ishinted: VerticalLayout {
+				spacing: 0px;
+				for value[index] in root.model: Rectangle {
+					height: root.height - 6px;
+					background: (itemsel-area-hinted.has-hover) ? Palette.foreground : Palette.alternate-background;
+					border-width: 2px;
+					border-color: (itemsel-area-hinted.has-hover) ? Palette.foreground : ((root.current-value == value) ? Palette.accent-background : Palette.alternate-background);
+					HorizontalLayout {
+						padding: 6px;
+						Text {
+							text: value;
+							color: (itemsel-area-hinted.has-hover) ? Palette.alternate-background : Palette.foreground;
+							font-size: nonedit-label.font-size;
+						}
+					}
+					itemsel-area-hinted := TouchArea {
+						clicked => {
+							root.i-index = index;
+							root.current-value = value;
+							root.current-hint = "";
+							root.current-tooltip = "";
+	
+							if(root.editable) {
+								editbox.focus();
+								editbox.clear-selection();
+								editbox.set-selection-offsets(500, 500);
+							}
+
+							root.selection-changed();
+
+							popup.close();
+						}
+					}
+				}
+			}
+		}
+	}
+}
