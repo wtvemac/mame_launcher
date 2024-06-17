@@ -210,8 +210,8 @@ export component MainWindow inherits Window {
 							height: parent.height;
 							width: parent.width;
 							clicked => {
-								tooltip-text.text = "Text Copied!";
-								tooltip.x = console-copy.x - 38px;
+								tooltip-text.text = "Selection Copied!";
+								tooltip.x = console-copy.x - 58px;
 								tooltip.y = console-copy.y + console-copy.height + 8px;
 								tooltip.opened = true;
 
@@ -291,7 +291,7 @@ export component MainWindow inherits Window {
 		property <bool> opened: false;
 		states [
 			opened when self.opened: {
-				opacity: 0.8;
+				opacity: 1.0;
 				in {
 					animate opacity {
 						duration: 400ms;
@@ -304,7 +304,7 @@ export component MainWindow inherits Window {
 				in {
 					animate opacity {
 						duration: 400ms;
-						delay: 800ms;
+						delay: 900ms;
 					}
 				}
 			}
@@ -322,7 +322,7 @@ export component MainWindow inherits Window {
 		border-color: #444;
 
 		// Tooltip fully shown, now prepare to hide it.
-		if tooltip.opacity > 0.5: Rectangle {
+		if tooltip.opacity > 0.7: Rectangle {
 			init => {
 				tooltip.opened = false;
 			}
