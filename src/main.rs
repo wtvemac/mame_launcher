@@ -317,7 +317,7 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 	Ok(bootroms)
 }
 
-fn get_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> Result<Vec<VerifiableBuildItem>, Box<dyn std::error::Error>> {
+fn get_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode, selected_bootrom_index: usize) -> Result<Vec<VerifiableBuildItem>, Box<dyn std::error::Error>> {
 	let mut approms: Vec<VerifiableBuildItem> = vec![];
 
 	let selected_box = 
@@ -341,8 +341,17 @@ fn get_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> R
 		build_info: None
 	};
 
-	let approm1_path_prefix = mame_directory_path.clone() + "/nvram/" + &selected_box + "/" + APPROM1_FLASH_FILE_PREFIX;
-	let approm2_path_prefix = mame_directory_path.clone() + "/nvram/" + &selected_box + "/" + APPROM2_FLASH_FILE_PREFIX;
+
+	let approm1_path_prefix: String;
+	let approm2_path_prefix: String;
+
+	if selected_bootrom_index > 0 {
+		approm1_path_prefix = mame_directory_path.clone() + "/nvram/" + &selected_box + "_" + &selected_bootrom_index.to_string() + "/" + APPROM1_FLASH_FILE_PREFIX;
+		approm2_path_prefix = mame_directory_path.clone() + "/nvram/" + &selected_box + "_" + &selected_bootrom_index.to_string() + "/" + APPROM2_FLASH_FILE_PREFIX;
+	} else {
+		approm1_path_prefix = mame_directory_path.clone() + "/nvram/" + &selected_box + "/" + APPROM1_FLASH_FILE_PREFIX;
+		approm2_path_prefix = mame_directory_path.clone() + "/nvram/" + &selected_box + "/" + APPROM2_FLASH_FILE_PREFIX;
+	}
 
 	let mut approm_path_prefix = approm1_path_prefix.clone();
 	
@@ -490,6 +499,7 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 		build_info: None,
 	};
 	let mut selected_bootrom_state = BuildStorageState::UnknownBuildState;
+	let mut selected_bootrom_index: usize = 0;
 
 	let mut available_approms: Vec<VerifiableBuildItem> = vec![];
 	let mut selected_approm = VerifiableBuildItem {
@@ -523,13 +533,18 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 				Ok(bootroms) => bootroms,
 				Err(_e) => vec![]
 			};
-			for bootrom in available_bootroms.iter() {
+			for (index, bootrom) in available_bootroms.iter().enumerate() {
 				if bootrom.value.to_string() == config_persistent_mame.selected_bootrom.clone().unwrap_or("".into()) {
 					selected_bootrom = bootrom.clone();
+					selected_bootrom_index = index;
 				}
 			}
+			if available_bootroms.iter().count() > 0 && selected_bootrom.value == "" {
+				selected_bootrom = available_bootroms[0].clone();
+				selected_bootrom_index = 0;
+			}
 
-			available_approms = match get_approms(config, &machine) {
+			available_approms = match get_approms(config, &machine, selected_bootrom_index) {
 				Ok(approms) => approms,
 				Err(_e) => vec![]
 			};
@@ -574,6 +589,7 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 			}
 
 			ui_mame.set_selected_bootrom(selected_bootrom.value.clone().into());
+			ui_mame.set_selected_bootrom_index(selected_bootrom_index.clone() as i32);
 
 			selected_bootrom_state = selected_bootrom.build_storage_state.clone();
 
@@ -1291,6 +1307,7 @@ fn save_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_sou
 
 		let ui_mame = ui.global::<UIMAMEOptions>();
 		let selected_box = ui_mame.get_selected_box().to_string();
+		let selected_bootrom_index: usize = ui_mame.get_selected_bootrom_index() as usize;
 
 		let _ = std::thread::spawn(move || {
 			enable_loading(&ui_weak, "Saving AppROM".into());
@@ -1302,7 +1319,13 @@ fn save_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_sou
 			let mame_directory_path = LauncherConfig::get_parent(mame_executable_path).unwrap_or("".into());
 
 
-			let approm_directory_path = mame_directory_path.clone() + "/nvram/" + &selected_box;
+			let approm_directory_path: String;
+			if selected_bootrom_index > 0 {
+				approm_directory_path = mame_directory_path.clone() + "/nvram/" + &selected_box + "_" + &selected_bootrom_index.to_string();
+			} else {
+				approm_directory_path = mame_directory_path.clone() + "/nvram/" + &selected_box;
+			}
+
 			let approm_file_path = approm_directory_path.clone() + "/" + APPROM1_FLASH_FILE_PREFIX;
 			let approm_stripped = true;
 			let approm_rom_size;
