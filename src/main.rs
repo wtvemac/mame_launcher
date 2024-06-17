@@ -1308,8 +1308,9 @@ fn save_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_sou
 			let approm_rom_size;
 
 			let is_dev_box = Regex::new(r"^wtv\d+dev$").unwrap().is_match(selected_box.as_str());
+			let is_pal_box = Regex::new(r"^wtv\d+pal$").unwrap().is_match(selected_box.as_str());
 
-			if is_dev_box {
+			if is_dev_box || is_pal_box {
 				approm_rom_size = 0x400000;
 			} else {
 				approm_rom_size = 0x200000;
