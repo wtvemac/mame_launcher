@@ -173,7 +173,7 @@ export component MainWindow inherits Window {
 				height: parent.height;
 				visible: root.mame-console-enabled;
 				padding: 0px;
-				background: #191919;
+				background: Palette.alternate-background;
 				// Might do syntax highlighting if Slint ever has support (probably wont implement it myself)
 				// Seems like they're looking at cosmic-text
 				// https://github.com/slint-ui/slint/issues/2723
@@ -188,59 +188,89 @@ export component MainWindow inherits Window {
 					read-only: true;
 					wrap: word-wrap;
 				}
-				console-copy := Image {
+				console-copy := Rectangle {
 					x: console-scroll-to-end.x - self.width - 12px;
 					y: 8px;
 					width: 24px;
 					height: 24px;
-					source: @image-url("images/console-copy.svg");
-					colorize: (console-copy-ta.has-hover) ? #fff : #aaa;
-					console-copy-ta := TouchArea {
+					background: Palette.alternate-background;
+					border-width: 1px;
+					border-radius: 5px;
+					border-color: Palette.alternate-background;
+					Image {
 						x: 0px;
 						y: 0px;
 						height: parent.height;
 						width: parent.width;
-						clicked => {
-							tooltip-text.text = "Text Copied!";
-							tooltip.x = console-copy.x - 38px;
-							tooltip.y = console-copy.y + console-copy.height + 8px;
-							tooltip.opened = true;
+						source: @image-url("images/console-copy.svg");
+						colorize: (console-copy-ta.has-hover) ? #fff : #aaa;
+						console-copy-ta := TouchArea {
+							x: 0px;
+							y: 0px;
+							height: parent.height;
+							width: parent.width;
+							clicked => {
+								tooltip-text.text = "Text Copied!";
+								tooltip.x = console-copy.x - 38px;
+								tooltip.y = console-copy.y + console-copy.height + 8px;
+								tooltip.opened = true;
 
-							mame-console.copy();
+								mame-console.copy();
+							}
 						}
 					}
 				}
-				console-scroll-to-end := Image {
+				console-scroll-to-end := Rectangle {
 					x: console-close.x - self.width - 12px;
 					y: 8px;
 					width: 24px;
 					height: 24px;
-					source: @image-url("images/console-scroll-to-bottom.svg");
-					colorize: (console-scroll-to-end-ta.has-hover) ? #fff : #aaa;
-					console-scroll-to-end-ta := TouchArea {
+					background: Palette.alternate-background;
+					border-width: 1px;
+					border-radius: 5px;
+					border-color: Palette.alternate-background;
+					Image {
 						x: 0px;
 						y: 0px;
 						height: parent.height;
 						width: parent.width;
-						clicked => {
-							mame-console.set-selection-offsets(4294967295, 4294967295); // Scroll to end hack
+						source: @image-url("images/console-scroll-to-bottom.svg");
+						colorize: (console-scroll-to-end-ta.has-hover) ? #fff : #aaa;
+						console-scroll-to-end-ta := TouchArea {
+							x: 0px;
+							y: 0px;
+							height: parent.height;
+							width: parent.width;
+							clicked => {
+								mame-console.set-selection-offsets(4294967295, 4294967295); // Scroll to end hack
+							}
 						}
 					}
 				}
-				console-close := Image {
+				console-close := Rectangle {
 					x: root.width - self.width - 35px;
 					y: 8px;
 					width: 24px;
 					height: 24px;
-					source: @image-url("images/console-close.svg");
-					colorize: (console-close-ta.has-hover) ? #fff : #aaa;
-					console-close-ta := TouchArea {
+					background: Palette.alternate-background;
+					border-width: 1px;
+					border-radius: 5px;
+					border-color: Palette.alternate-background;
+					Image {
 						x: 0px;
 						y: 0px;
 						height: parent.height;
 						width: parent.width;
-						clicked => {
-							root.close-mame();
+						source: @image-url("images/console-close.svg");
+						colorize: (console-close-ta.has-hover) ? #fff : #aaa;
+						console-close-ta := TouchArea {
+							x: 0px;
+							y: 0px;
+							height: parent.height;
+							width: parent.width;
+							clicked => {
+								root.close-mame();
+							}
 						}
 					}
 				}
