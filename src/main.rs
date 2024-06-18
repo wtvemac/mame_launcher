@@ -1,5 +1,7 @@
 // By: Eric MacDonald (eMac)
 
+#![windows_subsystem = "windows"]
+
 mod config;
 mod wtv;
 
@@ -22,6 +24,8 @@ use serialport;
 use hex;
 use which::which;
 use open;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 #[cfg(target_os = "linux")]
 use libxdo_sys;
@@ -1513,7 +1517,14 @@ fn get_rommy_file(in_file_path: String, python_path: String, rommy_path: String)
 			let random_file_name = Alphanumeric.sample_string(&mut rand::thread_rng(), 16) + ".o";
 			let random_file_path = tmp_dir.to_owned() + "/" + &random_file_name;
 
-			match Command::new(python_path).arg(rommy_path).arg(selected_file_directory).arg(random_file_path.clone()).output() {
+			let mut command = Command::new(python_path);
+
+			command.arg(rommy_path).arg(selected_file_directory).arg(random_file_path.clone());
+
+			#[cfg(target_os = "windows")]
+			command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+
+			match command.output() {
 				Ok(_) => {
 					if Path::new(&random_file_path).exists() {
 						image_path = random_file_path.clone();
@@ -1703,7 +1714,14 @@ fn check_rommy(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::erro
 			if Path::new(&python_path).exists() {
 				if Path::new(&rommy_path).exists() {
 					let _ = std::thread::spawn(move || {
-						match Command::new(python_path).arg(rommy_path).arg("--help").output() {
+						let mut command = Command::new(python_path);
+
+						command.arg(rommy_path).arg("--help");
+
+						#[cfg(target_os = "windows")]
+						command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+
+						match command.output() {
 							Ok(rommy_output) => {
 								let _ = ui_weak_cpy.upgrade_in_event_loop(move |ui| {
 									match std::str::from_utf8(&rommy_output.stdout) {
@@ -1839,6 +1857,9 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 		let ui_mame = ui.global::<UIMAMEOptions>();
 
 		let mut mame_command = Command::new(mame_executable_path.clone());
+
+		#[cfg(target_os = "windows")]
+		mame_command.creation_flags(0x08000000); // CREATE_NO_WINDOW
 
 		mame_command.current_dir(mame_directory_path);
 

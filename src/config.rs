@@ -7,6 +7,8 @@ use toml;
 use quick_xml;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 const CONFIG_FILE_NAME: &'static str = "mame_launcher.toml";
 
@@ -212,10 +214,14 @@ impl LauncherConfig {
 	}
 
 	pub fn get_mame_config(mame_path: &String) -> Result<MAMEDocument, Box<dyn std::error::Error>> {
-		let mame_xml = 
-			Command::new(mame_path)
-			.arg("-listxml")
-			.output()?;
+		let mut command = Command::new(mame_path);
+
+		command.arg("-listxml");
+
+		#[cfg(target_os = "windows")]
+		command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+
+		let mame_xml = command.output()?;
 
 		let xml_string =
 			std::str::from_utf8(&mame_xml.stdout)?;
