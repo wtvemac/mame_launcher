@@ -136,6 +136,22 @@ enum MAMEConsoleScrollMode {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+	if cfg!(target_os = "macos") {
+		let _ = start_in_main();
+	} else {
+		let _ = start_in_thread();
+	}
+
+	Ok(())
+}
+
+fn start_in_main() -> Result<(), slint::PlatformError> {
+	let _ = start_ui();
+
+	Ok(())
+}
+
+fn start_in_thread() -> Result<(), slint::PlatformError> {
 	// Spawn a new thread so we can set the stack size without needing to modify the ~/.cargo/config.toml file.
 	let _ = 
 		std::thread::Builder::new()
