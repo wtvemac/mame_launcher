@@ -246,7 +246,7 @@ impl LauncherConfig {
 				selected_bitb_endpoint: None,
 				verbose_mode: Some(true),
 				windowed_mode: Some(true),
-				low_latency: Some(true),
+				low_latency: Some(false),
 				debug_mode: Some(false),
 				skip_info_screen: Some(true),
 				disable_mouse_input: Some(true),

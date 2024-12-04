@@ -929,7 +929,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 
 		ui_mame.set_verbose_mode(config_persistent_mame.verbose_mode.unwrap_or(true).into());
 		ui_mame.set_windowed_mode(config_persistent_mame.windowed_mode.unwrap_or(true).into());
-		ui_mame.set_low_latency(config_persistent_mame.low_latency.unwrap_or(true).into());
+		ui_mame.set_low_latency(config_persistent_mame.low_latency.unwrap_or(false).into());
 		ui_mame.set_debug_mode(config_persistent_mame.debug_mode.unwrap_or(false).into());
 		ui_mame.set_skip_info_screen(config_persistent_mame.skip_info_screen.unwrap_or(true).into());
 		ui_mame.set_disable_mouse_input(config_persistent_mame.disable_mouse_input.unwrap_or(true).into());
