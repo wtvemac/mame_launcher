@@ -59,6 +59,7 @@ const CONSOLE_KEY_DELAY: u32 = 200 * 1000;
 #[cfg(target_os = "windows")]
 const CONSOLE_KEY_DELAY: u64 = 25 * 1000;
 
+// These files are packaged into the executable so you only need to distribute one file.
 const FART_INTRO1: &'static [u8] = include_bytes!("../sounds/fart-intro1.mp3");
 const FART_INTRO2: &'static [u8]  = include_bytes!("../sounds/fart-intro2.mp3");
 const FART_INTRO3: &'static [u8]  = include_bytes!("../sounds/fart-intro3.mp3");
