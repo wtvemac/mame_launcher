@@ -877,8 +877,6 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		ui_paths.set_rommy_path(config_persistent_paths.rommy_path.unwrap_or("".into()).into());
 		ui_paths.set_last_opened_path(config_persistent_paths.last_opened_path.unwrap_or("".into()).into());
 
-		let _ = check_rommy(ui_weak_cpy);
-
 		////
 		//
 		// Start->Modem Endpoint
@@ -1048,6 +1046,8 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 
 		let ui_weak_copy = ui_weak.clone();
 		let _ = populate_selected_box_config(&ui_weak_copy, &config, &selected_box);
+
+		let _ = check_rommy(ui_weak_cpy);
 	} else {
 		let _ = ui_weak.upgrade_in_event_loop(move |ui| {
 			let ui_mame = ui.global::<UIMAMEOptions>();
