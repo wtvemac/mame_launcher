@@ -1889,6 +1889,7 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 
 		if ui_mame.get_windowed_mode().into() {
 			mame_command.arg("-window");
+			mame_command.arg("-nomaximize");
 		}
 
 		if ui_mame.get_verbose_mode().into() {
