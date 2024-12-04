@@ -947,7 +947,6 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 	//
 	////
 
-
 	struct SortableHintedItem {
 		pub hint: slint::SharedString,
 		pub tooltip: slint::SharedString,
@@ -1055,9 +1054,13 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 
 			ui.set_mame_broken(true);
 			if mame_path == "" {
-				ui.set_launcher_state_message("No MAME executable found! Please setup the path to your WebTV MAME executable.".into());
+				ui.set_launcher_state_message("No MAME executable! Please setup the path to your WebTV MAME executable.".into());
 			} else {
-				ui.set_launcher_state_message("I asked MAME to list WebTV boxes and it gave me nothing! Broken MAME executable?".into());
+				if Path::new(&mame_path).exists() {
+					ui.set_launcher_state_message("I asked MAME to list WebTV boxes and it gave me nothing! Broken MAME executable?".into());
+				} else {
+					ui.set_launcher_state_message("MAME executable not found! Please setup the correct path to your WebTV MAME executable.".into());
+				}
 			}
 
 			let empty_bootroms: slint::VecModel<HintedItem> = Default::default();
