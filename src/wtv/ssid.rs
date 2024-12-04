@@ -97,6 +97,7 @@ impl SSIDBoxType {
 	}
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, EnumIter, PartialEq)]
 pub enum SSIDManufacture {
 	Generic    = 0xffff,
@@ -119,6 +120,7 @@ pub enum SSIDManufacture {
 	Matsushita = 0x0001
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ManufactureItem {
 	pub manufacture: SSIDManufacture,
@@ -259,6 +261,7 @@ impl SSIDManufacture {
 //	S      = Manufacturer signature? Needs to be bM02 before the manufacturer is checked, otherwise WebTV Generic is assumed.
 //	CC     = SSID CRC
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct SSIDInfo {
 	pub box_type: SSIDBoxType,
