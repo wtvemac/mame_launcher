@@ -42,6 +42,7 @@ use wtv::{
 
 slint::include_modules!();
 
+const STACK_SIZE: usize = 32 * 1024 * 1024;
 const SSID_ROM_FILE: &'static str = "ds2401.bin";
 const DEFAULT_BOOTORM_FILE_NAME: &'static str = "bootrom.o";
 const BOOTROM_BASE_ADDRESS: u32 = 0x9fc00000;
@@ -138,7 +139,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	// Spawn a new thread so we can set the stack size without needing to modify the ~/.cargo/config.toml file.
 	let _ = 
 		std::thread::Builder::new()
-		.stack_size(8 * 1024 * 1024)
+		.stack_size(STACK_SIZE)
 		.spawn(move || {
 
 			let _ = start_ui();
