@@ -31,6 +31,13 @@ libxdo-sys = "0.11.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = "0.3.9"
+winresource = "0.1"
+
+[package.metadata.bundle]
+name = "WebTV MAME Launcher"
+identifier = "pm.emac.mame_launcher"
+icon = ["ui/images/icon.png"]
+copyright = "Unlicensed"
 
 [build-dependencies]
 slint-build = "1.8.0"
