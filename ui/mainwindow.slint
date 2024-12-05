@@ -1,7 +1,7 @@
 // By: Eric MacDonald (eMac)
 
-import "./fonts/helvetica.ttf";
-import "./fonts/monaco.ttf";
+import "./fonts/MLhelvetica.ttf";
+import "./fonts/MLmonaco.ttf";
 import { 
 	Palette,
 	TabWidget,
@@ -33,7 +33,7 @@ export component MainWindow inherits Window {
 	min-width: self.preferred-width;
 	min-height: self.preferred-height;
 	icon: @image-url("images/icon.png");
-	default-font-family: (mame-console-enabled) ? "Monaco" : "Helvetica";
+	default-font-family: (mame-console-enabled) ? "Monaco, MLMonaco" : "Helvetica, MLHelvetica";
 	default-font-size: 13px;
 	default-font-weight: 400;
 	padding: 0px;
