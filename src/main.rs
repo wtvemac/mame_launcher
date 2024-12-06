@@ -34,7 +34,7 @@ use winapi::um::winuser::{FindWindowW, PostMessageW, VkKeyScanA, MapVirtualKeyA}
 //use winapi::um::winuser::{EnumWindows, GetWindowThreadProcessId, PostMessageW, VkKeyScanA, MapVirtualKeyA};
 #[cfg(target_os = "macos")]
 use core_graphics::{
-	event::{CGEvent, CGEventFlags},
+	event::{CGEvent, CGEventFlags, KeyCode},
 	event_source::{CGEventSource, CGEventSourceStateID}
 };
 
@@ -2266,20 +2266,38 @@ fn send_keypess_macos(ui_weak: slint::Weak<MainWindow>, text: String, shiftmod: 
 
 				if keycode != 0x47 {
 					// Press the key
+					if shiftmod {
+						match CGEvent::new_keyboard_event(event_source.clone(), KeyCode::SHIFT, true) {
+							Ok(event) => {
+								event.post_to_pid(mame_pid.try_into().unwrap_or(0));
+								std::thread::sleep(std::time::Duration::from_micros(CONSOLE_KEY_DELAY));
+							}
+							_ => {}
+						}
+					}
 					match CGEvent::new_keyboard_event(event_source.clone(), keycode, true) {
 						Ok(event) => {
 							if shiftmod {
-								event.set_flags(CGEventFlags::CGEventFlagShift);
+								event.set_flags(CGEventFlags::CGEventFlagShift | event.get_flags());
 							}
 							event.post_to_pid(mame_pid.try_into().unwrap_or(0));
 
 							std::thread::sleep(std::time::Duration::from_micros(CONSOLE_KEY_DELAY));
 
 							// Release the key so it doesn't repeat
+							if shiftmod {
+								match CGEvent::new_keyboard_event(event_source.clone(), KeyCode::SHIFT, false) {
+									Ok(event) => {
+										std::thread::sleep(std::time::Duration::from_micros(CONSOLE_KEY_DELAY));
+										event.post_to_pid(mame_pid.try_into().unwrap_or(0));
+									}
+									_ => {}
+								}
+							}
 							match CGEvent::new_keyboard_event(event_source.clone(), keycode, false) {
 								Ok(event) => {
 									if shiftmod {
-										event.set_flags(CGEventFlags::CGEventFlagShift);
+										event.set_flags(CGEventFlags::CGEventFlagShift | event.get_flags());
 									}
 									event.post_to_pid(mame_pid.try_into().unwrap_or(0));
 								},
