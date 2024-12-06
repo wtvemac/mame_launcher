@@ -32,6 +32,11 @@ use libxdo_sys;
 #[cfg(target_os = "windows")]
 use winapi::um::winuser::{FindWindowW, PostMessageW, VkKeyScanA, MapVirtualKeyA};
 //use winapi::um::winuser::{EnumWindows, GetWindowThreadProcessId, PostMessageW, VkKeyScanA, MapVirtualKeyA};
+#[cfg(target_os = "macos")]
+use core_graphics::{
+	event::{CGEvent, CGEventFlags},
+	event_source::{CGEventSource, CGEventSourceStateID}
+};
 
 use config::{LauncherConfig, MAMEMachineNode, PersistentConfig, Paths, MAMEOptions};
 use wtv::{
@@ -58,6 +63,8 @@ const PUBLIC_TOUCHPP_ADDRESS: &'static str = "wtv.ooguy.com:1122";
 const CONSOLE_KEY_DELAY: u32 = 200 * 1000;
 #[cfg(target_os = "windows")]
 const CONSOLE_KEY_DELAY: u64 = 25 * 1000;
+#[cfg(target_os = "macos")]
+const CONSOLE_KEY_DELAY: u64 = 55 * 1000;
 
 // These files are packaged into the executable so you only need to distribute one file.
 const FART_INTRO1: &'static [u8] = include_bytes!("../sounds/fart-intro1.mp3");
@@ -2159,7 +2166,7 @@ fn send_keypess_windows(ui_weak: slint::Weak<MainWindow>, text: String, shiftmod
 				let recv_byteslc = text_lc.as_bytes();
 
 				let vkey: i16 = VkKeyScanA(recv_byteslc[0] as i8);
-				if vkey == 0x0250 || vkey == 0x0255 { // hift key
+				if vkey == 0x0250 || vkey == 0x0255 { // shift key
 					return;
 				}
 				let scancode: u32 = match vkey {
@@ -2186,6 +2193,105 @@ fn send_keypess_windows(ui_weak: slint::Weak<MainWindow>, text: String, shiftmod
 				PostMessageW(hwnd, winapi::um::winuser::WM_KEYUP, w_param, l_param);
 			}
 		}
+	}
+}
+
+#[cfg(target_os = "macos")]
+fn send_keypess_macos(ui_weak: slint::Weak<MainWindow>, text: String, shiftmod: bool) {
+	let mame_pid = get_mame_pid(ui_weak.clone()).unwrap_or(0);
+
+	if mame_pid > 0 && text.len() > 0 {
+		match CGEventSource::new(CGEventSourceStateID::CombinedSessionState) {
+			Ok(event_source) => {
+				let text_lc = text.to_lowercase();
+				let recv_byteslc = text_lc.as_bytes();
+
+				let keycode = match recv_byteslc[0] {
+					0x61 => 0x00, // a
+					0x73 => 0x01, // s
+					0x64 => 0x02, // d
+					0x66 => 0x03, // f
+					0x68 => 0x04, // h
+					0x67 => 0x05, // g
+					0x7a => 0x06, // z
+					0x78 => 0x07, // x
+					0x63 => 0x08, // c
+					0x76 => 0x09, // v
+					0x62 => 0x0b, // b
+					0x71 => 0x0c, // q
+					0x77 => 0x0d, // w
+					0x65 => 0x0e, // e
+					0x72 => 0x0f, // r
+					0x79 => 0x10, // y
+					0x74 => 0x11, // t
+					0x31 => 0x12, // 1
+					0x32 => 0x13, // 2
+					0x33 => 0x14, // 3
+					0x34 => 0x15, // 4
+					0x36 => 0x16, // 6
+					0x35 => 0x17, // 5
+					0x3d => 0x18, // =
+					0x39 => 0x19, // 9
+					0x37 => 0x1a, // 7
+					0x2d => 0x1b, // -
+					0x38 => 0x1c, // 8
+					0x30 => 0x1d, // 0
+					0x5d => 0x1e, // ]
+					0x6f => 0x1f, // o
+					0x75 => 0x20, // u
+					0x5b => 0x21, // [
+					0x69 => 0x22, // i
+					0x70 => 0x23, // p
+					0x6c => 0x25, // l
+					0x6a => 0x26, // j
+					0x27 => 0x27, // '
+					0x6b => 0x28, // k
+					0x3b => 0x29, // ;
+					0x5c => 0x2a, // \
+					0x2c => 0x2b, // ,
+					0x2f => 0x2c, // /
+					0x6e => 0x2d, // n
+					0x6d => 0x2e, // m
+					0x2e => 0x2f, // .
+					0x60 => 0x32, // Tilde
+					0x2a => 0x43, // *
+					0x2b => 0x45, // +
+					0x09 => 0x30, // TAB
+					0x20 => 0x31, // SPACE
+					0x0a => 0x24, // RETURN
+					0x08 => 0x33, // DELETE
+					0xef => 0x47, // default to CLEAR (which will be ignored)
+					_    => 0x47  // default to CLEAR (which will be ignored)
+				};
+
+				if keycode != 0x47 {
+					// Press the key
+					match CGEvent::new_keyboard_event(event_source.clone(), keycode, true) {
+						Ok(event) => {
+							if shiftmod {
+								event.set_flags(CGEventFlags::CGEventFlagShift);
+							}
+							event.post_to_pid(mame_pid.try_into().unwrap_or(0));
+
+							std::thread::sleep(std::time::Duration::from_micros(CONSOLE_KEY_DELAY));
+
+							// Release the key so it doesn't repeat
+							match CGEvent::new_keyboard_event(event_source.clone(), keycode, false) {
+								Ok(event) => {
+									if shiftmod {
+										event.set_flags(CGEventFlags::CGEventFlagShift);
+									}
+									event.post_to_pid(mame_pid.try_into().unwrap_or(0));
+								},
+								_ => {}
+							};
+						},
+						_ => {}
+					};
+				}
+			},
+			_ => {}
+		};
 	}
 }
 
@@ -2315,8 +2421,8 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 		send_keypess_linux(ui_weak.clone(), text.to_string(), shiftmod);
 		#[cfg(target_os = "windows")]
 		send_keypess_windows(ui_weak.clone(), text.to_string(), shiftmod);
-
-		// MacOS can be supported but in this tool you need to keep the MAME window activated as you type (more consistent that way anyway even though it might be awkward)
+		#[cfg(target_os = "macos")]
+		send_keypess_macos(ui_weak.clone(), text.to_string(), shiftmod);
 	});
 
 	ui_weak = ui.as_weak();

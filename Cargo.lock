@@ -2667,9 +2667,13 @@ dependencies = [
 name = "mame_launcher"
 version = "0.1.0"
 dependencies = [
+ "core-foundation 0.10.0",
+ "core-graphics 0.24.0",
+ "foreign-types-shared",
  "hex",
  "libxdo-sys",
  "native-dialog",
+ "objc2",
  "once_cell",
  "open",
  "packbytes",
