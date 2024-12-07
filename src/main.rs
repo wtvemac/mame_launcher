@@ -67,6 +67,7 @@ const APPROM1_FLASH_FILE_PREFIX: &'static str = "bank0_flash";
 const APPROM2_FLASH_FILE_PREFIX: &'static str = "approm_flash";
 const ALLOW_APPROM2_FILES: bool = false;
 const PUBLIC_TOUCHPP_ADDRESS: &'static str = "wtv.ooguy.com:1122";
+const CONSOLE_SCROLLBACK_LINES: usize = 9000;
 #[cfg(target_os = "linux")]
 const CONSOLE_KEY_DELAY: u32 = 200 * 1000;
 #[cfg(target_os = "windows")]
@@ -1867,7 +1868,13 @@ fn add_console_text(ui_weak: slint::Weak<MainWindow>, text: String, scroll_mode:
 			}
 
 			let previous_text = ui.get_mame_console_text().to_string();
-			ui.set_mame_console_text((previous_text + &text).into());
+
+			let mut text_lines: Vec<_> = previous_text.split("\n").collect();
+			if text_lines.len() > CONSOLE_SCROLLBACK_LINES {
+				text_lines = text_lines[(text_lines.len() - CONSOLE_SCROLLBACK_LINES)..text_lines.len()].to_vec();
+			}
+
+			ui.set_mame_console_text((text_lines.join("\n") + &text).into());
 
 
 			if scroll_mode == MAMEConsoleScrollMode::ConditionalScroll || scroll_mode == MAMEConsoleScrollMode::ForceScroll {
