@@ -1992,7 +1992,7 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 				Ok(mame) => {
 					let _= set_mame_pid(ui_weak.clone(), mame.id());
 
-					#[cfg(target_os = "windows")]
+					#[cfg(any(target_os = "windows", target_os = "macos"))]
 					let mut last_byte: u8 = 0x00;
 					match (mame.stdout, mame.stderr) {
 						(Some(stdout), Some(stderr)) => {
@@ -2025,13 +2025,13 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 										if stdout_bytes_read == 0 {
 											break;
 										} else {
-												#[cfg(target_os = "windows")]
+											#[cfg(any(target_os = "windows", target_os = "macos"))]
 											// Don't repeat newline chars.
 											{
 												if stdout_buf[0] == 0x0a || stdout_buf[0] == 0x0d {
 													if last_byte != stdout_buf[0] && (last_byte == 0x0a || last_byte == 0x0d) {
-													    last_byte = stdout_buf[0].clone();
-													    continue;
+														last_byte = stdout_buf[0].clone();
+														continue;
 													}
 												}
 
