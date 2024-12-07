@@ -1939,7 +1939,9 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 				let options = CFDictionaryCreateMutable(std::ptr::null_mut(), 0, std::ptr::null(), std::ptr::null());
 				if !options.is_null() {
 					CFDictionaryAddValue(options, kAXTrustedCheckOptionPrompt.as_void_ptr(), kCFBooleanTrue.as_void_ptr());
-					AXIsProcessTrustedWithOptions(options);
+					if !AXIsProcessTrustedWithOptions(options) {
+						let _ = add_console_text(ui_weak.clone(), " \n \nAccessibility permission not available. Console input wont be available because there's no permission to communicate with the MAME window. Please go into your settings, then select 'Privacy & Security', then select 'Accessibility', then give permission to this application.\n".to_string(), MAMEConsoleScrollMode::ForceScroll);
+					}
 					CFRelease(options as *const _);
 				}
 			}
