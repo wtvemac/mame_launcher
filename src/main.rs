@@ -33,9 +33,17 @@ use libxdo_sys;
 use winapi::um::winuser::{FindWindowW, PostMessageW, VkKeyScanA, MapVirtualKeyA};
 //use winapi::um::winuser::{EnumWindows, GetWindowThreadProcessId, PostMessageW, VkKeyScanA, MapVirtualKeyA};
 #[cfg(target_os = "macos")]
-use core_graphics::{
-	event::{CGEvent, CGEventFlags, KeyCode},
-	event_source::{CGEventSource, CGEventSourceStateID}
+use {
+	core_graphics::{
+		event::{CGEvent, CGEventFlags, KeyCode},
+		event_source::{CGEventSource, CGEventSourceStateID}
+	},
+	core_foundation::{
+		dictionary::{CFDictionaryAddValue, CFDictionaryCreateMutable},
+		base::{CFRelease, TCFTypeRef},
+		number::kCFBooleanTrue
+	},
+	accessibility_sys::{AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt}
 };
 
 use config::{LauncherConfig, MAMEMachineNode, PersistentConfig, Paths, MAMEOptions};
@@ -1925,6 +1933,16 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 			#[cfg(target_os = "windows")]
 			mame_command.arg("-keyboardprovider").arg("win32");
 			mame_command.arg("-background_input");
+
+			#[cfg(target_os = "macos")]
+			unsafe {
+				let options = CFDictionaryCreateMutable(std::ptr::null_mut(), 0, std::ptr::null(), std::ptr::null());
+				if !options.is_null() {
+					CFDictionaryAddValue(options, kAXTrustedCheckOptionPrompt.as_void_ptr(), kCFBooleanTrue.as_void_ptr());
+					AXIsProcessTrustedWithOptions(options);
+					CFRelease(options as *const _);
+				}
+			}
 		}
 
 		if ui_mame.get_disable_sound().into() {

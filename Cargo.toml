@@ -38,6 +38,7 @@ core-foundation = "0.10"
 core-graphics = { version = "0.24", features = ["elcapitan"] }
 objc2 = { version = "0.5", features = ["relax-void-encoding"] }
 foreign-types-shared = "0.3"
+accessibility-sys = "0.1.3"
 
 [package.metadata.bundle]
 name = "WebTV MAME Launcher"
