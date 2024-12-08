@@ -2283,25 +2283,25 @@ fn send_keypess_macos(ui_weak: slint::Weak<MainWindow>, text: String, shiftmod: 
 					0x60 => 0x32, // `
 					0x2a => 0x43, // *
 					0x2b => 0x45, // +
-					0x21 => 0x12, // !
-					0x40 => 0x13, // @
-					0x23 => 0x14, // #
-					0x24 => 0x15, // $
-					0x25 => 0x17, // %
-					0x5e => 0x16, // ^
-					0x26 => 0x1a, // &
-					0x28 => 0x19, // (
-					0x29 => 0x1d, // )
-					0x5f => 0x1b, // _
-					0x7c => 0x2a, // |
-					0x7d => 0x1e, // }
-					0x7b => 0x21, // {
-					0x3a => 0x29, // :
-					0x22 => 0x27, // "
-					0x3c => 0x2b, // <
-					0x3e => 0x2f, // >
-					0x3f => 0x2c, // ?
-					0x7e => 0x32, // ~
+					0x21 => 0x12, // ! (when shiftmod = true)
+					0x40 => 0x13, // @ (when shiftmod = true)
+					0x23 => 0x14, // # (when shiftmod = true)
+					0x24 => 0x15, // $ (when shiftmod = true)
+					0x25 => 0x17, // % (when shiftmod = true)
+					0x5e => 0x16, // ^ (when shiftmod = true)
+					0x26 => 0x1a, // & (when shiftmod = true)
+					0x28 => 0x19, // ( (when shiftmod = true)
+					0x29 => 0x1d, // ) (when shiftmod = true)
+					0x5f => 0x1b, // _ (when shiftmod = true)
+					0x7c => 0x2a, // | (when shiftmod = true)
+					0x7d => 0x1e, // } (when shiftmod = true)
+					0x7b => 0x21, // { (when shiftmod = true)
+					0x3a => 0x29, // : (when shiftmod = true)
+					0x22 => 0x27, // " (when shiftmod = true)
+					0x3c => 0x2b, // < (when shiftmod = true)
+					0x3e => 0x2f, // > (when shiftmod = true)
+					0x3f => 0x2c, // ? (when shiftmod = true)
+					0x7e => 0x32, // ~ (when shiftmod = true)
 					0x09 => 0x30, // TAB
 					0x20 => 0x31, // SPACE
 					0x0a => 0x24, // RETURN
@@ -2481,6 +2481,10 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 
 	ui_weak = ui.as_weak();
 	ui.on_send_key_to_mame(move |text, shiftmod| {
+		// bf0 versions of WebTV use the hardware keyboard for serial input and smartcard bigbang for serial output.
+		// MAME printfs the smartcard data to the console, and this captures the keystrokes on the console to be sent to MAME.
+		// When MAME supports solo-based boxes this will be changed a bit but this works for now.
+		
 		#[cfg(target_os = "linux")]
 		send_keypess_linux(ui_weak.clone(), text.to_string(), shiftmod);
 		#[cfg(target_os = "windows")]
