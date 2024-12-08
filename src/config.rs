@@ -124,6 +124,25 @@ pub struct Paths {
     pub last_opened_path: Option<String>
 }
 
+impl Paths {
+	#[allow(dead_code)]
+	pub fn resolve_mame_path(mame_path: Option<String>) -> String {
+		#[allow(unused_mut)]
+		let mut mame_path = mame_path.unwrap_or("".into());
+
+		#[cfg(target_os = "macos")]
+		if &mame_path[0..1] == "." {
+			let executable_dir = 
+			LauncherConfig::get_parent_from_pathbuf(env::current_exe().unwrap_or("".into()))
+			.unwrap_or("".into());
+
+			mame_path = executable_dir + "/" + &mame_path;
+		}
+
+		return mame_path;
+	}
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct MAMEOptions {
@@ -147,16 +166,13 @@ impl LauncherConfig {
 		LauncherConfig::get_persistent_config()
 			.unwrap_or(LauncherConfig::default_persistent_config());
 
-		let mame_path = 
-			persistent_config.paths.mame_path
-			.clone()
-			.unwrap_or("".into());
+		let mame_path = Paths::resolve_mame_path(persistent_config.paths.mame_path.clone());
 
 		let mame_config;
 
 		if Path::new(&mame_path).exists() {
 			mame_config =
-			LauncherConfig::get_mame_config(&persistent_config.paths.mame_path.clone().unwrap())
+			LauncherConfig::get_mame_config(&mame_path)
 				.unwrap_or(LauncherConfig::default_mame_config());
 		} else {
 			mame_config = LauncherConfig::default_mame_config();
@@ -173,7 +189,6 @@ impl LauncherConfig {
 	pub fn save_persistent_config(persistent_config: &PersistentConfig) -> Result<(), Box<dyn std::error::Error>> {
 		let toml_config_text: String =
 			toml::to_string(persistent_config)?;
-
 
 		let executable_dir = 
 			LauncherConfig::get_parent_from_pathbuf(env::current_exe()?)

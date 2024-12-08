@@ -207,7 +207,7 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 
 	let config_persistent_paths = config.persistent.paths.clone();
 
-	let mame_executable_path = config_persistent_paths.mame_path.unwrap_or("".into());
+	let mame_executable_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
 	let mame_directory_path = LauncherConfig::get_parent(mame_executable_path).unwrap_or("".into());
 
 	let mut biossets = HashMap::new();
@@ -365,7 +365,7 @@ fn get_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode, sele
 
 	let config_persistent_paths = config.persistent.paths.clone();
 
-	let mame_executable_path = config_persistent_paths.mame_path.unwrap_or("".into());
+	let mame_executable_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
 	let mame_directory_path = LauncherConfig::get_parent(mame_executable_path).unwrap_or("".into());
 
 	let mut approm = VerifiableBuildItem {
@@ -449,7 +449,7 @@ fn get_ssids(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> Res
 
 	let config_persistent_paths = config.persistent.paths.clone();
 
-	let mame_executable_path = config_persistent_paths.mame_path.unwrap_or("".into());
+	let mame_executable_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
 	let mame_directory_path = LauncherConfig::get_parent(mame_executable_path).unwrap_or("".into());
 
 	let mut ssid_file: String = SSID_ROM_FILE.into();
@@ -847,7 +847,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 	let config_mame = config.mame.clone();
 	let config_persistent_paths = config.persistent.paths.clone();
 	let config_persistent_mame = config.persistent.mame_options.clone();
-	let mame_path = config_persistent_paths.mame_path.clone().unwrap_or("".into());
+	let mame_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
 
 	let ui_weak_cpy = ui_weak.clone();
 	let _ = ui_weak.upgrade_in_event_loop(move |ui| {
@@ -1142,7 +1142,7 @@ fn save_ssid(raw_ssid: [u8; 0x08], ui_weak: slint::Weak<MainWindow>, is_blocking
 		let config = LauncherConfig::new().unwrap();
 
 		let config_persistent_paths = config.persistent.paths.clone();
-		let mame_executable_path = config_persistent_paths.mame_path.unwrap_or("".into());
+		let mame_executable_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
 		let mame_directory_path = LauncherConfig::get_parent(mame_executable_path).unwrap_or("".into());
 
 
@@ -1218,7 +1218,7 @@ fn save_bootrom(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_so
 			let config = LauncherConfig::new().unwrap();
 
 			let config_persistent_paths = config.persistent.paths.clone();
-			let mame_executable_path = config_persistent_paths.mame_path.unwrap_or("".into());
+			let mame_executable_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
 			let mame_directory_path = LauncherConfig::get_parent(mame_executable_path).unwrap_or("".into());
 
 
@@ -1356,7 +1356,7 @@ fn save_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_sou
 			let config = LauncherConfig::new().unwrap();
 
 			let config_persistent_paths = config.persistent.paths.clone();
-			let mame_executable_path = config_persistent_paths.mame_path.unwrap_or("".into());
+			let mame_executable_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
 			let mame_directory_path = LauncherConfig::get_parent(mame_executable_path).unwrap_or("".into());
 
 
@@ -1889,7 +1889,7 @@ fn add_console_text(ui_weak: slint::Weak<MainWindow>, text: String, scroll_mode:
 fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error::Error>> {
 	let ui = ui_weak.unwrap();
 
-	let mame_executable_path: String = ui.global::<UIPaths>().get_mame_path().into();
+	let mame_executable_path: String = Paths::resolve_mame_path(Some(ui.global::<UIPaths>().get_mame_path().into()));
 
 	if mame_executable_path != "" && Path::new(&mame_executable_path).exists() {
 		let mame_directory_path = LauncherConfig::get_parent(mame_executable_path.clone()).unwrap_or("".into());
