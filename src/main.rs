@@ -2233,6 +2233,8 @@ fn send_keypess_macos(ui_weak: slint::Weak<MainWindow>, text: String, shiftmod: 
 				let text_lc = text.to_lowercase();
 				let recv_byteslc = text_lc.as_bytes();
 
+				// Translate a character code from the console to a macOS keycode.
+				// This assumes a standard US keyboard layout.
 				let keycode = match recv_byteslc[0] {
 					0x61 => 0x00, // a
 					0x73 => 0x01, // s
