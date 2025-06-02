@@ -10,8 +10,13 @@ use std::{
 	fs::File,
 	io::{BufReader, Read, Write, Cursor}, 
 	path::Path, process::{Command, Stdio},
-	env
+	env,
+	sync::{
+		Arc,
+		atomic::{AtomicBool, Ordering::Relaxed}
+	}
 };
+
 use rand::{
 	Rng,
 	distributions::{Alphanumeric, DistString}
@@ -2037,7 +2042,7 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 		if ui_mame.get_verbose_mode().into() {
 			mame_command.arg("-verbose");
 		}
-		
+
 		if ui_mame.get_use_drc().into() {
 			mame_command.arg("-drc");
 		} else {
@@ -2115,17 +2120,21 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 			mame_command.stderr(Stdio::piped());
 			mame_command.stdout(Stdio::piped());
 
+			let process_has_error = Arc::new(AtomicBool::new(false));
+
 			match mame_command.spawn() {
 				Ok(mame) => {
 					let _= set_mame_pid(ui_weak.clone(), mame.id());
-
+	
 					#[cfg(any(target_os = "windows", target_os = "macos"))]
 					let mut last_byte: u8 = 0x00;
+
 					match (mame.stdout, mame.stderr) {
 						(Some(stdout), Some(stderr)) => {
 							let mut stderr_buf: [u8; 1] = [0x00; 1];
 							let mut stderr_reader = BufReader::new(stderr);
 							let ui_weak_cpy = ui_weak.clone();
+							let process_has_error = process_has_error.clone();
 							let _ = std::thread::spawn(move || {
 								loop {
 									match stderr_reader.read(&mut stderr_buf) {
@@ -2133,6 +2142,8 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 											if stderr_bytes_read == 0 {
 												break;
 											} else {
+												process_has_error.store(true, Relaxed);
+
 												// EMAC: stdout and stderr can get jumbled with this implementation...
 												let _ = add_console_text(ui_weak_cpy.clone(), (stderr_buf[0] as char).to_string(), MAMEConsoleScrollMode::ForceScroll);
 											}
@@ -2184,6 +2195,16 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 			let _= set_mame_pid(ui_weak.clone(), 0);
 
 			let _ = add_console_text(ui_weak.clone(), " \nMAME Ended\n".into(), MAMEConsoleScrollMode::ForceScroll);
+
+			if !process_has_error.load(Relaxed) {
+				let _ = ui_weak.clone().upgrade_in_event_loop(move |ui| {
+					let ui_mame = ui.global::<UIMAMEOptions>();
+
+					if !(ui_mame.get_verbose_mode().into() || ui_mame.get_console_input().into() || ui_mame.get_debug_mode().into()) {
+						ui.set_mame_console_enabled(false);
+					}
+				});
+			}
 		});
 	}
 
