@@ -806,6 +806,9 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 				}
 			}
 		} else {
+			ui_mame.set_selected_bootrom("".into());
+			ui_mame.set_selected_bootrom_index(0);
+
 			ui.set_launcher_state_message("I asked MAME to list its usable BootROMs for this box and it gave me nothing! Broken MAME executable?".into());
 		}
 
@@ -869,6 +872,8 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 					}
 			}
 		} else if selected_bootrom_state == BuildStorageState::BuildLooksGood {
+			ui_mame.set_selected_approm("".into());
+
 			ui.set_launcher_state_message("No AppROMs available. Please choose a new approm.o!".into());
 		}
 
@@ -927,6 +932,9 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 				}
 			}
 		} else if selected_bootrom_state == BuildStorageState::BuildLooksGood && selected_approm_state == BuildStorageState::BuildLooksGood {
+			ui_mame.set_ssid_in_file("".into());
+			ui_mame.set_selected_ssid("".into());
+
 			ui.set_launcher_state_message("SSID not found. You can generate a new one below!".into());
 		}
 

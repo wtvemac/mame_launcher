@@ -92,7 +92,7 @@ export component EditableComboBox inherits Rectangle {
 	}
 
 	nonedit-label := Text {
-		text: (root.hint-before) ? (((root.current-hint != "") ? current-hint + ": " : "") + root.current-value) : (root.current-value + ((root.current-hint != "") ? ": " + current-hint : ""));
+		text: (root.current-value == "") ? "" : ((root.hint-before) ? (((root.current-hint != "") ? current-hint + ": " : "") + root.current-value) : (root.current-value + ((root.current-hint != "") ? ": " + current-hint : "")));
 		x: 12px;
 		width: parent.width - self.x - 2px;
 		height: (!root.editable) ? (parent.height) : 0px;
