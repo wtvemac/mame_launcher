@@ -194,7 +194,7 @@ impl Paths {
 pub struct MAMEOptions {
     pub selected_box: Option<String>,
     pub selected_bootrom: Option<String>,
-    pub selected_bitb_endpoint: Option<String>,
+    pub selected_modem_bitb_endpoint: Option<String>,
     pub verbose_mode: Option<bool>,
     pub windowed_mode: Option<bool>,
     pub use_drc: Option<bool>,
@@ -304,7 +304,7 @@ impl LauncherConfig {
 			mame_options: MAMEOptions {
 				selected_box: Some("wtv1sony".into()),
 				selected_bootrom: Some("".into()),
-				selected_bitb_endpoint: None,
+				selected_modem_bitb_endpoint: None,
 				verbose_mode: Some(false),
 				windowed_mode: Some(true),
 				use_drc: Some(true),

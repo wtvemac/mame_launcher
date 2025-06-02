@@ -39,8 +39,8 @@ export global UIMAMEOptions {
 	in-out property<[HintedItem]> selectable_ssid_manufactures: [];
 	in-out property<string> selected_ssid_manufacture: "";
 
-	// Modem Endpoint
-	in-out property<[HintedItem]> selectable_bitb_endpoints: [
+	// Modem Options
+	in-out property<[HintedItem]> selectable_modem_bitb_endpoints: [
 		{
 			hint: "Local TouchPPP Server",
 			value: "127.0.0.1:1122"
@@ -50,7 +50,13 @@ export global UIMAMEOptions {
 			value: "158.101.97.56:1122"
 		}
 	];
-	in-out property<string> selected_bitb_endpoint: "127.0.0.1:1122";
+	in-out property<string> selected_modem_bitb_endpoint: "127.0.0.1:1122";
+	in-out property<[HintedItem]> selectable_modem_bitb_startpoints: [];
+	in-out property<string> selected_modem_bitb_startpoint: "";
+
+	// Debug Console Communication
+	in-out property<[HintedItem]> selectable_debug_bitb_startpoints: [];
+	in-out property<string> selected_debug_bitb_startpoint: "";
 
 	// Other Options
 	in-out property<bool> verbose_mode: false;
@@ -169,13 +175,22 @@ export component StartPage inherits Page {
 	}
 
 	TitledHorizontalBox {
-		title: @tr("Modem Endpoint");
+		title: @tr("Modem");
 
-		EditableComboBox {
-			editable: true;
-			hintedmodel: UIMAMEOptions.selectable_bitb_endpoints;
-			current-value <=> UIMAMEOptions.selected_bitb_endpoint;
-			
+		HorizontalLayout {
+			EditableComboBox {
+				visible: (UIMAMEOptions.selectable_modem_bitb_startpoints.length > 1);
+				width: (UIMAMEOptions.selectable_modem_bitb_startpoints.length > 1) ? 30% : 0%;
+				editable: false;
+				hintedmodel: UIMAMEOptions.selectable_modem_bitb_startpoints;
+				current-value <=> UIMAMEOptions.selected_modem_bitb_startpoint;
+				
+			}
+			EditableComboBox {
+				editable: true;
+				hintedmodel: UIMAMEOptions.selectable_modem_bitb_endpoints;
+				current-value <=> UIMAMEOptions.selected_modem_bitb_endpoint;
+			}
 		}
 	}
 
@@ -184,28 +199,32 @@ export component StartPage inherits Page {
 	
 		HorizontalLayout {
 			width: 100%;
-			padding-bottom: 10px;
+			padding-bottom: 7px;
 			VerticalLayout {
 				width: 50%;
 				spacing: 5px;
 				Switch {
 					text: @tr("Verbose Mode");
 					width: 180px;
+					height: 28px;
 					checked <=> UIMAMEOptions.verbose_mode;
 				}
 				Switch {
 					text: @tr("Windowed Mode");
 					width: 180px;
+					height: 28px;
 					checked <=> UIMAMEOptions.windowed_mode;
 				}
 				Switch {
 					text: @tr("Use Dynamic Recompiler");
 					width: 180px;
+					height: 28px;
 					checked <=> UIMAMEOptions.use_drc;
 				}
 				Switch {
 					text: @tr("Debug Mode");
 					width: 180px;
+					height: 28px;
 					checked <=> UIMAMEOptions.debug_mode;
 				}
 			}
@@ -216,21 +235,37 @@ export component StartPage inherits Page {
 				Switch {
 					text: @tr("Skip Info Screen");
 					width: 180px;
+					height: 28px;
 					checked <=> UIMAMEOptions.skip_info_screen;
 				}
 				Switch {
 					text: @tr("Disable Mouse Input");
 					width: 180px;
+					height: 28px;
 					checked <=> UIMAMEOptions.disable_mouse_input;
 				}
-				Switch {
-					text: @tr("Console Input");
-					width: 180px;
-					checked <=> UIMAMEOptions.console_input;
+				HorizontalLayout {
+					spacing: 0px;
+					width: 100%;
+					Switch {
+						text: @tr("Console Input");
+						width: 180px;
+						height: 28px;
+						checked <=> UIMAMEOptions.console_input;
+					}
+					EditableComboBox {
+						visible: UIMAMEOptions.selectable_debug_bitb_startpoints.length > 1;
+						height: 33px;
+						editable: false;
+						hintedmodel: UIMAMEOptions.selectable_debug_bitb_startpoints;
+						current-value <=> UIMAMEOptions.selected_debug_bitb_startpoint;
+						
+					}
 				}
 				Switch {
 					text: @tr("Disable Sound");
 					width: 180px;
+					height: 28px;
 					checked <=> UIMAMEOptions.disable_sound;
 				}
 			}
@@ -245,7 +280,7 @@ export component StartPage inherits Page {
 
 	VerticalLayout {
 		vertical-stretch: 1;
-		padding-top: 8px;
+		padding-top: 5px;
 		spacing: 5px;
 		
 		Button {

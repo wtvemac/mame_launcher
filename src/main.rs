@@ -573,8 +573,7 @@ fn get_slots(selected_machine: &MAMEMachineNode) -> Result<Vec<MachineSlotItem>,
 					device.tag
 					.clone()
 					.unwrap_or("".into());
-				let slot_name_re: Regex = Regex::new(r"^(?<slot_name>.+?)\:null_modem\:stream$").unwrap();
-				match slot_name_re.captures(device_tag.as_str()) {
+				match Regex::new(r"^(?<slot_name>.+?)\:null_modem\:stream$").unwrap().captures(device_tag.as_str()) {
 					Some(matches) => {
 						bitbangers.insert(matches["slot_name"].to_string(), bitbanger_briefname);
 					}
@@ -606,9 +605,9 @@ fn get_slots(selected_machine: &MAMEMachineNode) -> Result<Vec<MachineSlotItem>,
 			if bitbangers.contains_key(&slot_name) {
 				let mut slot = MachineSlotItem {
 					hint: "".into(),
-					value: slot_name.clone().into(),
+					value: (slot_name.clone() + "; " + &bitbangers[&slot_name.clone()].clone().to_owned()).into(),
 					description: "".into(),
-					bitbanger_name: bitbangers[&slot_name.clone()].clone(),
+					bitbanger_name: bitbangers[&slot_name.clone()].clone().into(),
 					slot_name: slot_name.clone().into(),
 					slot_type: SlotType::Unknown
 				};
@@ -667,6 +666,23 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 	};
 
 	let mut available_slots: Vec<MachineSlotItem> = vec![];
+	let mut selected_modem_startpoint: MachineSlotItem  = MachineSlotItem {
+		hint: "".into(),
+		value: "".into(),
+		description: "".into(),
+		bitbanger_name: "".into(),
+		slot_name: "".into(),
+		slot_type: SlotType::Unknown
+	};
+	let mut selected_debug_startpoint = MachineSlotItem {
+		hint: "".into(),
+		value: "".into(),
+		description: "".into(),
+		bitbanger_name: "".into(),
+		slot_name: "".into(),
+		slot_type: SlotType::Unknown
+	};
+
 
 	for machine in config_mame.machine.unwrap_or(vec![]).iter() {
 		let machine_name = 
@@ -712,7 +728,17 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 				Ok(slots) => slots,
 				Err(_e) => vec![]
 			};
-
+			// Reverse the slot order for the wld (italian) box so the Pekoe debug slot is selected first, modem slots have no effect since there's only one.
+			if Regex::new(r"\d+wld$").unwrap().is_match(selected_box.as_str()) {
+				available_slots.reverse();
+			}
+			for slot in available_slots.iter() {
+				if slot.slot_type == SlotType::ModemSerial && selected_modem_startpoint.slot_type == SlotType::Unknown {
+					selected_modem_startpoint = slot.clone();
+				} else if slot.slot_type == SlotType::DebugSerial && selected_debug_startpoint.slot_type == SlotType::Unknown {
+					selected_debug_startpoint = slot.clone();
+				}
+			}
 		}
 	}
 
@@ -918,7 +944,7 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 		let mut ssid_manufacture_matched = false;
 		let mut first_ssid_manufacture = SSIDManufacture::Generic;
 		for available_ssid_manufacture in available_ssid_manufactures.iter() {
-			if Regex::new(r"^wtv\d+sony$").unwrap().is_match(selected_box.as_str())  && available_ssid_manufacture.manufacture != SSIDManufacture::Sony {
+			if Regex::new(r"^wtv\d+sony$").unwrap().is_match(selected_box.as_str()) && available_ssid_manufacture.manufacture != SSIDManufacture::Sony {
 				continue;
 			} else if Regex::new(r"^wtv\d+phil$").unwrap().is_match(selected_box.as_str()) && available_ssid_manufacture.manufacture != SSIDManufacture::Phillips {
 				continue;
@@ -949,10 +975,35 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 		ui_mame.set_selected_ssid_manufacture(selected_ssid_manufacture.hex_value.into());
 
 		let mut found_modem_slot = false;
+		let mut selectable_modem_bitb_startpoints: Vec<HintedItem> = vec![];
+		let mut selectable_debug_bitb_startpoints: Vec<HintedItem> = vec![];
 		for available_slot in available_slots.iter() {
 			if available_slot.slot_type == SlotType::ModemSerial {
 				found_modem_slot = true;
+				selectable_modem_bitb_startpoints.push(
+					HintedItem {
+						hint: available_slot.hint.clone().into(),
+						tooltip: "".into(),
+						value: available_slot.value.clone().into()
+					}
+				);
+			} else if available_slot.slot_type == SlotType::DebugSerial {
+				selectable_debug_bitb_startpoints.push(
+					HintedItem {
+						hint: available_slot.hint.clone().into(),
+						tooltip: "".into(),
+						value: available_slot.value.clone().into()
+					}
+				);
 			}
+		}
+		ui_mame.set_selectable_modem_bitb_startpoints(slint::ModelRc::new(slint::VecModel::from(selectable_modem_bitb_startpoints)));
+		if selected_modem_startpoint.slot_type == SlotType::ModemSerial {
+			ui_mame.set_selected_modem_bitb_startpoint(selected_modem_startpoint.value.clone().into());
+		}
+		ui_mame.set_selectable_debug_bitb_startpoints(slint::ModelRc::new(slint::VecModel::from(selectable_debug_bitb_startpoints)));
+		if selected_debug_startpoint.slot_type == SlotType::DebugSerial {
+			ui_mame.set_selected_debug_bitb_startpoint(selected_debug_startpoint.value.clone().into());
 		}
 		if selected_bootrom_state == BuildStorageState::BuildLooksGood && selected_approm_state == BuildStorageState::BuildLooksGood {
 			if !found_modem_slot {
@@ -1024,7 +1075,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		//
 		////
 
-		let mut selectable_bitb_endpoints: Vec<HintedItem> = vec![
+		let mut selectable_modem_bitb_endpoints: Vec<HintedItem> = vec![
 			HintedItem {
 				hint: "Public TouchPPP Server".into(),
 				tooltip: "".into(),
@@ -1046,7 +1097,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 						_ => "Unknown".into()
 					};
 
-					selectable_bitb_endpoints.push(
+					selectable_modem_bitb_endpoints.push(
 						HintedItem {
 							hint: ("[".to_owned() + &serial_port_type + "] Serial Port " + &index.to_string()).into(),
 							tooltip: ("Serial Port Type: ".to_owned() + &serial_port_type).into(),
@@ -1057,10 +1108,9 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 			},
 			_ => { }
 		}
-		ui_mame.set_selectable_bitb_endpoints(slint::ModelRc::new(slint::VecModel::from(selectable_bitb_endpoints)));
+		ui_mame.set_selectable_modem_bitb_endpoints(slint::ModelRc::new(slint::VecModel::from(selectable_modem_bitb_endpoints)));
 		// Defailting to the public server to lean toward MAME working vs defaulting to a local server that may not be there.
-		ui_mame.set_selected_bitb_endpoint(config_persistent_mame.selected_bitb_endpoint.unwrap_or(PUBLIC_TOUCHPP_ADDRESS.into()).into());
-
+		ui_mame.set_selected_modem_bitb_endpoint(config_persistent_mame.selected_modem_bitb_endpoint.unwrap_or(PUBLIC_TOUCHPP_ADDRESS.into()).into());
 
 		////
 		//
@@ -1595,7 +1645,7 @@ fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool) -> Result<(), Box
 			mame_options: MAMEOptions {
 				selected_box: Some(ui_mame.get_selected_box().into()),
 				selected_bootrom: Some(ui_mame.get_selected_bootrom().into()),
-				selected_bitb_endpoint: Some(ui_mame.get_selected_bitb_endpoint().into()),
+				selected_modem_bitb_endpoint: Some(ui_mame.get_selected_modem_bitb_endpoint().into()),
 				verbose_mode: Some(ui_mame.get_verbose_mode().into()),
 				windowed_mode: Some(ui_mame.get_windowed_mode().into()),
 				use_drc: Some(ui_mame.get_use_drc().into()),
@@ -2098,14 +2148,21 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 
 		mame_command.arg(ui_mame.get_selected_box().to_string());
 
-		let selected_bitb_endpoint: String = ui_mame.get_selected_bitb_endpoint().to_string();
-		if selected_bitb_endpoint != "" {
-			mame_command.arg("-spot:modem").arg("null_modem");
-
-			if Regex::new(r"^[^\:]+\:\d+$").unwrap().is_match(selected_bitb_endpoint.as_str()) {
-				mame_command.arg("-bitb").arg(&("socket.".to_owned() + &selected_bitb_endpoint));
-			} else {
-				mame_command.arg("-bitb").arg(selected_bitb_endpoint);
+		let selected_modem_bitb_startpoint: String = ui_mame.get_selected_modem_bitb_startpoint().to_string();
+		let selected_modem_bitb_endpoint: String = ui_mame.get_selected_modem_bitb_endpoint().to_string();
+		if selected_modem_bitb_endpoint != "" && selected_modem_bitb_startpoint != "" {
+			match Regex::new(r"^(?<slot_select>[^; ]+?)\; (?<bitb_select>.+?)$").unwrap().captures(selected_modem_bitb_startpoint.as_str()) {
+				Some(matches) => {
+					mame_command.arg("-".to_owned() + &matches["slot_select"]).arg("null_modem");
+		
+					if Regex::new(r"^[^\:]+\:\d+$").unwrap().is_match(selected_modem_bitb_endpoint.as_str()) {
+						mame_command.arg("-".to_owned() + &matches["bitb_select"]).arg(&("socket.".to_owned() + &selected_modem_bitb_endpoint));
+					} else {
+						mame_command.arg("-".to_owned() + &matches["bitb_select"]).arg(selected_modem_bitb_endpoint);
+					}
+				}
+				None => {
+				}
 			}
 		}
 
