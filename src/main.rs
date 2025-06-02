@@ -896,7 +896,7 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 				}
 			}
 		} else if selected_bootrom_state == BuildStorageState::BuildLooksGood && selected_approm_state == BuildStorageState::BuildLooksGood {
-			ui.set_launcher_state_message("SSID not found. You can generate one here.".into());
+			ui.set_launcher_state_message("SSID not found. You can generate a new one below!".into());
 		}
 
 		let available_ssid_manufactures = SSIDManufacture::to_list(false, false);
