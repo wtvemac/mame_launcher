@@ -48,7 +48,8 @@ pub struct MAMEMachineNode {
 	pub device_ref: Option<Vec<MAMEMachineDeviceRefNode>>,
 	pub chip: Option<Vec<MAMEMachineChipNode>>,
 	pub slot: Option<Vec<MAMEMachineSlotNode>>,
-	pub device: Option<Vec<MAMEMachineDeviceNode>>
+	pub device: Option<Vec<MAMEMachineDeviceNode>>,
+	pub disk: Option<Vec<MAMEMachineDiskNode>>
 }
 
 #[allow(dead_code)]
@@ -86,6 +87,19 @@ pub struct MAMEMachineDeviceNode {
     pub tag: Option<String>,
 	pub instance: Option<Vec<MAMEMachineDeviceInstanceNode>>,
 	pub extension: Option<Vec<MAMEMachineDeviceExcensionNode>>
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize, Clone)]
+pub struct MAMEMachineDiskNode {
+	#[serde(rename = "@name")]
+    pub name: Option<String>,
+	#[serde(rename = "@region")]
+    pub region: Option<String>,
+	#[serde(rename = "@index")]
+    pub index: Option<String>,
+	#[serde(rename = "@writable")]
+    pub writable: Option<String>
 }
 
 #[allow(dead_code)]
