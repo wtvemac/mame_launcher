@@ -45,8 +45,10 @@ pub struct MAMEMachineNode {
 	pub manufacturer: Option<String>,
 	pub biosset: Option<Vec<MAMEMachineBIOSSetNode>>,
 	pub rom: Option<Vec<MAMEMachineROMNode>>,
-	pub device_ref: Option<Vec<MAMEMachineDeviceNode>>,
-	pub chip: Option<Vec<MAMEMachineChipNode>>
+	pub device_ref: Option<Vec<MAMEMachineDeviceRefNode>>,
+	pub chip: Option<Vec<MAMEMachineChipNode>>,
+	pub slot: Option<Vec<MAMEMachineSlotNode>>,
+	pub device: Option<Vec<MAMEMachineDeviceNode>>
 }
 
 #[allow(dead_code)]
@@ -78,6 +80,50 @@ pub struct MAMEMachineROMNode {
 #[allow(dead_code)]
 #[derive(Debug, Deserialize, Clone)]
 pub struct MAMEMachineDeviceNode {
+	#[serde(rename = "@type")]
+    pub dtype: Option<String>,
+	#[serde(rename = "@tag")]
+    pub tag: Option<String>,
+	pub instance: Option<Vec<MAMEMachineDeviceInstanceNode>>,
+	pub extension: Option<Vec<MAMEMachineDeviceExcensionNode>>
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize, Clone)]
+pub struct MAMEMachineSlotNode {
+	#[serde(rename = "@name")]
+    pub name: Option<String>,
+	pub slotoption: Option<Vec<MAMEMachineSlotOptionNode>>
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize, Clone)]
+pub struct MAMEMachineSlotOptionNode {
+	#[serde(rename = "@name")]
+    pub name: Option<String>,
+	#[serde(rename = "@devname")]
+    pub devname: Option<String>
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize, Clone)]
+pub struct MAMEMachineDeviceInstanceNode {
+	#[serde(rename = "@name")]
+    pub name: Option<String>,
+	#[serde(rename = "@briefname")]
+    pub briefname: Option<String>
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize, Clone)]
+pub struct MAMEMachineDeviceExcensionNode {
+	#[serde(rename = "@name")]
+    pub name: Option<String>
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize, Clone)]
+pub struct MAMEMachineDeviceRefNode {
 	#[serde(rename = "@name")]
     pub name: Option<String>
 }

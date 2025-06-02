@@ -119,6 +119,14 @@ enum SSIDStorageState {
 	CantReadSSID
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq)]
+enum SlotType {
+	ModemSerial,
+	DebugSerial,
+	Unknown
+}
+
 // Selectable build item with data to verify its integrity.
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -143,6 +151,20 @@ struct VerifiableSSIDItem {
 	pub ssid_storage_state: SSIDStorageState,
 	pub ssid_info: Option<SSIDInfo>
 }
+
+// Slot item that uses the null_modem bitbanger.
+// Keeping track of these so we can select a slot to use for the modem or debug serial port.
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+struct MachineSlotItem {
+	pub hint: slint::SharedString,
+	pub value: slint::SharedString,
+	pub description: slint::SharedString,
+	pub bitbanger_name: String,
+	pub slot_name: String,
+	pub slot_type: SlotType
+}
+
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
@@ -521,6 +543,84 @@ fn get_ssids(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> Res
 	Ok(ssids)
 }
 
+fn get_slots(selected_machine: &MAMEMachineNode) -> Result<Vec<MachineSlotItem>, Box<dyn std::error::Error>> {
+	let mut slots: Vec<MachineSlotItem> = vec![];
+
+	let mut bitbangers = HashMap::new();
+	for device in selected_machine.clone().device.unwrap_or(vec![]).iter() {
+		let device_type = 
+			device.dtype
+			.clone()
+			.unwrap_or("".into());
+		if device_type == "bitbanger" {
+			let mut bitbanger_briefname = "".to_string();
+			for instance in device.instance.clone().unwrap_or(vec![]).iter() {
+				bitbanger_briefname =
+					instance.briefname
+					.clone()
+					.unwrap_or("".into());
+				if bitbanger_briefname != "" {
+					break;
+				}
+			}
+			if bitbanger_briefname != "" {
+				let device_tag = 
+					device.tag
+					.clone()
+					.unwrap_or("".into());
+				let slot_name_re: Regex = Regex::new(r"^(?<slot_name>.+?)\:null_modem\:stream$").unwrap();
+				match slot_name_re.captures(device_tag.as_str()) {
+					Some(matches) => {
+						bitbangers.insert(matches["slot_name"].to_string(), bitbanger_briefname);
+					}
+					None => {
+					}
+				}
+			}
+		}
+
+	}
+
+	for xslot in selected_machine.clone().slot.unwrap_or(vec![]).iter() {
+		let mut found_null_modem_option = false;
+		for slotoption in xslot.slotoption.clone().unwrap_or(vec![]).iter() {
+			let slotoption_devname =
+				slotoption.devname
+				.clone()
+				.unwrap_or("".into());
+			if slotoption_devname == "null_modem" {
+				found_null_modem_option = true;
+				break;
+			}
+		}
+		if found_null_modem_option {
+			let slot_name = 
+				xslot.name
+				.clone()
+				.unwrap_or("".into());
+			if bitbangers.contains_key(&slot_name) {
+				let mut slot = MachineSlotItem {
+					hint: "".into(),
+					value: slot_name.clone().into(),
+					description: "".into(),
+					bitbanger_name: bitbangers[&slot_name.clone()].clone(),
+					slot_name: slot_name.clone().into(),
+					slot_type: SlotType::Unknown
+				};
+				if Regex::new(r"(modem|mdm)").unwrap().is_match(slot_name.clone().as_str()) {
+					slot.slot_type = SlotType::ModemSerial;
+				} else if Regex::new(r"(debug|dbg|pekoe)").unwrap().is_match(slot_name.clone().as_str()) {
+					slot.slot_type = SlotType::DebugSerial;
+				}
+
+				slots.push(slot);
+			}
+		}
+	}
+
+	Ok(slots)
+}
+
 fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &LauncherConfig, selected_box: &String) -> Result<(), Box<dyn std::error::Error>> {
 	let config_mame: config::MAMEDocument = config.mame.clone();
 	let config_persistent_mame = config.persistent.mame_options.clone();
@@ -561,6 +661,8 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 		ssid_info: None
 	};
 
+	let mut available_slots: Vec<MachineSlotItem> = vec![];
+
 	for machine in config_mame.machine.unwrap_or(vec![]).iter() {
 		let machine_name = 
 			machine.name
@@ -600,6 +702,12 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 				selected_ssid = ssid.clone();
 				break;
 			}
+
+			available_slots = match get_slots(&machine) {
+				Ok(slots) => slots,
+				Err(_e) => vec![]
+			};
+
 		}
 	}
 
@@ -834,6 +942,18 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 		}
 		ui_mame.set_selectable_ssid_manufactures(slint::ModelRc::new(slint::VecModel::from(selectable_ssid_manufactures)));
 		ui_mame.set_selected_ssid_manufacture(selected_ssid_manufacture.hex_value.into());
+
+		let mut found_modem_slot = false;
+		for available_slot in available_slots.iter() {
+			if available_slot.slot_type == SlotType::ModemSerial {
+				found_modem_slot = true;
+			}
+		}
+		if selected_bootrom_state == BuildStorageState::BuildLooksGood && selected_approm_state == BuildStorageState::BuildLooksGood {
+			if !found_modem_slot {
+				ui.set_launcher_state_message("I asked MAME to list its usable modems for this box and it gave me nothing! Broken MAME executable?".into());
+			}
+		}
 	});
 
 	Ok(())
