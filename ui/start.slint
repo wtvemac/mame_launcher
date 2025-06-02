@@ -114,6 +114,7 @@ export component StartPage inherits Page {
 				}
 			}
 			Button {
+				visible: UIMAMEOptions.selected_bootrom != "None" && UIMAMEOptions.selected_bootrom != "WinCE";
 				text: @tr("Choose");
 				height: 38px;
 				clicked => {
@@ -134,6 +135,7 @@ export component StartPage inherits Page {
 				current-value <=> UIMAMEOptions.selected_approm;
 			}
 			Button {
+				visible: UIMAMEOptions.selected_approm != "None" && UIMAMEOptions.selected_approm != "WinCE";
 				text: @tr("Choose");
 				height: 38px;
 				clicked => {

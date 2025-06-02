@@ -326,57 +326,72 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 
 	// No ROM bootroms available. Check if this is a developer box and look for flash files.
 	// MAME doesn't tell me about this so we're just guessing if these files are used.
-	if bootroms.iter().count() == 0 && Regex::new(r"^wtv\d+dev$").unwrap().is_match(selected_box.as_str()) {
-		let mut bootrom = VerifiableBuildItem {
-			hint: "".into(),
-			value: BOOTROM_FLASH_FILE_PREFIX.into(),
-			status: "".into(),
-			description: "BootROM Flash Build".into(),
-			hash: "".into(),
-			build_storage_type: BuildStorageType::StrippedFlashBuild,
-			build_storage_state: BuildStorageState::UnknownBuildState,
-			build_info: None
-		};
+	if bootroms.iter().count() == 0 {
+		if Regex::new(r"^wtv\d+dev$").unwrap().is_match(selected_box.as_str()) {
+			let mut bootrom = VerifiableBuildItem {
+				hint: "".into(),
+				value: BOOTROM_FLASH_FILE_PREFIX.into(),
+				status: "".into(),
+				description: "BootROM Flash Build".into(),
+				hash: "".into(),
+				build_storage_type: BuildStorageType::StrippedFlashBuild,
+				build_storage_state: BuildStorageState::UnknownBuildState,
+				build_info: None
+			};
 
-		let bootrom_path_prefix = mame_directory_path + "/nvram/" + &selected_box + "/" + BOOTROM_FLASH_FILE_PREFIX;
+			let bootrom_path_prefix = mame_directory_path + "/nvram/" + &selected_box + "/" + BOOTROM_FLASH_FILE_PREFIX;
 
-		let bootrom_path0 = bootrom_path_prefix.clone() + "0";
-		let bootrom_path1 = bootrom_path_prefix.clone() + "1";
+			let bootrom_path0 = bootrom_path_prefix.clone() + "0";
+			let bootrom_path1 = bootrom_path_prefix.clone() + "1";
 
-		let bootrom_path0_exists = Path::new(&bootrom_path0).exists();
-		let bootrom_path1_exists = Path::new(&bootrom_path1).exists();
+			let bootrom_path0_exists = Path::new(&bootrom_path0).exists();
+			let bootrom_path1_exists = Path::new(&bootrom_path1).exists();
 
-		if bootrom_path0_exists || bootrom_path1_exists {
-			if bootrom_path0_exists && bootrom_path1_exists {
-				match BuildMeta::new(bootrom_path_prefix, Some(true), None) {
-					Ok(build_meta) => {
-						bootrom.build_info = Some(build_meta.build_info.clone());
-						bootrom.hint = build_meta.build_info.build_header.build_version.clone().to_string().into();
-	
-						if build_meta.build_info.build_header.code_checksum != build_meta.build_info.calculated_code_checksum {
-							bootrom.build_storage_state = BuildStorageState::CodeChecksumMismatch;
-						} else if build_meta.build_info.romfs_header.romfs_checksum != build_meta.build_info.calculated_romfs_checksum {
-							bootrom.build_storage_state = BuildStorageState::RomfsChecksumMismatch;
-						} else if build_meta.build_info.build_header.build_base_address != BOOTROM_BASE_ADDRESS {
-							bootrom.build_storage_state = BuildStorageState::BadBaseAddress;
-						} else {
-							bootrom.build_storage_state = BuildStorageState::BuildLooksGood;
+			if bootrom_path0_exists || bootrom_path1_exists {
+				if bootrom_path0_exists && bootrom_path1_exists {
+					match BuildMeta::new(bootrom_path_prefix, Some(true), None) {
+						Ok(build_meta) => {
+							bootrom.build_info = Some(build_meta.build_info.clone());
+							bootrom.hint = build_meta.build_info.build_header.build_version.clone().to_string().into();
+		
+							if build_meta.build_info.build_header.code_checksum != build_meta.build_info.calculated_code_checksum {
+								bootrom.build_storage_state = BuildStorageState::CodeChecksumMismatch;
+							} else if build_meta.build_info.romfs_header.romfs_checksum != build_meta.build_info.calculated_romfs_checksum {
+								bootrom.build_storage_state = BuildStorageState::RomfsChecksumMismatch;
+							} else if build_meta.build_info.build_header.build_base_address != BOOTROM_BASE_ADDRESS {
+								bootrom.build_storage_state = BuildStorageState::BadBaseAddress;
+							} else {
+								bootrom.build_storage_state = BuildStorageState::BuildLooksGood;
+							}
+						},
+						Err(_) => {
+							bootrom.build_info = None;
+							bootrom.build_storage_state = BuildStorageState::CantReadBuild;
+							bootrom.hint = "".into();
 						}
-					},
-					Err(_) => {
-						bootrom.build_info = None;
-						bootrom.build_storage_state = BuildStorageState::CantReadBuild;
-						bootrom.hint = "".into();
 					}
+				} else {
+					bootrom.build_storage_state = BuildStorageState::StrippedFlashCyclopsed;
 				}
 			} else {
-				bootrom.build_storage_state = BuildStorageState::StrippedFlashCyclopsed;
+				bootrom.build_storage_state = BuildStorageState::StrippedFlashMissing;
 			}
-		} else {
-			bootrom.build_storage_state = BuildStorageState::StrippedFlashMissing;
-		}
 
-		bootroms.push(bootrom);
+			bootroms.push(bootrom);
+		} else if Regex::new(r"^wtv\d+wld$").unwrap().is_match(selected_box.as_str()) {
+			let bootrom = VerifiableBuildItem {
+				hint: "".into(),
+				value: "None".into(),
+				status: "".into(),
+				description: "".into(),
+				hash: "".into(),
+				build_storage_type: BuildStorageType::StrippedFlashBuild,
+				build_storage_state: BuildStorageState::BuildLooksGood,
+				build_info: None
+			};
+
+			bootroms.push(bootrom);
+		}
 	}
 
 	Ok(bootroms)
@@ -406,7 +421,6 @@ fn get_flash_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode
 		build_info: None
 	};
 
-
 	let approm1_path_prefix: String;
 	let approm2_path_prefix: String;
 
@@ -433,25 +447,35 @@ fn get_flash_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode
 
 	if approm_path0_exists || approm_path1_exists {
 		if approm_path0_exists && approm_path1_exists {
-			match BuildMeta::new(approm_path_prefix, Some(true), None) {
-				Ok(build_meta) => {
-					approm.build_info = Some(build_meta.build_info.clone());
-					approm.hint = build_meta.build_info.build_header.build_version.clone().to_string().into();
+			if Regex::new(r"^wtv\d+wld$").unwrap().is_match(selected_box.as_str()) {
+				approm.hint = "".into();
+				approm.value = "WinCE".into();
+				approm.status = "Unverified".into();
+				approm.description = "".into();
+				approm.build_storage_type = BuildStorageType::StrippedFlashBuild;
+				approm.build_storage_state = BuildStorageState::BuildLooksGood;
+				approm.build_info = None;
+			} else {
+				match BuildMeta::new(approm_path_prefix, Some(true), None) {
+					Ok(build_meta) => {
+						approm.build_info = Some(build_meta.build_info.clone());
+						approm.hint = build_meta.build_info.build_header.build_version.clone().to_string().into();
 
-					if build_meta.build_info.build_header.code_checksum != build_meta.build_info.calculated_code_checksum {
-						approm.build_storage_state = BuildStorageState::CodeChecksumMismatch;
-					} else if build_meta.build_info.romfs_header.romfs_checksum != build_meta.build_info.calculated_romfs_checksum {
-						approm.build_storage_state = BuildStorageState::RomfsChecksumMismatch;
-					} else if build_meta.build_info.build_header.build_base_address != APPROM1_BASE_ADDRESS && build_meta.build_info.build_header.build_base_address != APPROM2_BASE_ADDRESS {
-						approm.build_storage_state = BuildStorageState::BadBaseAddress;
-				} else {
-						approm.build_storage_state = BuildStorageState::BuildLooksGood;
+						if build_meta.build_info.build_header.code_checksum != build_meta.build_info.calculated_code_checksum {
+							approm.build_storage_state = BuildStorageState::CodeChecksumMismatch;
+						} else if build_meta.build_info.romfs_header.romfs_checksum != build_meta.build_info.calculated_romfs_checksum {
+							approm.build_storage_state = BuildStorageState::RomfsChecksumMismatch;
+						} else if build_meta.build_info.build_header.build_base_address != APPROM1_BASE_ADDRESS && build_meta.build_info.build_header.build_base_address != APPROM2_BASE_ADDRESS {
+							approm.build_storage_state = BuildStorageState::BadBaseAddress;
+					} else {
+							approm.build_storage_state = BuildStorageState::BuildLooksGood;
+						}
+					},
+					Err(_) => {
+						approm.build_info = None;
+						approm.build_storage_state = BuildStorageState::CantReadBuild;
+						approm.hint = "".into();
 					}
-				},
-				Err(_) => {
-					approm.build_info = None;
-					approm.build_storage_state = BuildStorageState::CantReadBuild;
-					approm.hint = "".into();
 				}
 			}
 		} else {
@@ -2218,7 +2242,7 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 		}
 
 		let mut selected_bootrom = ui_mame.get_selected_bootrom().to_string();
-		if selected_bootrom != "" {
+		if selected_bootrom != "" && selected_bootrom != "None" && selected_bootrom != "WinCE" {
 			selected_bootrom = Regex::new(r"\.o$").unwrap().replace_all(&selected_bootrom, "").to_string();
 
 			mame_command.arg("-bios").arg(selected_bootrom);
