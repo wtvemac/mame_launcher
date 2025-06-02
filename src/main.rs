@@ -1068,13 +1068,13 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		//
 		////
 
-		ui_mame.set_verbose_mode(config_persistent_mame.verbose_mode.unwrap_or(true).into());
+		ui_mame.set_verbose_mode(config_persistent_mame.verbose_mode.unwrap_or(false).into());
 		ui_mame.set_windowed_mode(config_persistent_mame.windowed_mode.unwrap_or(true).into());
 		ui_mame.set_use_drc(config_persistent_mame.use_drc.unwrap_or(true).into());
 		ui_mame.set_debug_mode(config_persistent_mame.debug_mode.unwrap_or(false).into());
 		ui_mame.set_skip_info_screen(config_persistent_mame.skip_info_screen.unwrap_or(true).into());
 		ui_mame.set_disable_mouse_input(config_persistent_mame.disable_mouse_input.unwrap_or(true).into());
-		ui_mame.set_console_input(config_persistent_mame.console_input.unwrap_or(true).into());
+		ui_mame.set_console_input(config_persistent_mame.console_input.unwrap_or(false).into());
 		ui_mame.set_disable_sound(config_persistent_mame.disable_sound.unwrap_or(false).into());
 
 		ui_mame.set_custom_options(config_persistent_mame.custom_options.unwrap_or("".into()).into());

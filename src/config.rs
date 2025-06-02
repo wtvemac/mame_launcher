@@ -305,13 +305,13 @@ impl LauncherConfig {
 				selected_box: Some("wtv1sony".into()),
 				selected_bootrom: Some("".into()),
 				selected_bitb_endpoint: None,
-				verbose_mode: Some(true),
+				verbose_mode: Some(false),
 				windowed_mode: Some(true),
 				use_drc: Some(true),
 				debug_mode: Some(false),
 				skip_info_screen: Some(true),
 				disable_mouse_input: Some(true),
-				console_input: Some(true),
+				console_input: Some(false),
 				disable_sound: Some(false),
 				custom_options: Some("".into())
 			}
