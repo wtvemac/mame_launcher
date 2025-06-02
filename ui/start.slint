@@ -23,23 +23,23 @@ export global UIMAMEOptions {
 	in-out property<[HintedItem]> selectable_boxes: [];
 	in-out property<string> selected_box: "";
 
-	// ROM Information->BootROM
+	// Selected ROM->BootROM
 	in-out property<[HintedItem]> selectable_bootroms: [];
 	in-out property<string> selected_bootrom: "";
 	in-out property<int> selected_bootrom_index: 0;
 
-	// ROM Information->AppROM
+	// Selected ROM->AppROM
 	in-out property<[HintedItem]> selectable_approms: [];
 	in-out property<string> selected_approm: "";
 
-	// ROM Information->SSID->Manufacture
+	// Selected ROM->SSID->Manufacture
 	in-out property<string> ssid-in-file: ""; // used to detect if someone typed a custom SSID. Custom SSIDs are only saved to file when someone starts MAME.
 	in-out property<[HintedItem]> selectable_ssids: []; // not used but can be in the future.
 	in-out property<string> selected_ssid: "";
 	in-out property<[HintedItem]> selectable_ssid_manufactures: [];
 	in-out property<string> selected_ssid_manufacture: "";
 
-	// Modem Options
+	// Selected Modem
 	in-out property<[HintedItem]> selectable_modem_bitb_endpoints: [
 		{
 			hint: "Local TouchPPP Server",
@@ -54,7 +54,7 @@ export global UIMAMEOptions {
 	in-out property<[HintedItem]> selectable_modem_bitb_startpoints: [];
 	in-out property<string> selected_modem_bitb_startpoint: "";
 
-	// Debug Console Communication
+	// Debug Console
 	in-out property<[HintedItem]> selectable_debug_bitb_startpoints: [];
 	in-out property<string> selected_debug_bitb_startpoint: "";
 
@@ -95,7 +95,7 @@ export component StartPage inherits Page {
 	}
 
 	TitledHorizontalBox {
-		title: @tr("ROM Information");
+		title: @tr("Selected ROM");
 		box-spacing: 5px;
 		z: 1;
 
@@ -175,7 +175,7 @@ export component StartPage inherits Page {
 	}
 
 	TitledHorizontalBox {
-		title: @tr("Modem");
+		title: @tr("Selected Modem");
 
 		HorizontalLayout {
 			EditableComboBox {

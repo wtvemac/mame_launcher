@@ -1079,7 +1079,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 
 		////
 		//
-		// Start->Modem Endpoint
+		// Start->Selected Modem
 		//
 		////
 
