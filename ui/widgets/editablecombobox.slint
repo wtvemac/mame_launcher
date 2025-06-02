@@ -138,7 +138,7 @@ export component EditableComboBox inherits Rectangle {
 		x: (root.editable) ? (editbox.x + editbox.width) : 0px;
 		width: (root.editable) ? (down-arrow.width + 10px) : parent.width;
 		height: 100%;
-		enabled: (root.enabled && (model.length > 1 || hintedmodel.length > 1 || (hintedmodel.length == 1 && root.current-value != hintedmodel[0].value) || (model.length == 1 && root.current-value != model[0]))) || root.current-tooltip != "";
+		enabled: root.current-value != "" && ((root.enabled && (model.length > 1 || hintedmodel.length > 1 || (hintedmodel.length == 1 && root.current-value != hintedmodel[0].value) || (model.length == 1 && root.current-value != model[0]))) || root.current-tooltip != "");
 
 
 		clicked => {
