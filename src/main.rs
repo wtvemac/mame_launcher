@@ -382,7 +382,7 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 	Ok(bootroms)
 }
 
-fn get_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode, selected_bootrom_index: usize) -> Result<Vec<VerifiableBuildItem>, Box<dyn std::error::Error>> {
+fn get_flash_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode, selected_bootrom_index: usize) -> Result<Vec<VerifiableBuildItem>, Box<dyn std::error::Error>> {
 	let mut approms: Vec<VerifiableBuildItem> = vec![];
 
 	let selected_box = 
@@ -744,7 +744,7 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 		build_info: None,
 	};
 
-	let available_approms = match get_approms(config, &selected_machine, selected_bootrom_index) {
+	let available_approms = match get_flash_approms(config, &selected_machine, selected_bootrom_index) {
 		Ok(approms) => approms,
 		Err(_e) => vec![]
 	};
