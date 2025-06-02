@@ -667,7 +667,6 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 				}
 			}
 		} else {
-			ui.set_mame_broken(true);
 			ui.set_launcher_state_message("I asked MAME to list its usable BootROMs and it gave me nothing! Broken MAME executable?".into());
 		}
 
@@ -973,7 +972,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 	let mut selected_box: String = "".into();
 	if mame_path != "" {
 		for machine in config_mame.machine.unwrap_or(vec![]).iter() {
-			if machine.biosset.iter().count() > 0 && machine.runnable.clone().unwrap_or("".into()) != "no" {
+			if machine.runnable.clone().unwrap_or("".into()) != "no" {
 				let machine_name = 
 					machine.name
 					.clone()
