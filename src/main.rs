@@ -775,7 +775,7 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 				}
 			}
 		} else {
-			ui.set_launcher_state_message("I asked MAME to list its usable BootROMs and it gave me nothing! Broken MAME executable?".into());
+			ui.set_launcher_state_message("I asked MAME to list its usable BootROMs for this box and it gave me nothing! Broken MAME executable?".into());
 		}
 
 		let selectable_approms: slint::VecModel<HintedItem> = Default::default();
