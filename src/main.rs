@@ -946,7 +946,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 
 		ui_mame.set_verbose_mode(config_persistent_mame.verbose_mode.unwrap_or(true).into());
 		ui_mame.set_windowed_mode(config_persistent_mame.windowed_mode.unwrap_or(true).into());
-		ui_mame.set_low_latency(config_persistent_mame.low_latency.unwrap_or(false).into());
+		ui_mame.set_use_drc(config_persistent_mame.use_drc.unwrap_or(true).into());
 		ui_mame.set_debug_mode(config_persistent_mame.debug_mode.unwrap_or(false).into());
 		ui_mame.set_skip_info_screen(config_persistent_mame.skip_info_screen.unwrap_or(true).into());
 		ui_mame.set_disable_mouse_input(config_persistent_mame.disable_mouse_input.unwrap_or(true).into());
@@ -1474,7 +1474,7 @@ fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool) -> Result<(), Box
 				selected_bitb_endpoint: Some(ui_mame.get_selected_bitb_endpoint().into()),
 				verbose_mode: Some(ui_mame.get_verbose_mode().into()),
 				windowed_mode: Some(ui_mame.get_windowed_mode().into()),
-				low_latency: Some(ui_mame.get_low_latency().into()),
+				use_drc: Some(ui_mame.get_use_drc().into()),
 				debug_mode: Some(ui_mame.get_debug_mode().into()),
 				skip_info_screen: Some(ui_mame.get_skip_info_screen().into()),
 				disable_mouse_input: Some(ui_mame.get_disable_mouse_input().into()),
@@ -1919,9 +1919,10 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 			mame_command.arg("-verbose");
 		}
 		
-		if ui_mame.get_low_latency().into() {
-			mame_command.arg("-autoframeskip");
-			mame_command.arg("-lowlatency");
+		if ui_mame.get_use_drc().into() {
+			mame_command.arg("-drc");
+		} else {
+			mame_command.arg("-nodrc");
 		}
 
 		if ui_mame.get_debug_mode().into() {

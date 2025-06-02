@@ -55,7 +55,7 @@ export global UIMAMEOptions {
 	// Other Options
 	in-out property<bool> verbose_mode: true;
 	in-out property<bool> windowed_mode: true;
-	in-out property<bool> low_latency: false;
+	in-out property<bool> use_drc: true;
 	in-out property<bool> debug_mode: false;
 	in-out property<bool> skip_info_screen: true;
 	in-out property<bool> disable_mouse_input: true;
@@ -199,9 +199,9 @@ export component StartPage inherits Page {
 					checked <=> UIMAMEOptions.windowed_mode;
 				}
 				Switch {
-					text: @tr("Attempt Low Latency");
+					text: @tr("Use Dynamic Recompiler");
 					width: 180px;
-					checked <=> UIMAMEOptions.low_latency;
+					checked <=> UIMAMEOptions.use_drc;
 				}
 				Switch {
 					text: @tr("Debug Mode");
