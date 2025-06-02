@@ -85,7 +85,7 @@ export component MainWindow inherits Window {
 	callback close-mame();
 	callback do-fart();
 
-	warning-message := VerticalLayout {
+	status-message := VerticalLayout {
 		x: 0px;
 		y: 0px;
 		width: 100%;
@@ -96,7 +96,7 @@ export component MainWindow inherits Window {
 			width: parent.width - (parent.padding * 2);
 			height: parent.height - (parent.padding * 2);
 			visible: (root.launcher-state-message != "") ? true : false;
-			border-color: #999900;
+			border-color: (root.mame-broken) ? #990000 : #999900;
 			border-width: 2px;
 
 			Text {
@@ -109,9 +109,9 @@ export component MainWindow inherits Window {
 
 	tab-widget := TabWidget {
 		x: 0px;
-		y: (root.launcher-state-message != "") ? warning-message.height + 3px : 3px;
+		y: (root.launcher-state-message != "") ? status-message.height + 3px : 3px;
 		width: 100%;
-		height: ((root.launcher-state-message != "") ? (root.height - warning-message.height) : root.height);
+		height: ((root.launcher-state-message != "") ? (root.height - status-message.height) : root.height);
 		padding: 10px;
 		current-index: (root.mame-broken) ? 1 : 0;
 
