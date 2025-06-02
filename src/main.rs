@@ -70,6 +70,7 @@ const APPROM1_BASE_ADDRESS: u32 = 0x9f000000;
 const APPROM2_BASE_ADDRESS: u32 = 0x9fe00000;
 const APPROM1_FLASH_FILE_PREFIX: &'static str = "bank0_flash";
 const APPROM2_FLASH_FILE_PREFIX: &'static str = "approm_flash";
+const APPROM3_FLASH_FILE_PREFIX: &'static str = "bank1_flash";
 const ALLOW_APPROM2_FILES: bool = false;
 const PUBLIC_TOUCHPP_ADDRESS: &'static str = "wtv.ooguy.com:1122";
 const CONSOLE_SCROLLBACK_LINES: usize = 9000;
@@ -432,11 +433,13 @@ fn get_flash_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode
 		approm2_path_prefix = mame_directory_path.clone() + "/nvram/" + &selected_box + "/" + APPROM2_FLASH_FILE_PREFIX;
 	}
 
-	let mut approm_path_prefix = approm1_path_prefix.clone();
+	let approm_path_prefix;
 	
 	// MAME doesn't provide details about the flash device used, so we must guess this. If approm2 files are there, then use approm2 paths otherwise use an approm1 path.
 	if ALLOW_APPROM2_FILES && (Path::new(&(approm2_path_prefix.clone() + "0")).exists() || Path::new(&(approm2_path_prefix.clone() + "1")).exists()) {
 		approm_path_prefix = approm2_path_prefix.clone();
+	} else {
+		approm_path_prefix = approm1_path_prefix.clone();
 	}
 
 	let approm_path0 = approm_path_prefix.clone() + "0";
@@ -448,13 +451,29 @@ fn get_flash_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode
 	if approm_path0_exists || approm_path1_exists {
 		if approm_path0_exists && approm_path1_exists {
 			if Regex::new(r"^wtv\d+wld$").unwrap().is_match(selected_box.as_str()) {
-				approm.hint = "".into();
-				approm.value = "WinCE".into();
-				approm.status = "Unverified".into();
-				approm.description = "".into();
-				approm.build_storage_type = BuildStorageType::StrippedFlashBuild;
-				approm.build_storage_state = BuildStorageState::BuildLooksGood;
-				approm.build_info = None;
+				let approm_path_prefix = mame_directory_path.clone() + "/nvram/" + &selected_box + "/" + APPROM3_FLASH_FILE_PREFIX;
+	
+				let approm_path2 = approm_path_prefix.clone() + "0";
+				let approm_path3 = approm_path_prefix.clone() + "1";
+			
+				let approm_path2_exists = Path::new(&approm_path2).exists();
+				let approm_path3_exists = Path::new(&approm_path3).exists();
+
+				if approm_path2_exists || approm_path3_exists {
+					if approm_path2_exists && approm_path3_exists {
+						approm.hint = "".into();
+						approm.value = "WinCE".into();
+						approm.status = "Unverified".into();
+						approm.description = "".into();
+						approm.build_storage_type = BuildStorageType::StrippedFlashBuild;
+						approm.build_storage_state = BuildStorageState::BuildLooksGood;
+						approm.build_info = None;
+					} else {
+						approm.build_storage_state = BuildStorageState::StrippedFlashCyclopsed;
+					}
+				} else {
+					approm.build_storage_state = BuildStorageState::StrippedFlashMissing;
+				}
 			} else {
 				match BuildMeta::new(approm_path_prefix, Some(true), None) {
 					Ok(build_meta) => {
