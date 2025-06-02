@@ -89,7 +89,7 @@ const FART2: &'static [u8]  = include_bytes!("../sounds/fart2.mp3");
 const FART3: &'static [u8]  = include_bytes!("../sounds/fart3.mp3");
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum BuildStorageType {
 	UnknownStorageType,
 	StrippedFlashBuild,
@@ -97,7 +97,7 @@ enum BuildStorageType {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum BuildStorageState {
 	UnknownBuildState,
 	BuildLooksGood,
@@ -113,7 +113,7 @@ enum BuildStorageState {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum SSIDStorageState {
 	UnknownSSIDState,
 	SSIDLooksGood,
@@ -625,11 +625,10 @@ fn get_slots(selected_machine: &MAMEMachineNode) -> Result<Vec<MachineSlotItem>,
 	Ok(slots)
 }
 
-fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &LauncherConfig, selected_box: &String) -> Result<(), Box<dyn std::error::Error>> {
-	let config_mame: config::MAMEDocument = config.mame.clone();
+fn populate_selected_box_bootroms(ui_weak: &slint::Weak<MainWindow>, config: &LauncherConfig, selected_machine: &MAMEMachineNode, supress_warnings: bool) -> Result<(usize, BuildStorageState), Box<dyn std::error::Error>> {
 	let config_persistent_mame = config.persistent.mame_options.clone();
 
-	let mut available_bootroms: Vec<VerifiableBuildItem> = vec![];
+	let mut selected_bootrom_index: usize = 0;
 	let mut selected_bootrom = VerifiableBuildItem {
 		hint: "".into(),
 		value: "".into(),
@@ -640,109 +639,26 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 		build_storage_state: BuildStorageState::UnknownBuildState,
 		build_info: None,
 	};
-	let mut selected_bootrom_state = BuildStorageState::UnknownBuildState;
-	let mut selected_bootrom_index: usize = 0;
 
-	let mut available_approms: Vec<VerifiableBuildItem> = vec![];
-	let mut selected_approm = VerifiableBuildItem {
-		hint: "".into(),
-		value: "".into(),
-		description: "".into(),
-		status: "".into(),
-		hash: "".into(),
-		build_storage_type: BuildStorageType::UnknownStorageType,
-		build_storage_state: BuildStorageState::UnknownBuildState,
-		build_info: None,
+	let available_bootroms = match get_bootroms(config, selected_machine) {
+		Ok(bootroms) => bootroms,
+		Err(_e) => vec![]
 	};
-	let mut selected_approm_state = BuildStorageState::UnknownBuildState;
-
-	let mut available_ssids: Vec<VerifiableSSIDItem> = vec![];
-	let mut selected_ssid = VerifiableSSIDItem {
-		hint: "".into(),
-		value: "".into(),
-		description: "".into(),
-		ssid_storage_state: SSIDStorageState::UnknownSSIDState,
-		ssid_info: None
-	};
-
-	let mut available_slots: Vec<MachineSlotItem> = vec![];
-	let mut selected_modem_startpoint: MachineSlotItem  = MachineSlotItem {
-		hint: "".into(),
-		value: "".into(),
-		description: "".into(),
-		bitbanger_name: "".into(),
-		slot_name: "".into(),
-		slot_type: SlotType::Unknown
-	};
-	let mut selected_debug_startpoint = MachineSlotItem {
-		hint: "".into(),
-		value: "".into(),
-		description: "".into(),
-		bitbanger_name: "".into(),
-		slot_name: "".into(),
-		slot_type: SlotType::Unknown
-	};
-
-
-	for machine in config_mame.machine.unwrap_or(vec![]).iter() {
-		let machine_name = 
-			machine.name
-			.clone()
-			.unwrap_or("".into());
-		if machine_name == *selected_box {
-			available_bootroms = match get_bootroms(config, &machine) {
-				Ok(bootroms) => bootroms,
-				Err(_e) => vec![]
-			};
-			for (index, bootrom) in available_bootroms.iter().enumerate() {
-				if bootrom.value.to_string() == config_persistent_mame.selected_bootrom.clone().unwrap_or("".into()) {
-					selected_bootrom = bootrom.clone();
-					selected_bootrom_index = index;
-				}
-			}
-			if available_bootroms.iter().count() > 0 && selected_bootrom.value == "" {
-				selected_bootrom = available_bootroms[0].clone();
-				selected_bootrom_index = 0;
-			}
-
-			available_approms = match get_approms(config, &machine, selected_bootrom_index) {
-				Ok(approms) => approms,
-				Err(_e) => vec![]
-			};
-			for approm in available_approms.iter() {
-				if approm.value.to_string() == config_persistent_mame.selected_box.clone().unwrap_or("".into()) {
-					selected_approm = approm.clone();
-				}
-			}
-			
-			available_ssids = match get_ssids(config, &machine) {
-				Ok(ssids) => ssids,
-				Err(_e) => vec![]
-			};
-			for ssid in available_ssids.iter() {
-				selected_ssid = ssid.clone();
-				break;
-			}
-
-			available_slots = match get_slots(&machine) {
-				Ok(slots) => slots,
-				Err(_e) => vec![]
-			};
-			// Reverse the slot order for the wld (italian) box so the Pekoe debug slot is selected first, modem slots have no effect since there's only one.
-			if Regex::new(r"\d+wld$").unwrap().is_match(selected_box.as_str()) {
-				available_slots.reverse();
-			}
-			for slot in available_slots.iter() {
-				if slot.slot_type == SlotType::ModemSerial && selected_modem_startpoint.slot_type == SlotType::Unknown {
-					selected_modem_startpoint = slot.clone();
-				} else if slot.slot_type == SlotType::DebugSerial && selected_debug_startpoint.slot_type == SlotType::Unknown {
-					selected_debug_startpoint = slot.clone();
-				}
-			}
+	for (index, bootrom) in available_bootroms.iter().enumerate() {
+		if bootrom.value.to_string() == config_persistent_mame.selected_bootrom.clone().unwrap_or("".into()) {
+			selected_bootrom = bootrom.clone();
+			selected_bootrom_index = index;
 		}
 	}
+	if available_bootroms.iter().count() > 0 && selected_bootrom.value == "" {
+		selected_bootrom = available_bootroms[0].clone();
+		selected_bootrom_index = 0;
+	}
 
-	let selected_box = selected_box.clone();
+	if selected_bootrom.value == "" && available_bootroms.iter().count() > 0 {
+		selected_bootrom = available_bootroms[0].clone();
+	}
+
 	let _ = ui_weak.upgrade_in_event_loop(move |ui| {
 		let ui_mame = ui.global::<UIMAMEOptions>();
 
@@ -761,56 +677,90 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 		if available_bootroms.iter().count() > 0 {
 			ui.set_mame_broken(false);
 
-			if selected_bootrom.value == "" {
-				selected_bootrom = available_bootroms[0].clone();
-			}
-
 			ui_mame.set_selected_bootrom(selected_bootrom.value.clone().into());
 			ui_mame.set_selected_bootrom_index(selected_bootrom_index.clone() as i32);
 
-			selected_bootrom_state = selected_bootrom.build_storage_state.clone();
-
-			match selected_bootrom.build_storage_state {
-				BuildStorageState::UnknownBuildState => {
-					ui.set_launcher_state_message("Unknown BootROM state. Please choose a new bootrom.o file if it doesn't run!".into());
-				},
-				BuildStorageState::BuildLooksGood => {
-					// No need to show a warning message for this.
-				},
-				BuildStorageState::FileNotFound => {
-					ui.set_launcher_state_message("The BootROM image doesn't exist. Please choose a bootrom.o file!".into());
-				},
-				BuildStorageState::RomSizeMismatch => {
-					ui.set_launcher_state_message("BootROM size mismatch! MAME will probably reject this BootROM!".into());
-				},
-				BuildStorageState::RomHashMismatch => {
-					ui.set_launcher_state_message("BootROM hash mismatch! MAME will probably reject this BootROM!".into());
-				},
-				BuildStorageState::StrippedFlashCyclopsed => {
-					ui.set_launcher_state_message("Found one BootROM flash file but couldn't find the other. Choosing a new bootrom.o file may fix this.".into());
-				},
-				BuildStorageState::StrippedFlashMissing => {
-					ui.set_launcher_state_message("Couldn't find a BootROM. The flash files may be missing? Choosing a new bootrom.o file may fix this.".into());
-				},
-				BuildStorageState::CantReadBuild => {
-					ui.set_launcher_state_message("Error parsing BootROM image? Please choose a bootrom.o file!".into());
-				},
-				BuildStorageState::CodeChecksumMismatch => {
-					ui.set_launcher_state_message("BootROM code checksum mismatch! Did you choose an image that's too large? Please choose a new bootrom.o file if it doesn't run!".into());
-				},
-				BuildStorageState::RomfsChecksumMismatch => {
-					ui.set_launcher_state_message("BootROM ROMFS checksum mismatch! Did you choose an image that's too large? Please choose a new bootrom.o file if it doesn't run!".into());
-				}
-				BuildStorageState::BadBaseAddress => {
-					ui.set_launcher_state_message("BootROM base address incorrect! Did you choose an AppROM image? Please choose a new bootrom.o file if it doesn't run!".into());
+			if !supress_warnings {
+				match selected_bootrom.build_storage_state {
+					BuildStorageState::UnknownBuildState => {
+						ui.set_launcher_state_message("Unknown BootROM state. Please choose a new bootrom.o file if it doesn't run!".into());
+					},
+					BuildStorageState::BuildLooksGood => {
+						// No need to show a warning message for this.
+					},
+					BuildStorageState::FileNotFound => {
+						ui.set_launcher_state_message("The BootROM image doesn't exist. Please choose a bootrom.o file!".into());
+					},
+					BuildStorageState::RomSizeMismatch => {
+						ui.set_launcher_state_message("BootROM size mismatch! MAME will probably reject this BootROM!".into());
+					},
+					BuildStorageState::RomHashMismatch => {
+						ui.set_launcher_state_message("BootROM hash mismatch! MAME will probably reject this BootROM!".into());
+					},
+					BuildStorageState::StrippedFlashCyclopsed => {
+						ui.set_launcher_state_message("Found one BootROM flash file but couldn't find the other. Choosing a new bootrom.o file may fix this.".into());
+					},
+					BuildStorageState::StrippedFlashMissing => {
+						ui.set_launcher_state_message("Couldn't find a BootROM. The flash files may be missing? Choosing a new bootrom.o file may fix this.".into());
+					},
+					BuildStorageState::CantReadBuild => {
+						ui.set_launcher_state_message("Error parsing BootROM image? Please choose a bootrom.o file!".into());
+					},
+					BuildStorageState::CodeChecksumMismatch => {
+						ui.set_launcher_state_message("BootROM code checksum mismatch! Did you choose an image that's too large? Please choose a new bootrom.o file if it doesn't run!".into());
+					},
+					BuildStorageState::RomfsChecksumMismatch => {
+						ui.set_launcher_state_message("BootROM ROMFS checksum mismatch! Did you choose an image that's too large? Please choose a new bootrom.o file if it doesn't run!".into());
+					}
+					BuildStorageState::BadBaseAddress => {
+						ui.set_launcher_state_message("BootROM base address incorrect! Did you choose an AppROM image? Please choose a new bootrom.o file if it doesn't run!".into());
+					}
 				}
 			}
 		} else {
 			ui_mame.set_selected_bootrom("".into());
 			ui_mame.set_selected_bootrom_index(0);
 
-			ui.set_launcher_state_message("I asked MAME to list its usable BootROMs for this box and it gave me nothing! Broken MAME executable?".into());
+			if !supress_warnings {
+				ui.set_launcher_state_message("I asked MAME to list its usable BootROMs for this box and it gave me nothing! Broken MAME executable?".into());
+			}
 		}
+	});
+
+	Ok((selected_bootrom_index, selected_bootrom.build_storage_state.clone()))
+}
+
+fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &LauncherConfig, selected_machine: &MAMEMachineNode, supress_warnings: bool, selected_bootrom_index: usize) -> Result<BuildStorageState, Box<dyn std::error::Error>> {
+	let config_persistent_mame = config.persistent.mame_options.clone();
+
+	let mut selected_approm = VerifiableBuildItem {
+		hint: "".into(),
+		value: "".into(),
+		description: "".into(),
+		status: "".into(),
+		hash: "".into(),
+		build_storage_type: BuildStorageType::UnknownStorageType,
+		build_storage_state: BuildStorageState::UnknownBuildState,
+		build_info: None,
+	};
+
+	let available_approms = match get_approms(config, &selected_machine, selected_bootrom_index) {
+		Ok(approms) => approms,
+		Err(_e) => vec![]
+	};
+	for approm in available_approms.iter() {
+		if approm.value.to_string() == config_persistent_mame.selected_box.clone().unwrap_or("".into()) {
+			selected_approm = approm.clone();
+		}
+	}
+
+	if selected_approm.value == "" && available_approms.iter().count() > 0 {
+		selected_approm = available_approms[0].clone();
+	}
+
+	let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+
+		let ui_mame = ui.global::<UIMAMEOptions>();
 
 		let selectable_approms: slint::VecModel<HintedItem> = Default::default();
 		for available_approm in available_approms.iter() {
@@ -822,18 +772,12 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 				}
 			);
 		}
+
 		ui_mame.set_selectable_approms(slint::ModelRc::new(slint::VecModel::from(selectable_approms)));
 		if available_approms.iter().count() > 0 {
-			if selected_approm.value == "" {
-				selected_approm = available_approms[0].clone();
-			}
-
 			ui_mame.set_selected_approm(selected_approm.value.clone().into());
 
-			selected_approm_state = selected_approm.build_storage_state.clone();
-
-			// Only one error can be displayed at a time so bootrom errors take precedence (if we have a bad bootrom, nothing will boot).
-			if selected_bootrom_state == BuildStorageState::BuildLooksGood {
+			if !supress_warnings {
 				match selected_approm.build_storage_state {
 					BuildStorageState::UnknownBuildState => {
 						ui.set_launcher_state_message("Unknown AppROM state. Please choose a new approm.o file if it doesn't run!".into());
@@ -871,11 +815,47 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 					}
 					}
 			}
-		} else if selected_bootrom_state == BuildStorageState::BuildLooksGood {
+		} else {
 			ui_mame.set_selected_approm("".into());
 
-			ui.set_launcher_state_message("No AppROMs available. Please choose a new approm.o!".into());
+			if !supress_warnings {
+				ui.set_launcher_state_message("No AppROMs available. Please choose a new approm.o!".into());
+			}
 		}
+	});
+
+	Ok(selected_approm.build_storage_state.clone())
+}
+
+fn populate_selected_box_ssids(ui_weak: &slint::Weak<MainWindow>, config: &LauncherConfig, selected_machine: &MAMEMachineNode, supress_warnings: bool) -> Result<SSIDStorageState, Box<dyn std::error::Error>> {
+	let mut selected_ssid = VerifiableSSIDItem {
+		hint: "".into(),
+		value: "".into(),
+		description: "".into(),
+		ssid_storage_state: SSIDStorageState::UnknownSSIDState,
+		ssid_info: None
+	};
+
+	let available_ssids = match get_ssids(config, &selected_machine) {
+		Ok(ssids) => ssids,
+		Err(_e) => vec![]
+	};
+	for ssid in available_ssids.iter() {
+		selected_ssid = ssid.clone();
+		break;
+	}
+
+	let machine_name = 
+		selected_machine.name
+		.clone()
+		.unwrap_or("".into());
+
+	if selected_ssid.value == "" && available_ssids.iter().count() > 0 {
+		selected_ssid = available_ssids[0].clone();
+	}
+
+	let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+		let ui_mame = ui.global::<UIMAMEOptions>();
 
 		let selectable_ssids: slint::VecModel<HintedItem> = Default::default();
 		for available_ssid in available_ssids.iter() {
@@ -888,17 +868,13 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 			);
 			break;
 		}
+
 		ui_mame.set_selectable_ssids(slint::ModelRc::new(slint::VecModel::from(selectable_ssids)));
 		if available_ssids.iter().count() > 0 {
-			if selected_ssid.value == "" {
-				selected_ssid = available_ssids[0].clone();
-			}
-
 			ui_mame.set_ssid_in_file(selected_ssid.value.clone().into());
 			ui_mame.set_selected_ssid(selected_ssid.value.clone().into());
 
-			// Only show if the BootROM and AppROM states are good.
-			if selected_bootrom_state == BuildStorageState::BuildLooksGood && selected_approm_state == BuildStorageState::BuildLooksGood {
+			if !supress_warnings {
 				match selected_ssid.ssid_storage_state {
 					SSIDStorageState::UnknownSSIDState => {
 						ui.set_launcher_state_message("Unknown SSID state. You can generate a new one below!".into());
@@ -931,11 +907,13 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 					},
 				}
 			}
-		} else if selected_bootrom_state == BuildStorageState::BuildLooksGood && selected_approm_state == BuildStorageState::BuildLooksGood {
+		} else {
 			ui_mame.set_ssid_in_file("".into());
 			ui_mame.set_selected_ssid("".into());
 
-			ui.set_launcher_state_message("SSID not found. You can generate a new one below!".into());
+			if !supress_warnings {
+				ui.set_launcher_state_message("SSID not found. You can generate a new one below!".into());
+			}
 		}
 
 		let available_ssid_manufactures = SSIDManufacture::to_list(false, false);
@@ -952,9 +930,9 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 		let mut ssid_manufacture_matched = false;
 		let mut first_ssid_manufacture = SSIDManufacture::Generic;
 		for available_ssid_manufacture in available_ssid_manufactures.iter() {
-			if Regex::new(r"^wtv\d+sony$").unwrap().is_match(selected_box.as_str()) && available_ssid_manufacture.manufacture != SSIDManufacture::Sony {
+			if Regex::new(r"^wtv\d+sony$").unwrap().is_match(machine_name.as_str()) && available_ssid_manufacture.manufacture != SSIDManufacture::Sony {
 				continue;
-			} else if Regex::new(r"^wtv\d+phil$").unwrap().is_match(selected_box.as_str()) && available_ssid_manufacture.manufacture != SSIDManufacture::Phillips {
+			} else if Regex::new(r"^wtv\d+phil$").unwrap().is_match(machine_name.as_str()) && available_ssid_manufacture.manufacture != SSIDManufacture::Phillips {
 				continue;
 			} else if selected_ssid_manufacture.manufacture == available_ssid_manufacture.manufacture {
 				ssid_manufacture_matched = true;
@@ -981,8 +959,56 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 		}
 		ui_mame.set_selectable_ssid_manufactures(slint::ModelRc::new(slint::VecModel::from(selectable_ssid_manufactures)));
 		ui_mame.set_selected_ssid_manufacture(selected_ssid_manufacture.hex_value.into());
+	});
 
-		let mut found_modem_slot = false;
+	Ok(selected_ssid.ssid_storage_state.clone())
+}
+
+fn populate_selected_box_slots(ui_weak: &slint::Weak<MainWindow>, _config: &LauncherConfig, selected_machine: &MAMEMachineNode, supress_warnings: bool) -> Result<bool, Box<dyn std::error::Error>> {
+	let mut found_modem_slot = false;
+	let mut selected_modem_startpoint: MachineSlotItem  = MachineSlotItem {
+		hint: "".into(),
+		value: "".into(),
+		description: "".into(),
+		bitbanger_name: "".into(),
+		slot_name: "".into(),
+		slot_type: SlotType::Unknown
+	};
+	let mut selected_debug_startpoint = MachineSlotItem {
+		hint: "".into(),
+		value: "".into(),
+		description: "".into(),
+		bitbanger_name: "".into(),
+		slot_name: "".into(),
+		slot_type: SlotType::Unknown
+	};
+
+	let mut available_slots = match get_slots(&selected_machine) {
+		Ok(slots) => slots,
+		Err(_e) => vec![]
+	};
+
+	let machine_name = 
+		selected_machine.name
+		.clone()
+		.unwrap_or("".into());
+
+	// Reverse the slot order for the wld (italian) box so the Pekoe debug slot is selected first, modem slots have no effect since there's only one.
+	if Regex::new(r"\d+wld$").unwrap().is_match(machine_name.as_str()) {
+		available_slots.reverse();
+	}
+
+	for slot in available_slots.iter() {
+		if slot.slot_type == SlotType::ModemSerial && selected_modem_startpoint.slot_type == SlotType::Unknown {
+			selected_modem_startpoint = slot.clone();
+		} else if slot.slot_type == SlotType::DebugSerial && selected_debug_startpoint.slot_type == SlotType::Unknown {
+			selected_debug_startpoint = slot.clone();
+		}
+	}
+
+	let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+		let ui_mame = ui.global::<UIMAMEOptions>();
+
 		let mut selectable_modem_bitb_startpoints: Vec<HintedItem> = vec![];
 		let mut selectable_debug_bitb_startpoints: Vec<HintedItem> = vec![];
 		for available_slot in available_slots.iter() {
@@ -1013,12 +1039,62 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 		if selected_debug_startpoint.slot_type == SlotType::DebugSerial {
 			ui_mame.set_selected_debug_bitb_startpoint(selected_debug_startpoint.value.clone().into());
 		}
-		if selected_bootrom_state == BuildStorageState::BuildLooksGood && selected_approm_state == BuildStorageState::BuildLooksGood {
+		if !supress_warnings {
 			if !found_modem_slot {
 				ui.set_launcher_state_message("I asked MAME to list its usable modems for this box and it gave me nothing! Broken MAME executable?".into());
 			}
 		}
 	});
+
+	Ok(found_modem_slot)
+}
+
+fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &LauncherConfig, selected_box: &String) -> Result<(), Box<dyn std::error::Error>> {
+	let config_mame: config::MAMEDocument = config.mame.clone();
+
+	for machine in config_mame.machine.unwrap_or(vec![]).iter() {
+		let machine_name = 
+			machine.name
+			.clone()
+			.unwrap_or("".into());
+		if machine_name == *selected_box {
+			//
+			// Populate UI with bootroms for the selected box
+			//
+			let supress_bootrom_warnings = false;
+			let (selected_bootrom_index, selected_bootrom_state) = match populate_selected_box_bootroms(ui_weak, config, machine, supress_bootrom_warnings) {
+				Ok((selected_bootrom_index, selected_bootrom_state)) => (selected_bootrom_index, selected_bootrom_state),
+				Err(_e) => (0, BuildStorageState::UnknownBuildState)
+			};
+
+			//
+			// Populate UI with bootroms for the selected box
+			//
+			// Only one warning can be displayed at a time so bootrom warnings take precedence (if we have a bad bootrom, nothing will boot).
+			let supress_approm_warnings = supress_bootrom_warnings || selected_bootrom_state != BuildStorageState::BuildLooksGood;
+			let selected_approm_state = match populate_selected_box_approms(ui_weak, config, machine, supress_approm_warnings, selected_bootrom_index) {
+				Ok(selected_approm_state) => selected_approm_state,
+				Err(_e) => BuildStorageState::UnknownBuildState
+			};
+
+			//
+			// Populate UI with SSIDs for the selected box
+			//
+			// Only show if the BootROM and AppROM states are good.
+			let supress_ssid_warnings = supress_approm_warnings || selected_approm_state != BuildStorageState::BuildLooksGood;
+			let selected_ssid_state = match populate_selected_box_ssids(ui_weak, config, machine, supress_ssid_warnings) {
+				Ok(selected_ssid_state) => selected_ssid_state,
+				Err(_e) => SSIDStorageState::UnknownSSIDState
+			};
+
+			//
+			// Populate UI with slots (modem and debug serial endpoints) for the selected box
+			//
+			// Only show warnings if the BootROM, AppROM and SSID states are good.
+			let supress_slot_warnings = supress_ssid_warnings || selected_ssid_state != SSIDStorageState::SSIDLooksGood;
+			let _ = populate_selected_box_slots(ui_weak, config, machine, supress_slot_warnings);
+		}
+	}
 
 	Ok(())
 }
