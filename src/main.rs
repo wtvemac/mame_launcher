@@ -51,7 +51,7 @@ use {
 	accessibility_sys::{AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt}
 };
 
-use config::{LauncherConfig, MAMEMachineNode, PersistentConfig, Paths, MAMEOptions};
+use config::{LauncherConfig, MAMEMachineDiskNode, MAMEMachineNode, MAMEOptions, Paths, PersistentConfig};
 use wtv::{
 	buildio::BuildIO,
 	buildmeta::{BuildMeta, BuildInfo},
@@ -509,6 +509,14 @@ fn get_flash_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode
 	Ok(approms)
 }
 
+fn get_disk_approms(_config: &LauncherConfig, _selected_machine: &MAMEMachineNode, _selected_bootrom_index: usize, _selected_disk: &MAMEMachineDiskNode) -> Result<Vec<VerifiableBuildItem>, Box<dyn std::error::Error>> {
+	Ok(vec![])
+}
+
+fn get_flashdisk_approms(_config: &LauncherConfig, _selected_machine: &MAMEMachineNode, _selected_bootrom_index: usize) -> Result<Vec<VerifiableBuildItem>, Box<dyn std::error::Error>> {
+	Ok(vec![])
+}
+
 fn get_ssids(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> Result<Vec<VerifiableSSIDItem>, Box<dyn std::error::Error>> {
 	let mut ssids: Vec<VerifiableSSIDItem> = vec![];
 
@@ -787,10 +795,41 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 		build_info: None,
 	};
 
-	let available_approms = match get_flash_approms(config, &selected_machine, selected_bootrom_index) {
-		Ok(approms) => approms,
-		Err(_e) => vec![]
-	};
+	let available_approms;
+	if selected_machine.disk.iter().count() > 0 {
+		available_approms = match selected_machine.disk.clone() {
+			Some(disks) => {
+				 match get_disk_approms(config, &selected_machine, selected_bootrom_index, &disks[0]) {
+					Ok(approms) => approms,
+					Err(_e) => vec![]
+				}
+			},
+			_ => vec![]
+		};
+	} else {
+		let mut has_mdoc = false;
+		if selected_machine.device_ref.iter().count() > 0 {
+			for device_ref in selected_machine.device_ref.clone().unwrap_or(vec![]).iter() {
+				if device_ref.name.clone().unwrap_or("".to_string()) == "mdoc_collection" {
+					has_mdoc = true;
+					break;
+				}
+			}
+		}
+
+		if has_mdoc {
+			available_approms = match get_flashdisk_approms(config, &selected_machine, selected_bootrom_index) {
+				Ok(approms) => approms,
+				Err(_e) => vec![]
+			};
+		} else {
+			available_approms = match get_flash_approms(config, &selected_machine, selected_bootrom_index) {
+				Ok(approms) => approms,
+				Err(_e) => vec![]
+			};
+		}
+	}
+	
 	for approm in available_approms.iter() {
 		if approm.value.to_string() == config_persistent_mame.selected_box.clone().unwrap_or("".into()) {
 			selected_approm = approm.clone();
