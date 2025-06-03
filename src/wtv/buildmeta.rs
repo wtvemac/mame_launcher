@@ -1,13 +1,18 @@
 use packbytes::FromBytes;
 
-use super::buildio::BuildIO;
+use super::buildio::{
+	BuildIO,
+	romio::ROMIO,
+	diskio::DiskIO,
+	flashdiskio::FlashdiskIO
+};
 
 #[allow(dead_code)]
 pub struct BuildMeta {
 	pub build_path: String,
 	pub stripped: bool,
 	pub rom_size: u32,
-	pub file: BuildIO,
+	pub file: Box<dyn BuildIO>,
 	pub build_info: BuildInfo,
 }
 
@@ -54,15 +59,69 @@ pub struct ROMFSHeader {
 
 
 impl BuildMeta {
-	pub fn new(build_path: String, stripped: Option<bool>, rom_size: Option<u32>) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
+	pub fn open_rom(file_path: String, stripped: Option<bool>, rom_size: Option<u32>) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
+		match ROMIO::open(file_path.clone(), stripped, rom_size) {
+			Ok(srcf) => {
+				match srcf {
+					Some(srcf) => {
+						BuildMeta::new(Box::new(srcf), stripped, rom_size)
+					},
+					_ => {
+						Err("Couldn't open build".into())
+					}
+				}
+			}
+			Err(e) => {
+				Err(e)
+			}
+		}
+	}
+
+	pub fn open_disk(file_path: String, stripped: Option<bool>, rom_size: Option<u32>) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
+		match DiskIO::open(file_path.clone(), stripped, rom_size) {
+			Ok(srcf) => {
+				match srcf {
+					Some(srcf) => {
+						BuildMeta::new(Box::new(srcf), stripped, rom_size)
+					},
+					_ => {
+						Err("Couldn't open build".into())
+					}
+				}
+			}
+			Err(e) => {
+				Err(e)
+			}
+		}
+	}
+
+	pub fn open_flashdisk(file_path: String, stripped: Option<bool>, rom_size: Option<u32>) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
+		match FlashdiskIO::open(file_path.clone(), stripped, rom_size) {
+			Ok(srcf) => {
+				match srcf {
+					Some(srcf) => {
+						BuildMeta::new(Box::new(srcf), stripped, rom_size)
+					},
+					_ => {
+						Err("Couldn't open build".into())
+					}
+				}
+			}
+			Err(e) => {
+				Err(e)
+			}
+		}
+	}
+
+	pub fn new(mut build_io: Box<dyn BuildIO>, stripped: Option<bool>, rom_size: Option<u32>) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
 		let build_stripped = stripped.unwrap_or(false);
 		let build_rom_size = rom_size.unwrap_or(0x000000);
 
 		let mut wtv_buildmeta = BuildMeta {
-			build_path: build_path.clone(),
+			build_path: build_io.file_path().unwrap_or("".into()).clone(),
 			stripped: build_stripped,
 			rom_size: build_rom_size,
-			file: BuildIO::open(build_path.clone(), stripped, rom_size)?,
+			file: build_io,
 			build_info: BuildInfo {
 				build_header: BuildHeader::from_bytes([0x00; 0x40]),
 				romfs_header: ROMFSHeader::from_bytes([0x00; 0x08]),

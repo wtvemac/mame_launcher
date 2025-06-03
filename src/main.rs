@@ -53,7 +53,10 @@ use {
 
 use config::{LauncherConfig, MAMEMachineDiskNode, MAMEMachineNode, MAMEOptions, Paths, PersistentConfig};
 use wtv::{
-	buildio::BuildIO,
+	buildio::{
+		BuildIO,
+		romio::ROMIO
+	},
 	buildmeta::{BuildMeta, BuildInfo},
 	ssid::{SSIDInfo, SSIDBoxType, SSIDManufacture}
 };
@@ -296,7 +299,7 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 			let bootrom_path = mame_directory_path.clone() + "/roms/" + &selected_box + "/" + &rom_name.clone().to_string();
 
 			if Path::new(&bootrom_path).exists() {
-				match BuildMeta::new(bootrom_path, None, None) {
+				match BuildMeta::open_rom(bootrom_path, None, None) {
 					Ok(build_meta) => {
 						bootrom.build_info = Some(build_meta.build_info.clone());
 						bootrom.hint = build_meta.build_info.build_header.build_version.clone().to_string().into();
@@ -350,7 +353,7 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 
 			if bootrom_path0_exists || bootrom_path1_exists {
 				if bootrom_path0_exists && bootrom_path1_exists {
-					match BuildMeta::new(bootrom_path_prefix, Some(true), None) {
+					match BuildMeta::open_rom(bootrom_path_prefix, Some(true), None) {
 						Ok(build_meta) => {
 							bootrom.build_info = Some(build_meta.build_info.clone());
 							bootrom.hint = build_meta.build_info.build_header.build_version.clone().to_string().into();
@@ -475,7 +478,7 @@ fn get_flash_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode
 					approm.build_storage_state = BuildStorageState::StrippedFlashMissing;
 				}
 			} else {
-				match BuildMeta::new(approm_path_prefix, Some(true), None) {
+				match BuildMeta::open_rom(approm_path_prefix.clone(), Some(true), None) {
 					Ok(build_meta) => {
 						approm.build_info = Some(build_meta.build_info.clone());
 						approm.hint = build_meta.build_info.build_header.build_version.clone().to_string().into();
@@ -1641,25 +1644,32 @@ fn save_bootrom(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_so
 			if bootrom_directory_path != "" && bootrom_file_path != "" {
 				match std::fs::create_dir_all(bootrom_directory_path) {
 					Ok(_) => {
-						match BuildIO::create(bootrom_file_path, Some(bootrom_stripped), Some(bootrom_rom_size)) {
-							Ok(mut destf) => {
-								match File::open(source_path.clone()) {
-									Ok(mut srcf) => {
-										let mut buffer: Vec<u8> = vec![0x00; bootrom_rom_size as usize];
-
-										let _ = srcf.read(&mut buffer);
-										let _ = destf.write(&mut buffer);
-
-										if remove_source {
-											match std::fs::remove_file(source_path.clone()) {
-												_ => { }
-											};
-										}
-									},
-									_ => {
-										// Problem opening source.
+						match ROMIO::create(bootrom_file_path, Some(bootrom_stripped), Some(bootrom_rom_size)) {
+							Ok(destf) => {
+								match destf {
+									Some(mut destf) => {
+										match File::open(source_path.clone()) {
+											Ok(mut srcf) => {
+												let mut buffer: Vec<u8> = vec![0x00; bootrom_rom_size as usize];
+		
+												let _ = srcf.read(&mut buffer);
+												let _ = destf.write(&mut buffer);
+		
+												if remove_source {
+													match std::fs::remove_file(source_path.clone()) {
+														_ => { }
+													};
+												}
+											},
+											_ => {
+												// Problem opening source.
+											}
+										};
 									}
-								};
+									_ => {
+										//
+									}
+								}
 							},
 							_ => {
 								// Problem opening destination.
@@ -1723,56 +1733,63 @@ fn save_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_sou
 			if approm_directory_path != "" && approm_file_path != "" {
 				match std::fs::create_dir_all(approm_directory_path) {
 					Ok(_) => {
-						match BuildIO::create(approm_file_path, Some(approm_stripped), Some(approm_rom_size)) {
-							Ok(mut destf) => {
-								match File::open(source_path.clone()) {
-									Ok(mut srcf) => {
-										let mut buffer: Vec<u8> = vec![0x00; approm_rom_size as usize];
+						match ROMIO::create(approm_file_path, Some(approm_stripped), Some(approm_rom_size)) {
+							Ok(destf) => {
+								match destf {
+									Some(mut destf) => {
+										match File::open(source_path.clone()) {
+											Ok(mut srcf) => {
+												let mut buffer: Vec<u8> = vec![0x00; approm_rom_size as usize];
+		
+												let _ = srcf.read(&mut buffer);
+		
+												// This serves as a convience like it does in my WebTV Disk Editor.
+												if correct_checksums {
+													let mut correct_code_checksum = 0x00000000;
+													let mut correct_romfs_checksum = 0x00000000;
+													let mut romfs_offset: usize = 0x00;
 
-										let _ = srcf.read(&mut buffer);
-
-										// This serves as a convience like it does in my WebTV Disk Editor.
-										if correct_checksums {
-											let mut correct_code_checksum = 0x00000000;
-											let mut correct_romfs_checksum = 0x00000000;
-											let mut romfs_offset: usize = 0x00;
-
-											match BuildMeta::new(source_path.clone(), None, None) {
-												Ok(build_meta) => {
-													correct_code_checksum = build_meta.build_info.calculated_code_checksum;
-													correct_romfs_checksum = build_meta.build_info.calculated_romfs_checksum;
-													romfs_offset = build_meta.build_info.romfs_offset as usize;
-												},
-												_ => { }
+													match BuildMeta::open_rom(source_path.clone(), None, None) {
+														Ok(build_meta) => {
+															correct_code_checksum = build_meta.build_info.calculated_code_checksum;
+															correct_romfs_checksum = build_meta.build_info.calculated_romfs_checksum;
+															romfs_offset = build_meta.build_info.romfs_offset as usize;
+														},
+														_ => { }
+													}
+		
+													if correct_code_checksum != 0x00000000 {
+														buffer[0x08] = ((correct_code_checksum >> 0x18) & 0xff) as u8;
+														buffer[0x09] = ((correct_code_checksum >> 0x10) & 0xff) as u8;
+														buffer[0x0a] = ((correct_code_checksum >> 0x08) & 0xff) as u8;
+														buffer[0x0b] = ((correct_code_checksum >> 0x00) & 0xff) as u8;
+													}
+		
+													if correct_romfs_checksum != 0x00000000 && romfs_offset > 0x00 && romfs_offset <= (approm_rom_size as usize) {
+														buffer[romfs_offset - 0x04] = ((correct_romfs_checksum >> 0x18) & 0xff) as u8;
+														buffer[romfs_offset - 0x03] = ((correct_romfs_checksum >> 0x10) & 0xff) as u8;
+														buffer[romfs_offset - 0x02] = ((correct_romfs_checksum >> 0x08) & 0xff) as u8;
+														buffer[romfs_offset - 0x01] = ((correct_romfs_checksum >> 0x00) & 0xff) as u8;
+													}
+												}
+		
+												let _ = destf.write(&mut buffer);
+		
+												if remove_source {
+													match std::fs::remove_file(source_path.clone()) {
+														_ => { }
+													};
+												}
+											},
+											_ => {
+												// Problem opening source.
 											}
-
-											if correct_code_checksum != 0x00000000 {
-												buffer[0x08] = ((correct_code_checksum >> 0x18) & 0xff) as u8;
-												buffer[0x09] = ((correct_code_checksum >> 0x10) & 0xff) as u8;
-												buffer[0x0a] = ((correct_code_checksum >> 0x08) & 0xff) as u8;
-												buffer[0x0b] = ((correct_code_checksum >> 0x00) & 0xff) as u8;
-											}
-
-											if correct_romfs_checksum != 0x00000000 && romfs_offset > 0x00 && romfs_offset <= (approm_rom_size as usize) {
-												buffer[romfs_offset - 0x04] = ((correct_romfs_checksum >> 0x18) & 0xff) as u8;
-												buffer[romfs_offset - 0x03] = ((correct_romfs_checksum >> 0x10) & 0xff) as u8;
-												buffer[romfs_offset - 0x02] = ((correct_romfs_checksum >> 0x08) & 0xff) as u8;
-												buffer[romfs_offset - 0x01] = ((correct_romfs_checksum >> 0x00) & 0xff) as u8;
-											}
-										}
-
-										let _ = destf.write(&mut buffer);
-
-										if remove_source {
-											match std::fs::remove_file(source_path.clone()) {
-												_ => { }
-											};
-										}
-									},
-									_ => {
-										// Problem opening source.
+										};
 									}
-								};
+									_ => {
+										//
+									}
+								}
 							},
 							_ => {
 								// Problem opening destination.
