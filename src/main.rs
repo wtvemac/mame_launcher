@@ -51,10 +51,11 @@ use {
 	accessibility_sys::{AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt}
 };
 
-use config::{LauncherConfig, MAMEMachineDiskNode, MAMEMachineNode, MAMEOptions, Paths, PersistentConfig};
+use config::{LauncherConfig, MAMEMachineNode, MAMEOptions, Paths, PersistentConfig};
 use wtv::{
 	buildio::{
 		BuildIO,
+		BuildIODataCollation,
 		romio::ROMIO
 	},
 	buildmeta::{BuildMeta, BuildInfo},
@@ -69,11 +70,14 @@ const DEFAULT_BOOTORM_FILE_NAME: &'static str = "bootrom.o";
 const BOOTROM_BASE_ADDRESS: u32 = 0x9fc00000;
 const BOOTROM_FLASH_FILE_PREFIX: &'static str = "bootrom_flash";
 // wtv2 (Plus) boxes will be detected and ran from this launcher but we assume (and can only verify) a flash-based approm 
-const APPROM1_BASE_ADDRESS: u32 = 0x9f000000;
-const APPROM2_BASE_ADDRESS: u32 = 0x9fe00000;
+const APPROM1_FLASH_BASE_ADDRESS: u32 = 0x9f000000;
+const APPROM2_FLASH_BASE_ADDRESS: u32 = 0x9fe00000;
+const APPROM3_DISK_BASE_ADDRESS_MIN: u32 = 0x80400000;
+const APPROM3_DISK_BASE_ADDRESS_MAX: u32 = 0x84400000;
 const APPROM1_FLASH_FILE_PREFIX: &'static str = "bank0_flash";
 const APPROM2_FLASH_FILE_PREFIX: &'static str = "approm_flash";
 const APPROM3_FLASH_FILE_PREFIX: &'static str = "bank1_flash";
+const APPROM_HDIMG_PREFIX: &'static str = "hdimg";
 const ALLOW_APPROM2_FILES: bool = false;
 const PUBLIC_TOUCHPP_ADDRESS: &'static str = "wtv.ooguy.com:1122";
 const CONSOLE_SCROLLBACK_LINES: usize = 9000;
@@ -97,7 +101,9 @@ const FART3: &'static [u8]  = include_bytes!("../sounds/fart3.mp3");
 enum BuildStorageType {
 	UnknownStorageType,
 	StrippedFlashBuild,
-	MaskRomBuild
+	MaskRomBuild,
+	DiskBuild,
+	FlashdiskBuild
 }
 
 #[allow(dead_code)]
@@ -279,7 +285,7 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 				description =
 					biossets
 					.get(&rom_name)
-					.unwrap_or(&"".to_string())
+					.unwrap_or(&"".into())
 					.into()
 			} else if rom_name != DEFAULT_BOOTORM_FILE_NAME {
 				continue;
@@ -299,16 +305,16 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 			let bootrom_path = mame_directory_path.clone() + "/roms/" + &selected_box + "/" + &rom_name.clone().to_string();
 
 			if Path::new(&bootrom_path).exists() {
-				match BuildMeta::open_rom(bootrom_path, None, None) {
+				match BuildMeta::open_rom(bootrom_path, None) {
 					Ok(build_meta) => {
-						bootrom.build_info = Some(build_meta.build_info.clone());
-						bootrom.hint = build_meta.build_info.build_header.build_version.clone().to_string().into();
+						bootrom.build_info = Some(build_meta.build_info[0].clone());
+						bootrom.hint = build_meta.build_info[0].build_header.build_version.clone().to_string().into();
 	
-						if build_meta.build_info.build_header.code_checksum != build_meta.build_info.calculated_code_checksum {
+						if build_meta.build_info[0].build_header.code_checksum != build_meta.build_info[0].calculated_code_checksum {
 							bootrom.build_storage_state = BuildStorageState::CodeChecksumMismatch;
-						} else if build_meta.build_info.romfs_header.romfs_checksum != build_meta.build_info.calculated_romfs_checksum {
+						} else if build_meta.build_info[0].romfs_header.romfs_checksum != build_meta.build_info[0].calculated_romfs_checksum {
 							bootrom.build_storage_state = BuildStorageState::RomfsChecksumMismatch;
-						} else if build_meta.build_info.build_header.build_base_address != BOOTROM_BASE_ADDRESS {
+						} else if build_meta.build_info[0].build_header.build_base_address != BOOTROM_BASE_ADDRESS {
 							bootrom.build_storage_state = BuildStorageState::BadBaseAddress;
 						} else {
 							bootrom.build_storage_state = BuildStorageState::BuildLooksGood;
@@ -353,16 +359,16 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 
 			if bootrom_path0_exists || bootrom_path1_exists {
 				if bootrom_path0_exists && bootrom_path1_exists {
-					match BuildMeta::open_rom(bootrom_path_prefix, Some(true), None) {
+					match BuildMeta::open_rom(bootrom_path_prefix, Some(BuildIODataCollation::StrippedROMs)) {
 						Ok(build_meta) => {
-							bootrom.build_info = Some(build_meta.build_info.clone());
-							bootrom.hint = build_meta.build_info.build_header.build_version.clone().to_string().into();
+							bootrom.build_info = Some(build_meta.build_info[0].clone());
+							bootrom.hint = build_meta.build_info[0].build_header.build_version.clone().to_string().into();
 		
-							if build_meta.build_info.build_header.code_checksum != build_meta.build_info.calculated_code_checksum {
+							if build_meta.build_info[0].build_header.code_checksum != build_meta.build_info[0].calculated_code_checksum {
 								bootrom.build_storage_state = BuildStorageState::CodeChecksumMismatch;
-							} else if build_meta.build_info.romfs_header.romfs_checksum != build_meta.build_info.calculated_romfs_checksum {
+							} else if build_meta.build_info[0].romfs_header.romfs_checksum != build_meta.build_info[0].calculated_romfs_checksum {
 								bootrom.build_storage_state = BuildStorageState::RomfsChecksumMismatch;
-							} else if build_meta.build_info.build_header.build_base_address != BOOTROM_BASE_ADDRESS {
+							} else if build_meta.build_info[0].build_header.build_base_address != BOOTROM_BASE_ADDRESS {
 								bootrom.build_storage_state = BuildStorageState::BadBaseAddress;
 							} else {
 								bootrom.build_storage_state = BuildStorageState::BuildLooksGood;
@@ -466,7 +472,7 @@ fn get_flash_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode
 					if approm_path2_exists && approm_path3_exists {
 						approm.hint = "".into();
 						approm.value = "WinCE".into();
-						approm.status = "Unverified".into();
+						approm.status = "unverified".into();
 						approm.description = "".into();
 						approm.build_storage_type = BuildStorageType::StrippedFlashBuild;
 						approm.build_storage_state = BuildStorageState::BuildLooksGood;
@@ -478,18 +484,18 @@ fn get_flash_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode
 					approm.build_storage_state = BuildStorageState::StrippedFlashMissing;
 				}
 			} else {
-				match BuildMeta::open_rom(approm_path_prefix.clone(), Some(true), None) {
+				match BuildMeta::open_rom(approm_path_prefix.clone(), Some(BuildIODataCollation::StrippedROMs)) {
 					Ok(build_meta) => {
-						approm.build_info = Some(build_meta.build_info.clone());
-						approm.hint = build_meta.build_info.build_header.build_version.clone().to_string().into();
+						approm.build_info = Some(build_meta.build_info[0].clone());
+						approm.hint = build_meta.build_info[0].build_header.build_version.clone().to_string().into();
 
-						if build_meta.build_info.build_header.code_checksum != build_meta.build_info.calculated_code_checksum {
+						if build_meta.build_info[0].build_header.code_checksum != build_meta.build_info[0].calculated_code_checksum {
 							approm.build_storage_state = BuildStorageState::CodeChecksumMismatch;
-						} else if build_meta.build_info.romfs_header.romfs_checksum != build_meta.build_info.calculated_romfs_checksum {
+						} else if build_meta.build_info[0].romfs_header.romfs_checksum != build_meta.build_info[0].calculated_romfs_checksum {
 							approm.build_storage_state = BuildStorageState::RomfsChecksumMismatch;
-						} else if build_meta.build_info.build_header.build_base_address != APPROM1_BASE_ADDRESS && build_meta.build_info.build_header.build_base_address != APPROM2_BASE_ADDRESS {
+						} else if build_meta.build_info[0].build_header.build_base_address != APPROM1_FLASH_BASE_ADDRESS && build_meta.build_info[0].build_header.build_base_address != APPROM2_FLASH_BASE_ADDRESS {
 							approm.build_storage_state = BuildStorageState::BadBaseAddress;
-					} else {
+						} else {
 							approm.build_storage_state = BuildStorageState::BuildLooksGood;
 						}
 					},
@@ -512,8 +518,106 @@ fn get_flash_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode
 	Ok(approms)
 }
 
-fn get_disk_approms(_config: &LauncherConfig, _selected_machine: &MAMEMachineNode, _selected_bootrom_index: usize, _selected_disk: &MAMEMachineDiskNode) -> Result<Vec<VerifiableBuildItem>, Box<dyn std::error::Error>> {
-	Ok(vec![])
+fn populate_approms_from_disk_file(approms: &mut Vec<VerifiableBuildItem>, file_path: String, collation: Option<BuildIODataCollation>, prefix: String, discription: String)  -> Result<(), Box<dyn std::error::Error>> {
+	match BuildMeta::open_disk(file_path, collation) {
+		Ok(build_meta) => {
+			let mut build_index = 0;
+			for buildinfo in build_meta.build_info.iter() {
+				let mut approm = VerifiableBuildItem {
+					hint: "".into(),
+					value: (prefix.clone() + "[" + &build_index.to_string() + "]").into(),
+					status: "".into(),
+					description: discription.clone().into(),
+					hash: "".into(),
+					build_storage_type: BuildStorageType::DiskBuild,
+					build_storage_state: BuildStorageState::UnknownBuildState,
+					build_info: None
+				};
+
+				if build_index == build_meta.selected_build_index {
+					approm.status = "selected".to_string();
+				}
+
+				approm.build_info = Some(buildinfo.clone());
+				approm.hint = buildinfo.build_header.build_version.clone().to_string().into();
+
+				if buildinfo.build_header.code_checksum != buildinfo.calculated_code_checksum {
+					approm.build_storage_state = BuildStorageState::CodeChecksumMismatch;
+				} else if buildinfo.romfs_header.romfs_checksum != buildinfo.calculated_romfs_checksum {
+					approm.build_storage_state = BuildStorageState::RomfsChecksumMismatch;
+				} else if buildinfo.build_header.build_base_address < APPROM3_DISK_BASE_ADDRESS_MIN || buildinfo.build_header.build_base_address > APPROM3_DISK_BASE_ADDRESS_MAX {
+					approm.build_storage_state = BuildStorageState::BadBaseAddress;
+				} else {
+					approm.build_storage_state = BuildStorageState::BuildLooksGood;
+				}
+
+				approms.push(approm);
+
+				build_index += 1;
+
+				if build_index >= build_meta.build_count {
+					break;
+				}
+			};
+		},
+		_ => {
+			//
+		}
+	};
+
+	Ok(())
+}
+
+fn get_disk_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode, selected_hdimg_path: String) -> Result<Vec<VerifiableBuildItem>, Box<dyn std::error::Error>> {
+	let mut approms: Vec<VerifiableBuildItem> = vec![];
+
+	let selected_box = 
+		selected_machine.name
+		.clone()
+		.unwrap_or("".into());
+
+	let config_persistent_paths = config.persistent.paths.clone();
+	let mame_executable_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
+	let mame_directory_path = LauncherConfig::get_parent(mame_executable_path).unwrap_or("".into());
+
+	let disk_collation = match Regex::new(r"^wtv\d+utv").unwrap().is_match(selected_box.as_str()) {
+		true => BuildIODataCollation::ByteSwapped1632,
+		false => BuildIODataCollation::ByteSwapped16,
+	};
+
+	if selected_machine.disk.iter().count() > 0 {
+		match selected_machine.disk.clone() {
+			Some(disks) => {
+				let disk_name = disks[0].name.clone().unwrap_or("".into());
+				let disk_file = disk_name.clone() + ".chd";
+
+				let preset_img_path = mame_directory_path.clone() + "/roms/" + &selected_box + "/" + &disk_file;
+
+				let _ = populate_approms_from_disk_file(
+					&mut approms, 
+					preset_img_path, 
+					Some(disk_collation), 
+					disk_name.clone(), 
+					"From preset ".to_owned() + &disk_file.clone() + " file"
+				);
+			},
+			_ => {
+				//
+			}
+		};
+	}
+
+	if selected_hdimg_path != "" {
+		let _ = populate_approms_from_disk_file(
+			&mut approms, 
+			selected_hdimg_path, 
+			Some(disk_collation), 
+			APPROM_HDIMG_PREFIX.to_string(), 
+			"From your HDD image file.".into()
+		);
+	}
+
+	Ok(approms)
 }
 
 fn get_flashdisk_approms(_config: &LauncherConfig, _selected_machine: &MAMEMachineNode, _selected_bootrom_index: usize) -> Result<Vec<VerifiableBuildItem>, Box<dyn std::error::Error>> {
@@ -709,10 +813,6 @@ fn populate_selected_box_bootroms(ui_weak: &slint::Weak<MainWindow>, config: &La
 		selected_bootrom_index = 0;
 	}
 
-	if selected_bootrom.value == "" && available_bootroms.iter().count() > 0 {
-		selected_bootrom = available_bootroms[0].clone();
-	}
-
 	let _ = ui_weak.upgrade_in_event_loop(move |ui| {
 		let ui_mame = ui.global::<UIMAMEOptions>();
 
@@ -786,6 +886,12 @@ fn populate_selected_box_bootroms(ui_weak: &slint::Weak<MainWindow>, config: &La
 
 fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &LauncherConfig, selected_machine: &MAMEMachineNode, supress_warnings: bool, selected_bootrom_index: usize) -> Result<BuildStorageState, Box<dyn std::error::Error>> {
 	let config_persistent_mame = config.persistent.mame_options.clone();
+	let config_persistent_paths = config.persistent.paths.clone();
+
+	let mame_executable_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
+	let mame_directory_path = LauncherConfig::get_parent(mame_executable_path).unwrap_or("".into());
+
+	let selected_box = selected_machine.name.clone().unwrap_or("".into());
 
 	let mut selected_approm = VerifiableBuildItem {
 		hint: "".into(),
@@ -798,18 +904,89 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 		build_info: None,
 	};
 
+	let can_choose_hdimg;
+	let mut is_disk_approms = false;
+	for device in selected_machine.device.clone().unwrap_or(vec![]).iter() {
+		if device.dtype.clone().unwrap_or("".to_string()) == "harddisk" {
+			is_disk_approms = true;
+			break;
+		}
+	}
+
 	let available_approms;
-	if selected_machine.disk.iter().count() > 0 {
-		available_approms = match selected_machine.disk.clone() {
-			Some(disks) => {
-				 match get_disk_approms(config, &selected_machine, selected_bootrom_index, &disks[0]) {
-					Ok(approms) => approms,
-					Err(_e) => vec![]
+	if is_disk_approms {
+		if selected_machine.disk.iter().count() > 0 {
+			match selected_machine.disk.clone() {
+				Some(disks) => {
+					let disk_name = disks[0].name.clone().unwrap_or("".into());
+
+					if disks[0].modifiable.clone().unwrap_or("".into()) == "yes" {
+						can_choose_hdimg = true;
+					} else {
+						can_choose_hdimg = !Path::new(&(mame_directory_path.clone() + "/roms/" + &selected_box + "/" + &disk_name + ".chd")).exists();
+					}
+				},
+				_ => {
+					can_choose_hdimg = true;
+				}
+			}
+		} else {
+			can_choose_hdimg = true;
+		}
+
+		let selected_hdimg_path;
+		if can_choose_hdimg {
+			selected_hdimg_path = match config_persistent_mame.selected_hdimg_paths {
+				Some(ref hdimg_paths) => {
+					if hdimg_paths.contains_key(&selected_box) {
+						hdimg_paths[&selected_box].clone()
+					} else {
+						"".to_string()
+					}
+				},
+				_ => {
+					"".to_string()
+				}
+			};
+		} else {
+			selected_hdimg_path = "".into();
+		}
+
+		available_approms = match get_disk_approms(config, &selected_machine, selected_hdimg_path) {
+			Ok(approms) => approms,
+			Err(_e) => vec![]
+		};
+
+		let selected_hdimg_enabled = match config_persistent_mame.selected_hdimg_enabled {
+			Some(ref hdimg_enabled) => {
+				if hdimg_enabled.contains_key(&selected_box) {
+					hdimg_enabled[&selected_box].clone()
+				} else {
+					false
 				}
 			},
-			_ => vec![]
+			_ => {
+				false
+			}
 		};
+		
+		for approm in available_approms.iter() {
+			let from_hdimg = match Regex::new(r"^(?<name>.+?)\[(?<index>\d+?)\]").unwrap().captures(approm.value.as_str()) {
+				Some(matches) => &matches["name"] == APPROM_HDIMG_PREFIX,
+				_ => false
+			};
+
+			if approm.status == "selected" {
+				// If we want to select the user hdimg then only check approms from the user hdimg.
+				// Otherwise, only check from the preset image.
+				if from_hdimg && selected_hdimg_enabled || !from_hdimg && !selected_hdimg_enabled {
+					selected_approm = approm.clone();
+				}
+			}
+		}		
 	} else {
+		can_choose_hdimg = false;
+
 		let mut has_mdoc = false;
 		if selected_machine.device_ref.iter().count() > 0 {
 			for device_ref in selected_machine.device_ref.clone().unwrap_or(vec![]).iter() {
@@ -832,13 +1009,8 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 			};
 		}
 	}
-	
-	for approm in available_approms.iter() {
-		if approm.value.to_string() == config_persistent_mame.selected_box.clone().unwrap_or("".into()) {
-			selected_approm = approm.clone();
-		}
-	}
 
+	// If we didn't find an approm to select above and there's more than one approm available then select the first.
 	if selected_approm.value == "" && available_approms.iter().count() > 0 {
 		selected_approm = available_approms[0].clone();
 	}
@@ -847,6 +1019,9 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 
 		let ui_mame = ui.global::<UIMAMEOptions>();
 
+		ui_mame.set_can_choose_hdimg(can_choose_hdimg);
+
+		// Convert available approms into a list the UI can use.
 		let selectable_approms: slint::VecModel<HintedItem> = Default::default();
 		for available_approm in available_approms.iter() {
 			selectable_approms.push(
@@ -891,7 +1066,7 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 					BuildStorageState::CodeChecksumMismatch => {
 						ui.set_launcher_state_message("AppROM code checksum mismatch! Did you choose an image that's too large? Please choose a new approm.o file if it doesn't run!".into());
 					},
-					BuildStorageState::RomfsChecksumMismatch=> {
+					BuildStorageState::RomfsChecksumMismatch => {
 						ui.set_launcher_state_message("AppROM ROMFS checksum mismatch! Did you choose an image that's too large? Please choose a new approm.o file if it doesn't run!".into());
 					},
 					BuildStorageState::BadBaseAddress => {
@@ -907,6 +1082,32 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 				ui.set_launcher_state_message("No AppROMs available. Please choose a new approm.o!".into());
 			}
 		}
+
+		ui_mame.set_selected_hdimg_path(
+			match config_persistent_mame.selected_hdimg_paths {
+				Some(ref hdimg_paths) => {
+					if hdimg_paths.contains_key(&selected_box) {
+						hdimg_paths[&selected_box].clone().into()
+					} else {
+						"".into()
+					}
+				},
+				_ => "".into()
+			}
+		);
+
+		ui_mame.set_selected_hdimg_enabled(
+			match config_persistent_mame.selected_hdimg_enabled {
+				Some(ref hdimg_enabled) => {
+					if hdimg_enabled.contains_key(&selected_box) {
+						hdimg_enabled[&selected_box].clone().into()
+					} else {
+						false
+					}
+				},
+				_ => false
+			}
+		);
 	});
 
 	Ok(selected_approm.build_storage_state.clone())
@@ -1153,7 +1354,7 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 			};
 
 			//
-			// Populate UI with bootroms for the selected box
+			// Populate UI with approms for the selected box
 			//
 			// Only one warning can be displayed at a time so bootrom warnings take precedence (if we have a bad bootrom, nothing will boot).
 			let supress_approm_warnings = supress_bootrom_warnings || selected_bootrom_state != BuildStorageState::BuildLooksGood;
@@ -1236,7 +1437,9 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		ui_paths.set_mame_path(config_persistent_paths.mame_path.unwrap_or("".into()).into());
 		ui_paths.set_python_path(python_path.into());
 		ui_paths.set_rommy_path(config_persistent_paths.rommy_path.unwrap_or("".into()).into());
-		ui_paths.set_last_opened_path(config_persistent_paths.last_opened_path.unwrap_or("".into()).into());
+		ui_paths.set_last_opened_exe_path(config_persistent_paths.last_opened_exe_path.unwrap_or("".into()).into());
+		ui_paths.set_last_opened_rom_path(config_persistent_paths.last_opened_rom_path.unwrap_or("".into()).into());
+		ui_paths.set_last_opened_img_path(config_persistent_paths.last_opened_img_path.unwrap_or("".into()).into());
 
 		////
 		//
@@ -1537,7 +1740,8 @@ fn save_ssid(raw_ssid: [u8; 0x08], ui_weak: slint::Weak<MainWindow>, is_blocking
 		}
 
 		disable_loading(&ui_weak);
-		let _ = save_config(ui_weak.clone(), true);
+
+		let _ = save_config(ui_weak.clone(), true, None, None);
 	});
 
 	if is_blocking {
@@ -1566,7 +1770,7 @@ fn save_bootrom(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_so
 
 
 			let mut bootrom_file: String = "".into();
-			let mut bootrom_stripped = false;
+			let mut bootrom_collation = BuildIODataCollation::Raw;
 			let bootrom_rom_size = 0x200000;
 
 			let mut bootroms: Vec<String> = vec![];
@@ -1585,7 +1789,7 @@ fn save_bootrom(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_so
 						let biosset_name = 
 							biosset.name
 							.clone()
-							.unwrap_or("".into());
+							.unwrap_or("".into()); 
 						let biosset_description = 
 							biosset.description
 							.clone()
@@ -1603,7 +1807,7 @@ fn save_bootrom(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_so
 						let rom_region = 
 							rom.region
 							.clone()
-							.unwrap_or("".into());                
+							.unwrap_or("".into());
 
 						if rom_name != *SSID_ROM_FILE && rom_region != "serial_id" {
 							if !biossets.contains_key(&rom_name) && rom_name != DEFAULT_BOOTORM_FILE_NAME {
@@ -1634,42 +1838,35 @@ fn save_bootrom(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_so
 			if bootrom_file == "" && is_dev_box {
 				bootrom_directory_path = mame_directory_path.clone() + "/nvram/" + &selected_box;
 				bootrom_file_path = bootrom_directory_path.clone() + "/" + &bootrom_file.clone() + "/" + &BOOTROM_FLASH_FILE_PREFIX;
-				bootrom_stripped = true;
+				bootrom_collation = BuildIODataCollation::StrippedROMs;
 			} else if bootrom_file != "" {
 				bootrom_directory_path = mame_directory_path.clone() + "/roms/" + &selected_box;
 				bootrom_file_path = bootrom_directory_path.clone() + "/" + &bootrom_file.clone();
-				bootrom_stripped = false;
+				bootrom_collation = BuildIODataCollation::Raw;
 			}
 
 			if bootrom_directory_path != "" && bootrom_file_path != "" {
 				match std::fs::create_dir_all(bootrom_directory_path) {
 					Ok(_) => {
-						match ROMIO::create(bootrom_file_path, Some(bootrom_stripped), Some(bootrom_rom_size)) {
-							Ok(destf) => {
-								match destf {
-									Some(mut destf) => {
-										match File::open(source_path.clone()) {
-											Ok(mut srcf) => {
-												let mut buffer: Vec<u8> = vec![0x00; bootrom_rom_size as usize];
-		
-												let _ = srcf.read(&mut buffer);
-												let _ = destf.write(&mut buffer);
-		
-												if remove_source {
-													match std::fs::remove_file(source_path.clone()) {
-														_ => { }
-													};
-												}
-											},
-											_ => {
-												// Problem opening source.
-											}
-										};
-									}
+						match ROMIO::create(bootrom_file_path, Some(bootrom_collation), bootrom_rom_size) {
+							Ok(mut destf) => {
+								match File::open(source_path.clone()) {
+									Ok(mut srcf) => {
+										let mut buffer: Vec<u8> = vec![0x00; bootrom_rom_size as usize];
+
+										let _ = srcf.read(&mut buffer);
+										let _ = destf.write(&mut buffer);
+
+										if remove_source {
+											match std::fs::remove_file(source_path.clone()) {
+												_ => { }
+											};
+										}
+									},
 									_ => {
-										//
+										// Problem opening source.
 									}
-								}
+								};
 							},
 							_ => {
 								// Problem opening destination.
@@ -1683,7 +1880,8 @@ fn save_bootrom(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_so
 			}
 
 			disable_loading(&ui_weak);
-			let _ = save_config(ui_weak.clone(), true);
+
+			let _ = save_config(ui_weak.clone(), true, None, None);
 		});
 	});
 
@@ -1718,7 +1916,7 @@ fn save_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_sou
 			}
 
 			let approm_file_path = approm_directory_path.clone() + "/" + APPROM1_FLASH_FILE_PREFIX;
-			let approm_stripped = true;
+			let approm_collation = BuildIODataCollation::StrippedROMs;
 			let approm_rom_size;
 
 			let is_dev_box = Regex::new(r"^wtv\d+dev$").unwrap().is_match(selected_box.as_str());
@@ -1733,63 +1931,56 @@ fn save_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_sou
 			if approm_directory_path != "" && approm_file_path != "" {
 				match std::fs::create_dir_all(approm_directory_path) {
 					Ok(_) => {
-						match ROMIO::create(approm_file_path, Some(approm_stripped), Some(approm_rom_size)) {
-							Ok(destf) => {
-								match destf {
-									Some(mut destf) => {
-										match File::open(source_path.clone()) {
-											Ok(mut srcf) => {
-												let mut buffer: Vec<u8> = vec![0x00; approm_rom_size as usize];
-		
-												let _ = srcf.read(&mut buffer);
-		
-												// This serves as a convience like it does in my WebTV Disk Editor.
-												if correct_checksums {
-													let mut correct_code_checksum = 0x00000000;
-													let mut correct_romfs_checksum = 0x00000000;
-													let mut romfs_offset: usize = 0x00;
+						match ROMIO::create(approm_file_path, Some(approm_collation), approm_rom_size) {
+							Ok(mut destf) => {
+								match File::open(source_path.clone()) {
+									Ok(mut srcf) => {
+										let mut buffer: Vec<u8> = vec![0x00; approm_rom_size as usize];
 
-													match BuildMeta::open_rom(source_path.clone(), None, None) {
-														Ok(build_meta) => {
-															correct_code_checksum = build_meta.build_info.calculated_code_checksum;
-															correct_romfs_checksum = build_meta.build_info.calculated_romfs_checksum;
-															romfs_offset = build_meta.build_info.romfs_offset as usize;
-														},
-														_ => { }
-													}
-		
-													if correct_code_checksum != 0x00000000 {
-														buffer[0x08] = ((correct_code_checksum >> 0x18) & 0xff) as u8;
-														buffer[0x09] = ((correct_code_checksum >> 0x10) & 0xff) as u8;
-														buffer[0x0a] = ((correct_code_checksum >> 0x08) & 0xff) as u8;
-														buffer[0x0b] = ((correct_code_checksum >> 0x00) & 0xff) as u8;
-													}
-		
-													if correct_romfs_checksum != 0x00000000 && romfs_offset > 0x00 && romfs_offset <= (approm_rom_size as usize) {
-														buffer[romfs_offset - 0x04] = ((correct_romfs_checksum >> 0x18) & 0xff) as u8;
-														buffer[romfs_offset - 0x03] = ((correct_romfs_checksum >> 0x10) & 0xff) as u8;
-														buffer[romfs_offset - 0x02] = ((correct_romfs_checksum >> 0x08) & 0xff) as u8;
-														buffer[romfs_offset - 0x01] = ((correct_romfs_checksum >> 0x00) & 0xff) as u8;
-													}
-												}
-		
-												let _ = destf.write(&mut buffer);
-		
-												if remove_source {
-													match std::fs::remove_file(source_path.clone()) {
-														_ => { }
-													};
-												}
-											},
-											_ => {
-												// Problem opening source.
+										let _ = srcf.read(&mut buffer);
+
+										// This serves as a convience like it does in my WebTV Disk Editor.
+										if correct_checksums {
+											let mut correct_code_checksum = 0x00000000;
+											let mut correct_romfs_checksum = 0x00000000;
+											let mut romfs_offset: usize = 0x00;
+
+											match BuildMeta::open_rom(source_path.clone(), None) {
+												Ok(build_meta) => {
+													correct_code_checksum = build_meta.build_info[0].calculated_code_checksum;
+													correct_romfs_checksum = build_meta.build_info[0].calculated_romfs_checksum;
+													romfs_offset = build_meta.build_info[0].romfs_offset as usize;
+												},
+												_ => { }
 											}
-										};
-									}
+
+											if correct_code_checksum != 0x00000000 {
+												buffer[0x08] = ((correct_code_checksum >> 0x18) & 0xff) as u8;
+												buffer[0x09] = ((correct_code_checksum >> 0x10) & 0xff) as u8;
+												buffer[0x0a] = ((correct_code_checksum >> 0x08) & 0xff) as u8;
+												buffer[0x0b] = ((correct_code_checksum >> 0x00) & 0xff) as u8;
+											}
+
+											if correct_romfs_checksum != 0x00000000 && romfs_offset > 0x00 && romfs_offset <= (approm_rom_size as usize) {
+												buffer[romfs_offset - 0x04] = ((correct_romfs_checksum >> 0x18) & 0xff) as u8;
+												buffer[romfs_offset - 0x03] = ((correct_romfs_checksum >> 0x10) & 0xff) as u8;
+												buffer[romfs_offset - 0x02] = ((correct_romfs_checksum >> 0x08) & 0xff) as u8;
+												buffer[romfs_offset - 0x01] = ((correct_romfs_checksum >> 0x00) & 0xff) as u8;
+											}
+										}
+
+										let _ = destf.write(&mut buffer);
+
+										if remove_source {
+											match std::fs::remove_file(source_path.clone()) {
+												_ => { }
+											};
+										}
+									},
 									_ => {
-										//
+										// Problem opening source.
 									}
-								}
+								};
 							},
 							_ => {
 								// Problem opening destination.
@@ -1804,31 +1995,68 @@ fn save_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_sou
 
 			disable_loading(&ui_weak);
 
-			let _ = save_config(ui_weak.clone(), true);
+			let _ = save_config(ui_weak.clone(), true, None, None);
 		});
 	});
 
 	Ok(())
 }
 
-fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool, new_hdimg_paths: Option<HashMap<String, String>>, new_hdimg_enabled: Option<HashMap<String, bool>>) -> Result<(), Box<dyn std::error::Error>> {
 	enable_loading(&ui_weak.clone(), "Saving Config".into());
 
 	let _ = ui_weak.upgrade_in_event_loop(move |ui| {
 		let ui_paths = ui.global::<UIPaths>();
 		let ui_mame = ui.global::<UIMAMEOptions>();
-		
-		let config = PersistentConfig {
+
+
+		let selected_hdimg_paths = match new_hdimg_paths {
+			Some(hdimg_paths) => {
+				Some(hdimg_paths)
+			},
+			_ => {
+				 match LauncherConfig::get_persistent_config() {
+					Ok(config) => {
+						config.mame_options.selected_hdimg_paths
+					},
+					_ => {
+						Some(HashMap::new())
+					}
+				}
+			}
+		};
+
+		let selected_hdimg_enabled = match new_hdimg_enabled {
+			Some(hdimg_enabled) => {
+				Some(hdimg_enabled)
+			},
+			_ => {
+				 match LauncherConfig::get_persistent_config() {
+					Ok(config) => {
+						config.mame_options.selected_hdimg_enabled
+					},
+					_ => {
+						Some(HashMap::new())
+					}
+				}
+			}
+		};
+
+		let new_config = PersistentConfig {
 			paths: Paths {
 				mame_path: Some(ui_paths.get_mame_path().into()),
 				python_path: Some(ui_paths.get_python_path().into()),
 				rommy_path: Some(ui_paths.get_rommy_path().into()),
-				last_opened_path: Some(ui_paths.get_last_opened_path().into())
+				last_opened_exe_path: Some(ui_paths.get_last_opened_exe_path().into()),
+				last_opened_rom_path: Some(ui_paths.get_last_opened_rom_path().into()),
+				last_opened_img_path: Some(ui_paths.get_last_opened_img_path().into())
 			},
 			mame_options: MAMEOptions {
 				selected_box: Some(ui_mame.get_selected_box().into()),
 				selected_bootrom: Some(ui_mame.get_selected_bootrom().into()),
 				selected_modem_bitb_endpoint: Some(ui_mame.get_selected_modem_bitb_endpoint().into()),
+				selected_hdimg_paths: selected_hdimg_paths,
+				selected_hdimg_enabled: selected_hdimg_enabled,
 				verbose_mode: Some(ui_mame.get_verbose_mode().into()),
 				windowed_mode: Some(ui_mame.get_windowed_mode().into()),
 				use_drc: Some(ui_mame.get_use_drc().into()),
@@ -1841,7 +2069,7 @@ fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool) -> Result<(), Box
 			}
 		};
 
-		let _ = LauncherConfig::save_persistent_config(&config); // May freeze up UI
+		let _ = LauncherConfig::save_persistent_config(&new_config); // May freeze up UI
 
 		if reload {
 			let _ = load_config(ui.as_weak());
@@ -1857,17 +2085,17 @@ fn choose_executable_file(ui_weak: slint::Weak<MainWindow>) -> Result<String, Bo
 	let ui = ui_weak.unwrap();
 	let ui_paths = ui.global::<UIPaths>();
 
-	let mut last_opened_path: String = ui_paths.get_last_opened_path().into();
+	let mut last_opened_exe_path: String = ui_paths.get_last_opened_exe_path().into();
 
-	if last_opened_path == "" {
-		last_opened_path = "~".into();
+	if last_opened_exe_path == "" {
+		last_opened_exe_path = "~".into();
 	}
 
 	let chooser: FileDialog;
 
 	chooser = 
 		FileDialog::new()
-		.set_location(&last_opened_path)
+		.set_location(&last_opened_exe_path)
 		.set_filename("".into());
 
 
@@ -1892,7 +2120,7 @@ fn choose_executable_file(ui_weak: slint::Weak<MainWindow>) -> Result<String, Bo
 		}
 
 		if selected_file_path != "" && Path::new(&selected_file_path).exists() {
-			ui_paths.set_last_opened_path(LauncherConfig::get_parent(selected_file_path.clone()).unwrap_or("".into()).into());
+			ui_paths.set_last_opened_exe_path(LauncherConfig::get_parent(selected_file_path.clone()).unwrap_or("".into()).into());
 
 			file_path = selected_file_path.clone();
 		}
@@ -2034,40 +2262,25 @@ fn choose_approm(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::er
 	Ok(())
 }
 
-fn choose_build_file(ui_weak: slint::Weak<MainWindow>) -> Result<String, Box<dyn std::error::Error>> {
+fn choose_hdimg(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error::Error>> {
 	let ui = ui_weak.unwrap();
 	let ui_paths = ui.global::<UIPaths>();
+	let ui_mame = ui.global::<UIMAMEOptions>();
 
-	let mut last_opened_path: String = ui_paths.get_last_opened_path().into();
+	let mut last_opened_img_path: String = ui_paths.get_last_opened_img_path().into();
 
-	if last_opened_path == "" {
-		last_opened_path = "~".into();
+	if last_opened_img_path == "" {
+		last_opened_img_path = "~".into();
 	}
 
-	let rommy_enabled = ui_paths.get_rommy_enabled();
-
-	let chooser: FileDialog;
-
-	if rommy_enabled {
-		chooser = 
-			FileDialog::new()
-			.set_location(&last_opened_path)
-			.set_filename("".into())
-			.add_filter("WebTV Build Files", &["o", "bin", "img", "rom", "brom", "json"])
-			.add_filter("WebTV Build Image", &["o", "bin", "img"])
-			.add_filter("WebTV partXXX File", &["rom", "brom"])
-			.add_filter("Rommy dt.json File", &["json"]);
-	} else {
-		chooser = 
-			FileDialog::new()
-			.set_location(&last_opened_path)
-			.set_filename("".into())
-			.add_filter("WebTV Build Image", &["o", "bin", "img"]);
-	}
+	let chooser = 
+		FileDialog::new()
+		.set_location(&last_opened_img_path)
+		.set_filename("".into())
+		.add_filter("WebTV HD Image", &["img", "dd", "bin"]);
 
 	let selected_file_pathbuf = chooser.show_open_single_file().unwrap_or(None);
 
-	let mut image_path: String = "".into();
 	if selected_file_pathbuf != None {
 		let mut selected_file_path: String = "".into();
 
@@ -2084,13 +2297,128 @@ fn choose_build_file(ui_weak: slint::Weak<MainWindow>) -> Result<String, Box<dyn
 		}
 
 		if selected_file_path != "" && Path::new(&selected_file_path).exists() {
-			ui_paths.set_last_opened_path(LauncherConfig::get_parent(selected_file_path.clone()).unwrap_or("".into()).into());
+			ui_paths.set_last_opened_img_path(LauncherConfig::get_parent(selected_file_path.clone()).unwrap_or("".into()).into());
 
-			image_path = selected_file_path.clone();
+			match LauncherConfig::get_persistent_config() {
+				Ok(config) => {
+					let selected_box = ui_mame.get_selected_box().clone().to_string();
+
+					let mut selected_hdimg_paths = match config.mame_options.selected_hdimg_paths {
+						Some(hdimg_paths) => hdimg_paths,
+						_ => HashMap::new()
+					};
+					selected_hdimg_paths.insert(selected_box.clone(), selected_file_path.clone());
+					ui_mame.set_selected_hdimg_path(selected_file_path.clone().into());
+
+					let mut selected_hdimg_enabled = match config.mame_options.selected_hdimg_enabled {
+						Some(hdimg_enabled) => hdimg_enabled,
+						_ => HashMap::new()
+					};
+					selected_hdimg_enabled.insert(selected_box.clone(), true);
+					ui_mame.set_selected_hdimg_enabled(true);
+
+					let _ = save_config(ui_weak.clone(), true, Some(selected_hdimg_paths), Some(selected_hdimg_enabled));
+				},
+				_ => {
+					//
+				}
+			};
+
 		}
 	}
 
-	Ok(image_path)
+	Ok(())
+}
+
+fn unset_hdimg(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error::Error>> {
+	let ui = ui_weak.unwrap();
+	let ui_mame = ui.global::<UIMAMEOptions>();
+
+	match LauncherConfig::get_persistent_config() {
+		Ok(config) => {
+			let selected_box = ui_mame.get_selected_box().clone().to_string();
+
+			let mut selected_hdimg_paths = match config.mame_options.selected_hdimg_paths {
+				Some(hdimg_paths) => hdimg_paths,
+				_ => HashMap::new()
+			};
+			selected_hdimg_paths.remove(&selected_box.clone());
+			ui_mame.set_selected_hdimg_path("".into());
+
+			let mut selected_hdimg_enabled = match config.mame_options.selected_hdimg_enabled {
+				Some(hdimg_enabled) => hdimg_enabled,
+				_ => HashMap::new()
+			};
+			selected_hdimg_enabled.remove(&selected_box.clone());
+			ui_mame.set_selected_hdimg_enabled(false);
+
+			let _ = save_config(ui_weak.clone(), true, Some(selected_hdimg_paths), Some(selected_hdimg_enabled));
+		},
+		_ => {
+			//
+		}
+	};
+
+	Ok(())
+}
+
+fn choose_build_file(ui_weak: slint::Weak<MainWindow>) -> Result<String, Box<dyn std::error::Error>> {
+	let ui = ui_weak.unwrap();
+	let ui_paths = ui.global::<UIPaths>();
+
+	let mut last_opened_rom_path: String = ui_paths.get_last_opened_rom_path().into();
+
+	if last_opened_rom_path == "" {
+		last_opened_rom_path = "~".into();
+	}
+
+	let rommy_enabled = ui_paths.get_rommy_enabled();
+
+	let chooser: FileDialog;
+
+	if rommy_enabled {
+		chooser = 
+			FileDialog::new()
+			.set_location(&last_opened_rom_path)
+			.set_filename("".into())
+			.add_filter("WebTV Build Files", &["o", "bin", "img", "rom", "brom", "json"])
+			.add_filter("WebTV Build Image", &["o", "bin", "img"])
+			.add_filter("WebTV partXXX File", &["rom", "brom"])
+			.add_filter("Rommy dt.json File", &["json"]);
+	} else {
+		chooser = 
+			FileDialog::new()
+			.set_location(&last_opened_rom_path)
+			.set_filename("".into())
+			.add_filter("WebTV Build Image", &["o", "bin", "img"]);
+	}
+
+	let selected_file_pathbuf = chooser.show_open_single_file().unwrap_or(None);
+
+	let mut returned_file_path: String = "".into();
+	if selected_file_pathbuf != None {
+		let mut selected_file_path: String = "".into();
+
+		match selected_file_pathbuf {
+			Some(path) => {
+				match path.to_str() {
+					Some(path_str) => {
+						selected_file_path = path_str.into();
+					},
+					_ => { }
+				}
+			},
+			_ => { }
+		}
+
+		if selected_file_path != "" && Path::new(&selected_file_path).exists() {
+			ui_paths.set_last_opened_rom_path(LauncherConfig::get_parent(selected_file_path.clone()).unwrap_or("".into()).into());
+
+			returned_file_path = selected_file_path.clone();
+		}
+	}
+
+	Ok(returned_file_path)
 
 }
 
@@ -2263,6 +2591,8 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 
 		mame_command.current_dir(mame_directory_path);
 
+		mame_command.arg(ui_mame.get_selected_box().to_string());
+
 		if ui_mame.get_verbose_mode().into() {
 			mame_command.arg("-verbose");
 		}
@@ -2329,7 +2659,6 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 			mame_command.args(custom_options.split(" "));
 		}
 
-		mame_command.arg(ui_mame.get_selected_box().to_string());
 
 		let selected_modem_bitb_startpoint: String = ui_mame.get_selected_modem_bitb_startpoint().to_string();
 		let selected_modem_bitb_endpoint: String = ui_mame.get_selected_modem_bitb_endpoint().to_string();
@@ -2347,6 +2676,12 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 				None => {
 				}
 			}
+		}
+
+		let selected_hdimg_path: String = ui_mame.get_selected_hdimg_path().to_string();
+		let selected_hdimg_enabled = ui_mame.get_selected_hdimg_enabled();
+		if selected_hdimg_enabled && selected_hdimg_path != "" {
+			mame_command.arg("-hard").arg(selected_hdimg_path);
 		}
 
 		let _ = std::thread::spawn(move || {
@@ -2749,12 +3084,36 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 
 	let mut ui_weak = ui.as_weak();
 	ui.global::<UIMAMEOptions>().on_select_box(move || {
-		let _ = save_config(ui_weak.clone(), true);
+		let _ = save_config(ui_weak.clone(), true, None, None);
 	});
 
 	ui_weak = ui.as_weak();
 	ui.global::<UIMAMEOptions>().on_select_bootrom(move || {
-		let _ = save_config(ui_weak.clone(), true);
+		let _ = save_config(ui_weak.clone(), true, None, None);
+	});
+
+	ui_weak = ui.as_weak();
+	ui.global::<UIMAMEOptions>().on_select_approm(move || {
+		match LauncherConfig::get_persistent_config() {
+			Ok(config) => {
+				let selected_approm = ui_weak.unwrap().global::<UIMAMEOptions>().get_selected_approm();
+
+				let hdimg_enabled = match Regex::new(r"^(?<name>.+?)\[(?<index>\d+?)\]").unwrap().captures(selected_approm.as_str()) {
+					Some(matches) => &matches["name"] == APPROM_HDIMG_PREFIX,
+					_ => false
+				};
+		
+				let mut selected_hdimg_enabled = match config.mame_options.selected_hdimg_enabled {
+					Some(hdimg_enabled) => hdimg_enabled,
+					_ => HashMap::new()
+				};
+				selected_hdimg_enabled.insert(config.mame_options.selected_box.clone().unwrap_or("".into()), hdimg_enabled);
+		
+				let _ = save_config(ui_weak.clone(), true, None, Some(selected_hdimg_enabled));
+			},
+			_ => {
+			}
+		};
 	});
 
 	ui_weak = ui.as_weak();
@@ -2768,10 +3127,20 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 	});
 
 	ui_weak = ui.as_weak();
+	ui.global::<UIMAMEOptions>().on_choose_hdimg(move || {
+		let _ = choose_hdimg(ui_weak.clone());
+	});
+
+	ui_weak = ui.as_weak();
+	ui.global::<UIMAMEOptions>().on_unset_hdimg(move || {
+		let _ = unset_hdimg(ui_weak.clone());
+	});
+
+	ui_weak = ui.as_weak();
 	ui.global::<UIMAMEOptions>().on_start_mame(move || {
 		enable_loading(&ui_weak, "Starting MAME".into());
 
-		let _ = save_config(ui_weak.clone(), true);
+		let _ = save_config(ui_weak.clone(), true, None, None);
 
 		let _ = check_custom_ssid(ui_weak.clone());
 
@@ -2810,7 +3179,7 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 				
 					ui_paths.set_mame_path(executable_file_path.into());
 	
-					let _ = save_config(ui_weak.clone(), true);
+					let _ = save_config(ui_weak.clone(), true, None, None);
 				}
 			},
 			_ => { }
@@ -2828,7 +3197,8 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 					ui_paths.set_python_path(executable_file_path.into());
 
 					let _ = check_rommy(ui_weak.clone());
-					let _ = save_config(ui_weak.clone(), false);
+
+					let _ = save_config(ui_weak.clone(), false, None, None);
 				}
 			},
 			_ => { }
@@ -2846,7 +3216,8 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 					ui_paths.set_rommy_path(executable_file_path.into());
 
 					let _ = check_rommy(ui_weak.clone());
-					let _ = save_config(ui_weak.clone(), false);
+
+					let _ = save_config(ui_weak.clone(), false, None, None);
 				}
 			},
 			_ => { }
