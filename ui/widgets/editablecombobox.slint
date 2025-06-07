@@ -82,10 +82,9 @@ export component EditableComboBox inherits Rectangle {
 	height: 38px;
 	min-width: 150px;
 	horizontal-stretch: 1;
-	border-width: 2px;
 	border-radius: 5px;
-	border-color: Palette.background;
 	background: Palette.alternate-background;
+	opacity: popopen-area.has-hover || editbox.has-focus ? 1.00 : 0.70;
 
 	close-popup-window => {
 		popup.close();
@@ -93,7 +92,7 @@ export component EditableComboBox inherits Rectangle {
 
 	nonedit-label := Text {
 		text: (root.current-value == "") ? "" : ((root.hint-before) ? (((root.current-hint != "") ? current-hint + ": " : "") + root.current-value) : (root.current-value + ((root.current-hint != "") ? ": " + current-hint : "")));
-		x: 12px;
+		x: 10px;
 		width: parent.width - self.x - 2px;
 		height: (!root.editable) ? (parent.height) : 0px;
 		vertical-alignment: center;
@@ -105,10 +104,10 @@ export component EditableComboBox inherits Rectangle {
 	}
 	editbox := LineEdit {
 		text <=> root.current-value;
-		x: 3px;
+		x: 1px;
 		y: ((parent.height - self.height) / 2);
-		width: (parent.width - down-arrow.width - self.x) + ((down-arrow.width > 0) ? -10px : -3px);
-		height: (root.editable) ? (parent.height - 6px) : 0px;
+		width: (parent.width - down-arrow.width - self.x) + ((down-arrow.width > 0) ? -8px : -1px);
+		height: (root.editable) ? (parent.height - 2px) : 0px;
 		padding: 0px;
 		enabled: (root.enabled);
 		horizontal-alignment: left;
@@ -126,7 +125,7 @@ export component EditableComboBox inherits Rectangle {
 	}
 	down-arrow := Image {
 		source: @image-url("images/chevron-down.svg");
-		x: (parent.width - self.width - 6px);
+		x: (parent.width - self.width - 4px);
 		y: (parent.height - self.height) / 2;
 		width: (root.enabled && (model.length > 1 || hintedmodel.length > 1 || (hintedmodel.length == 1 && root.current-value != hintedmodel[0].value) || (model.length == 1 && root.current-value != model[0]))) ? self.height : 0px;
 		height: 40%;
