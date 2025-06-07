@@ -7,6 +7,7 @@ use toml;
 use quick_xml;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
+use std::collections::HashMap;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
@@ -99,7 +100,9 @@ pub struct MAMEMachineDiskNode {
 	#[serde(rename = "@index")]
     pub index: Option<String>,
 	#[serde(rename = "@writable")]
-    pub writable: Option<String>
+    pub writable: Option<String>,
+	#[serde(rename = "@modifiable")]
+    pub modifiable: Option<String>
 }
 
 #[allow(dead_code)]
@@ -181,7 +184,9 @@ pub struct Paths {
     pub mame_path: Option<String>,
     pub python_path: Option<String>,
     pub rommy_path: Option<String>,
-    pub last_opened_path: Option<String>
+    pub last_opened_exe_path: Option<String>,
+    pub last_opened_rom_path: Option<String>,
+    pub last_opened_img_path: Option<String>
 }
 
 impl Paths {
@@ -209,6 +214,8 @@ pub struct MAMEOptions {
     pub selected_box: Option<String>,
     pub selected_bootrom: Option<String>,
     pub selected_modem_bitb_endpoint: Option<String>,
+	pub selected_hdimg_paths: Option<HashMap<String, String>>,
+	pub selected_hdimg_enabled: Option<HashMap<String, bool>>,
     pub verbose_mode: Option<bool>,
     pub windowed_mode: Option<bool>,
     pub use_drc: Option<bool>,
@@ -313,12 +320,16 @@ impl LauncherConfig {
 				mame_path: Some("".into()),
 				python_path: Some("".into()),
 				rommy_path: Some("".into()),
-				last_opened_path: Some("".into())
+				last_opened_exe_path: Some("".into()),
+				last_opened_rom_path: Some("".into()),
+				last_opened_img_path: Some("".into())
 			},
 			mame_options: MAMEOptions {
 				selected_box: Some("wtv1sony".into()),
 				selected_bootrom: Some("".into()),
 				selected_modem_bitb_endpoint: None,
+				selected_hdimg_paths: None,
+				selected_hdimg_enabled: None,
 				verbose_mode: Some(false),
 				windowed_mode: Some(true),
 				use_drc: Some(true),
@@ -332,7 +343,7 @@ impl LauncherConfig {
 		}
 	}
 	
-	fn get_persistent_config() -> Result<PersistentConfig, Box<dyn std::error::Error>> {
+	pub fn get_persistent_config() -> Result<PersistentConfig, Box<dyn std::error::Error>> {
 		let executable_dir = 
 			LauncherConfig::get_parent_from_pathbuf(env::current_exe()?)
 			.unwrap_or("".into());
