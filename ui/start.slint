@@ -17,6 +17,9 @@ import {
 	TitledVerticalBox,
 	TitledHorizontalBox
 } from "./widgets/titledbox.slint";
+import {
+	IconButton
+} from "./widgets/iconbutton.slint";
 
 export global UIMAMEOptions {
 	// Selected Box
@@ -29,8 +32,11 @@ export global UIMAMEOptions {
 	in-out property<int> selected_bootrom_index: 0;
 
 	// Selected ROM->AppROM
+	in-out property<bool> can_choose_hdimg: false;
 	in-out property<[HintedItem]> selectable_approms: [];
 	in-out property<string> selected_approm: "";
+	in-out property<string> selected_hdimg_path: "";
+	in-out property<bool> selected_hdimg_enabled: false;
 
 	// Selected ROM->SSID->Manufacture
 	in-out property<string> ssid-in-file: ""; // used to detect if someone typed a custom SSID. Custom SSIDs are only saved to file when someone starts MAME.
@@ -73,8 +79,11 @@ export global UIMAMEOptions {
 
 	callback select-box();
 	callback select-bootrom();
+	callback select-approm();
 	callback choose-bootrom();
 	callback choose-approm();
+	callback choose-hdimg();
+	callback unset-hdimg();
 	callback generate-ssid();
 	callback start-mame();
 }
@@ -104,19 +113,20 @@ export component StartPage inherits Page {
 			spacing: 2px;
 			z: 2;
 			Text {
-				text: @tr("BootROM");
+				text: @tr("BootROM Build");
 			}
 			EditableComboBox {
 				hintedmodel: UIMAMEOptions.selectable_bootroms;
 				current-value <=> UIMAMEOptions.selected_bootrom;
+				height: 34px;
 				selection-changed => {
-					UIMAMEOptions.select-box();
+					UIMAMEOptions.select-bootrom();
 				}
 			}
 			Button {
 				visible: UIMAMEOptions.selected_bootrom != "None" && UIMAMEOptions.selected_bootrom != "WinCE";
-				text: @tr("Choose");
-				height: 38px;
+				text: @tr("Import Build");
+				height: 34px;
 				clicked => {
 					UIMAMEOptions.choose-bootrom();
 				}
@@ -128,16 +138,40 @@ export component StartPage inherits Page {
 			spacing: 2px;
 			z: 1;
 			Text {
-				text: @tr("AppROM");
+				text: @tr("AppROM Build");
 			}
-			EditableComboBox {
-				hintedmodel: UIMAMEOptions.selectable_approms;
-				current-value <=> UIMAMEOptions.selected_approm;
+			HorizontalLayout {
+				spacing: 2px;
+				IconButton {
+					width: (UIMAMEOptions.can_choose_hdimg) ? 32px : 0px;
+					height: 34px;
+					padding: 3px;
+					z: 3;
+					icon: (UIMAMEOptions.selected_hdimg_path == "") ? @image-url("images/hd-img-inactive.svg") : @image-url("images/hd-img-active.svg");
+					tooltip: (UIMAMEOptions.selected_hdimg_path == "") ? "Choose Disk Image" : "\{UIMAMEOptions.selected_hdimg_path}\nRight click to remove";
+					pointer-event(event) => {
+						if event.kind == PointerEventKind.up {
+							if event.button == PointerEventButton.left {
+								UIMAMEOptions.choose-hdimg();
+							} else if event.button == PointerEventButton.right {
+								UIMAMEOptions.unset-hdimg();
+							}
+						}
+					}
+				}
+				EditableComboBox {
+					hintedmodel: UIMAMEOptions.selectable_approms;
+					current-value <=> UIMAMEOptions.selected_approm;
+					height: 34px;
+					selection-changed => {
+						UIMAMEOptions.select-approm();
+					}
+					}
 			}
 			Button {
 				visible: UIMAMEOptions.selected_approm != "None" && UIMAMEOptions.selected_approm != "WinCE";
-				text: @tr("Choose");
-				height: 38px;
+				text: @tr("Import Build");
+				height: 34px;
 				clicked => {
 					UIMAMEOptions.choose-approm();
 				}
@@ -148,25 +182,27 @@ export component StartPage inherits Page {
 			width: (parent.width * 0.4) - 10px;
 			spacing: 2px;
 			Text {
-				text: @tr("SSID");
+				text: @tr("SSID (DS2401 ROM)");
 			}
 			EditableComboBox {
 				hintedmodel: UIMAMEOptions.selectable_ssids;
 				current-value <=> UIMAMEOptions.selected_ssid;
 				editable: true;
+				height: 34px;
 			}
 			HorizontalLayout {
-				spacing: 2px;
 				width: 100%;
+				spacing: 2px;
 				EditableComboBox {
 					hintedmodel: UIMAMEOptions.selectable_ssid_manufactures;
 					current-value <=> UIMAMEOptions.selected_ssid_manufacture;
 					width: 60%;
+					height: 34px;
 				}
 				Button {
 					text: @tr("Generate");
 					width: (parent.width * 0.4) - 4px;
-					height: 38px;
+					height: 34px;
 					padding: 0px;
 					clicked => {
 						UIMAMEOptions.generate-ssid();
@@ -183,6 +219,7 @@ export component StartPage inherits Page {
 			EditableComboBox {
 				visible: (UIMAMEOptions.selectable_modem_bitb_startpoints.length > 1);
 				width: (UIMAMEOptions.selectable_modem_bitb_startpoints.length > 1) ? 30% : 0%;
+				enabled: UIMAMEOptions.selectable_modem_bitb_startpoints.length > 1;
 				editable: false;
 				hintedmodel: UIMAMEOptions.selectable_modem_bitb_startpoints;
 				current-value <=> UIMAMEOptions.selected_modem_bitb_startpoint;
@@ -257,6 +294,7 @@ export component StartPage inherits Page {
 					}
 					EditableComboBox {
 						visible: UIMAMEOptions.selectable_debug_bitb_startpoints.length > 1;
+						enabled: UIMAMEOptions.selectable_debug_bitb_startpoints.length > 1;
 						height: 33px;
 						editable: false;
 						hintedmodel: UIMAMEOptions.selectable_debug_bitb_startpoints;
