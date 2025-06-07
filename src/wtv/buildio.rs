@@ -36,9 +36,9 @@ impl BuildIODataCollation {
 pub trait BuildIO {
 	fn file_path(&mut self) -> Result<String, Box<dyn std::error::Error>>;
 
-	fn open(file_path: String, collation: Option<BuildIODataCollation>, size: Option<u32>) -> Result<Box<dyn BuildIO>, Box<dyn std::error::Error>> where Self: Sized;
+	fn open(file_path: String, collation: Option<BuildIODataCollation>) -> Result<Box<dyn BuildIO>, Box<dyn std::error::Error>> where Self: Sized;
 
-	fn create(file_path: String, collation: Option<BuildIODataCollation>, size: Option<u32>) -> Result<Box<dyn BuildIO>, Box<dyn std::error::Error>> where Self: Sized;
+	fn create(file_path: String, collation: Option<BuildIODataCollation>, size: u64) -> Result<Box<dyn BuildIO>, Box<dyn std::error::Error>> where Self: Sized;
 
 	fn seek(&mut self, pos: u64) -> Result<u64, Box<dyn std::error::Error>>;
 
