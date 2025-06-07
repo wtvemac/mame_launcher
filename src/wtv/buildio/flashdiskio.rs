@@ -1,12 +1,12 @@
-use super::BuildIO;
+use super::{BuildIO, BuildIODataCollation};
 use std::fs::File;
 use std::io::{Read, Write, Seek, SeekFrom};
 
 #[allow(dead_code)]
 pub struct FlashdiskIO {
-	stripped: bool,
-	rom_size: u32,
 	file_path: String,
+	collation: BuildIODataCollation,
+	rom_size: u64,
 	f0: Option<File>,
 	f1: Option<File>
 }
@@ -16,46 +16,46 @@ impl BuildIO for FlashdiskIO {
 		Ok(self.file_path.clone())
 	}
 
-	fn open(file_path: String, stripped: Option<bool>, rom_size: Option<u32>) -> Result<Option<FlashdiskIO>, Box<dyn std::error::Error>> {
-		let mut wtvbuild_io = FlashdiskIO {
-			stripped: stripped.unwrap_or(false),
-			rom_size: rom_size.unwrap_or(0x000000),
+	fn open(file_path: String, collation: Option<BuildIODataCollation>) -> Result<Box<dyn BuildIO>, Box<dyn std::error::Error>> {
+		let mut io = FlashdiskIO {
 			file_path: file_path.clone(),
+			collation: collation.unwrap_or(BuildIODataCollation::Raw),
+			rom_size: 0,
 			f0: None,
 			f1: None
 		};
 
-		if wtvbuild_io.stripped {
-			wtvbuild_io.f0 = Some(File::open(file_path.clone() + "0")?);
-			wtvbuild_io.f1 = Some(File::open(file_path.clone() + "1")?);
+		if io.collation == BuildIODataCollation::StrippedROMs {
+			io.f0 = Some(File::open(file_path.clone() + "0")?);
+			io.f1 = Some(File::open(file_path.clone() + "1")?);
 		} else {
-			wtvbuild_io.f0 = Some(File::open(file_path.clone())?);
+			io.f0 = Some(File::open(file_path.clone())?);
 		}
 
-		Ok(Some(wtvbuild_io))
+		Ok(Box::new(io))
 	}
 
-	fn create(file_path: String, stripped: Option<bool>, rom_size: Option<u32>) -> Result<Option<FlashdiskIO>, Box<dyn std::error::Error>> {
-		let mut wtvbuild_io = FlashdiskIO {
-			stripped: stripped.unwrap_or(false),
-			rom_size: rom_size.unwrap_or(0x000000),
+	fn create(file_path: String, collation: Option<BuildIODataCollation>, size: u64) -> Result<Box<dyn BuildIO>, Box<dyn std::error::Error>> {
+		let mut io = FlashdiskIO {
 			file_path: file_path.clone(),
+			collation: collation.unwrap_or(BuildIODataCollation::Raw),
+			rom_size: size,
 			f0: None,
 			f1: None
 		};
 
-		if wtvbuild_io.stripped {
-			wtvbuild_io.f0 = Some(File::create(file_path.clone() + "0")?);
-			wtvbuild_io.f1 = Some(File::create(file_path.clone() + "1")?);
+		if io.collation == BuildIODataCollation::StrippedROMs {
+			io.f0 = Some(File::create(file_path.clone() + "0")?);
+			io.f1 = Some(File::create(file_path.clone() + "1")?);
 		} else {
-			wtvbuild_io.f0 = Some(File::create(file_path.clone())?);
+			io.f0 = Some(File::create(file_path.clone())?);
 		}
 
-		Ok(Some(wtvbuild_io))
+		Ok(Box::new(io))
 	}
 
 	fn seek(&mut self, pos: u64) -> Result<u64, Box<dyn std::error::Error>>  {
-		if self.stripped {
+		if self.collation == BuildIODataCollation::StrippedROMs {
 			//let wanted_pos: i64 = pos.into();
 
 			let f0_seek = self.f0.as_ref().unwrap().seek(SeekFrom::Start(pos / 2))?;
@@ -72,7 +72,7 @@ impl BuildIO for FlashdiskIO {
 	}
 
 	fn read(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
-		if self.stripped {
+		if self.collation == BuildIODataCollation::StrippedROMs {
 			if buf.len() < 0x4 {
 				panic!("Buffer needs to be greater than 4 bytes.");
 			} else if (buf.len() % 2) == 1 {
@@ -97,7 +97,7 @@ impl BuildIO for FlashdiskIO {
 	}
 
 	fn write(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
-		if self.stripped {
+		if self.collation == BuildIODataCollation::StrippedROMs {
 			if buf.len() < 0x4 {
 				panic!("Buffer needs to be greater than 4 bytes.");
 			} else if (buf.len() % 2) == 1 {
@@ -131,10 +131,14 @@ impl BuildIO for FlashdiskIO {
 	}
 
 	fn len(&mut self) -> Result<u64, Box<dyn std::error::Error>> {
-		if self.stripped {
+		if self.collation == BuildIODataCollation::StrippedROMs {
 			Ok(self.f0.as_ref().unwrap().metadata().unwrap().len() * 2)
 		} else {
 			Ok(self.f0.as_ref().unwrap().metadata().unwrap().len())
 		}
+	}
+
+	fn collation(&mut self) -> Result<BuildIODataCollation, Box<dyn std::error::Error>> {
+		Ok(self.collation)
 	}
 }
