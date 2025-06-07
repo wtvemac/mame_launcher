@@ -1,140 +1,330 @@
-use super::BuildIO;
-use std::fs::File;
+use super::{BuildIO, BuildIODataCollation};
+use std::{
+	fs::File,
+	path::Path
+};
 use std::io::{Read, Write, Seek, SeekFrom};
+use chd::Chd;
+use regex::Regex;
 
 #[allow(dead_code)]
-pub struct DiskIO {
-	stripped: bool,
-	rom_size: u32,
+struct CompressedHunkDiskIO {
 	file_path: String,
-	f0: Option<File>,
-	f1: Option<File>
+	collation: BuildIODataCollation,
+	size: u64,
+	chd: Box<Chd<File>>,
+	current_hunk_index: u32,
+	current_hunk_offset: usize,
+	current_hunk_read: bool,
+	current_hunk: Vec<u8>
 }
+impl CompressedHunkDiskIO {
+	fn read_hunk(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+		let mut hunk = self.chd.hunk(self.current_hunk_index)?;
+				
+		let mut temp_buf = Vec::new();
 
-impl BuildIO for DiskIO {
+		hunk.read_hunk_in(&mut temp_buf, &mut self.current_hunk)?;
+
+		self.current_hunk_read = true;
+
+		Ok(())
+	}
+}
+impl BuildIO for CompressedHunkDiskIO {
 	fn file_path(&mut self) -> Result<String, Box<dyn std::error::Error>> {
 		Ok(self.file_path.clone())
 	}
 
-	fn open(file_path: String, stripped: Option<bool>, rom_size: Option<u32>) -> Result<Option<DiskIO>, Box<dyn std::error::Error>> {
-		let mut wtvbuild_io = DiskIO {
-			stripped: stripped.unwrap_or(false),
-			rom_size: rom_size.unwrap_or(0x000000),
-			file_path: file_path.clone(),
-			f0: None,
-			f1: None
-		};
+	fn open(file_path: String, collation: Option<BuildIODataCollation>) -> Result<Box<dyn BuildIO>, Box<dyn std::error::Error>> {
+		let path = Path::new(&file_path);
 
-		if wtvbuild_io.stripped {
-			wtvbuild_io.f0 = Some(File::open(file_path.clone() + "0")?);
-			wtvbuild_io.f1 = Some(File::open(file_path.clone() + "1")?);
+		let diff_file_path = match path.parent() {
+			Some(parent) => {
+				match parent.to_str() {
+					Some(parent_str) => {
+						let file_path_stem = match path.file_stem() {
+							Some(file_stem) => {
+								file_stem.to_str().unwrap_or("".into())
+							},
+							_ => {
+								//panic!("Couldn't get file stem from file path.");
+								"".into()
+							}
+						};
+	
+						parent_str.to_owned() + "/../../diff/" + file_path_stem + ".dif"
+					},
+					_ => {
+						//panic!("Couldn't get parent directory string from file path");
+						"".into()
+					}
+				}
+			},
+			_ => {
+				//panic!("Couldn't find parent directory from file path.");
+				"".into()
+			}
+		};
+		
+		let mut io: CompressedHunkDiskIO;
+		if Path::new(&diff_file_path).exists() {
+			io = CompressedHunkDiskIO {
+				file_path: file_path.clone(),
+				collation: collation.unwrap_or(BuildIODataCollation::Raw),
+				size: 0,
+				chd: 
+					Box::new(
+						Chd::open(
+							File::open(diff_file_path.clone())?, 
+					Some(
+								Box::new(
+									Chd::open(
+										File::open(file_path.clone())?, 
+										None
+									)?
+								)
+							)
+						)?
+					),
+				current_hunk_index: 0,
+				current_hunk_offset: 0,
+				current_hunk_read: false,
+				current_hunk: vec![]
+			};
 		} else {
-			wtvbuild_io.f0 = Some(File::open(file_path.clone())?);
+			io = CompressedHunkDiskIO {
+				file_path: file_path.clone(),
+				collation: collation.unwrap_or(BuildIODataCollation::Raw),
+				size: 0,
+				chd:
+					Box::new(
+						Chd::open(
+							File::open(file_path.clone())?, 
+							None
+						)?
+					),
+				current_hunk_index: 0,
+				current_hunk_offset: 0,
+				current_hunk_read: false,
+				current_hunk: vec![]
+			};
 		}
 
-		Ok(Some(wtvbuild_io))
+		io.size = io.chd.header().logical_bytes();
+		io.current_hunk = io.chd.get_hunksized_buffer();
+
+		Ok(Box::new(io))
 	}
 
-	fn create(file_path: String, stripped: Option<bool>, rom_size: Option<u32>) -> Result<Option<DiskIO>, Box<dyn std::error::Error>> {
-		let mut wtvbuild_io = DiskIO {
-			stripped: stripped.unwrap_or(false),
-			rom_size: rom_size.unwrap_or(0x000000),
+	fn create(file_path: String, collation: Option<BuildIODataCollation>, size: u64) -> Result<Box<dyn BuildIO>, Box<dyn std::error::Error>> {
+		let mut io = CompressedHunkDiskIO {
 			file_path: file_path.clone(),
-			f0: None,
-			f1: None
+			collation: collation.unwrap_or(BuildIODataCollation::Raw),
+			size: size,
+			chd: Box::new(Chd::open(File::open(file_path.clone())?, None)?),
+			current_hunk_index: 0,
+			current_hunk_offset: 0,
+			current_hunk_read: false,
+			current_hunk: vec![]
 		};
 
-		if wtvbuild_io.stripped {
-			wtvbuild_io.f0 = Some(File::create(file_path.clone() + "0")?);
-			wtvbuild_io.f1 = Some(File::create(file_path.clone() + "1")?);
-		} else {
-			wtvbuild_io.f0 = Some(File::create(file_path.clone())?);
-		}
+		io.current_hunk = io.chd.get_hunksized_buffer();
 
-		Ok(Some(wtvbuild_io))
+		Ok(Box::new(io))
 	}
 
 	fn seek(&mut self, pos: u64) -> Result<u64, Box<dyn std::error::Error>>  {
-		if self.stripped {
-			//let wanted_pos: i64 = pos.into();
+		let hunk_size = self.chd.header().hunk_size() as u64;
 
-			let f0_seek = self.f0.as_ref().unwrap().seek(SeekFrom::Start(pos / 2))?;
-			let f1_seek = self.f1.as_ref().unwrap().seek(SeekFrom::Start(pos / 2))?;
+		self.current_hunk_index = (pos / hunk_size) as u32;
 
-			if f0_seek == f1_seek {
-				Ok(f0_seek * 2)
-			} else {
-				Ok(0)
-			}
+		if self.current_hunk_index > self.chd.header().hunk_count().into() {
+			self.current_hunk_index = 0;
+			self.current_hunk_offset = 0;
+			self.current_hunk_read = false;
+
+			Ok(0)
 		} else {
-			Ok(self.f0.as_ref().unwrap().seek(SeekFrom::Start(pos))?)
+			self.current_hunk_offset = pos as usize % hunk_size as usize;
+			self.current_hunk_read = false;
+
+			Ok(pos)
 		}
 	}
 
 	fn read(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
-		if self.stripped {
-			if buf.len() < 0x4 {
-				panic!("Buffer needs to be greater than 4 bytes.");
-			} else if (buf.len() % 2) == 1 {
-				panic!("Buffer needs to be a multiple of 2.");
-			} else {
-				let mut rsize: usize = 0x0;
+		if buf.len() < 0x4 {
+			Err("Buffer length needs to be 4 bytes or greater.".into())
+		} else if (buf.len() & 1) == 1 {
+			Err("Buffer length needs to be a multiple of 2.".into())
+		} else {
+			let hunk_size: usize = self.chd.header().hunk_size() as usize;
+			let need_total_size = buf.len();
+			let mut read_total_size = 0;
+			let mut current_buf_index = 0;
 
-				for index in (0..buf.len()).step_by(4) {
-					rsize += self.f0.as_ref().unwrap().read(&mut buf[(index + 0)..(index + 2)])?;
+			while read_total_size < need_total_size {
+				if !self.current_hunk_read {
+					match self.read_hunk() {
+						Err(e) => {
+							return Err(e);
+						}
+						_ => {
+							//
+						}
+					};
+				}
+	
+				let mut current_read_size = need_total_size - read_total_size;
+				if current_read_size > (hunk_size - self.current_hunk_offset) {
+					current_read_size = hunk_size - self.current_hunk_offset;
+					self.current_hunk_read = false;
+					self.current_hunk_index += 1;
 
-					// Stop reading if the buffer is a miltiple of 2 but not a multiple of 4. For example, like reading into a 62 byte buffer.
-					if (index + 4) <= buf.len() {
-						rsize += self.f1.as_ref().unwrap().read(&mut buf[(index + 2)..(index + 4)])?;
+					if self.current_hunk_index > self.chd.header().hunk_count().into() {
+						self.current_hunk_index = 0;
 					}
 				}
 
-				Ok(rsize)
+				buf[current_buf_index as usize..(current_buf_index + current_read_size) as usize]
+					.copy_from_slice(&self.current_hunk[self.current_hunk_offset as usize..(self.current_hunk_offset + current_read_size) as usize]);
+
+				current_buf_index += current_read_size;
+				read_total_size += current_read_size;
+				self.current_hunk_offset += current_read_size;
+
+				if !self.current_hunk_read {
+					self.current_hunk_offset = 0;
+				}
 			}
+
+			let _ = BuildIODataCollation::convert_raw_data(buf, self.collation);
+
+			Ok(read_total_size as usize)
+		}
+	}
+
+	fn write(&mut self, _buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
+		Ok(0)
+	}
+
+	fn len(&mut self) -> Result<u64, Box<dyn std::error::Error>> {
+		Ok(self.size)
+	}
+
+	fn collation(&mut self) -> Result<BuildIODataCollation, Box<dyn std::error::Error>> {
+		Ok(self.collation)
+	}
+}
+
+#[allow(dead_code)]
+struct RawDiskIO {
+	file_path: String,
+	collation: BuildIODataCollation,
+	size: u64,
+	file: File,
+}
+impl BuildIO for RawDiskIO {
+	fn file_path(&mut self) -> Result<String, Box<dyn std::error::Error>> {
+		Ok(self.file_path.clone())
+	}
+
+	fn open(file_path: String, collation: Option<BuildIODataCollation>) -> Result<Box<dyn BuildIO>, Box<dyn std::error::Error>> {
+		let mut io = RawDiskIO {
+			file_path: file_path.clone(),
+			collation: collation.unwrap_or(BuildIODataCollation::Raw),
+			size: 0,
+			file: File::open(file_path.clone())?
+		};
+
+		io.size = io.file.metadata().unwrap().len();
+
+		Ok(Box::new(io))
+	}
+
+	fn create(file_path: String, collation: Option<BuildIODataCollation>, size: u64) -> Result<Box<dyn BuildIO>, Box<dyn std::error::Error>> {
+		let io = RawDiskIO {
+			file_path: file_path.clone(),
+			collation: collation.unwrap_or(BuildIODataCollation::Raw),
+			size: size,
+			file: File::create(file_path.clone())?,
+		};
+
+		Ok(Box::new(io))
+	}
+
+	fn seek(&mut self, pos: u64) -> Result<u64, Box<dyn std::error::Error>>  {
+		Ok(self.file.seek(SeekFrom::Start(pos))?)
+	}
+
+	fn read(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
+		if buf.len() < 0x4 {
+			Err("Buffer length needs to be 4 bytes or greater.".into())
+		} else if (buf.len() & 1) == 1 {
+			Err("Buffer length needs to be a multiple of 2.".into())
 		} else {
-			Ok(self.f0.as_ref().unwrap().read(buf)?)
+			let result = self.file.read(buf)?;
+
+			let _ = BuildIODataCollation::convert_raw_data(buf, self.collation);
+
+			Ok(result)
 		}
 	}
 
 	fn write(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
-		if self.stripped {
-			if buf.len() < 0x4 {
-				panic!("Buffer needs to be greater than 4 bytes.");
-			} else if (buf.len() % 2) == 1 {
-				panic!("Buffer needs to be a multiple of 2.");
-			} else {
-				let mut rsize: usize = 0x0;
-
-				for index in (0..buf.len()).step_by(4) {
-					unsafe {
-						let buf1: [u8; 2] = [*buf.get_unchecked_mut(index + 0), *buf.get_unchecked_mut(index + 1)];
-
-						rsize += self.f0.as_ref().unwrap().write(&buf1)?;
-
-						// Write null padding if the buffer is a miltiple of 2 but not a multiple of 4. For example, like writing from a 62 byte buffer.
-						if (index + 4) <= buf.len() {
-							let buf2: [u8; 2] = [*buf.get_unchecked_mut(index + 2), *buf.get_unchecked_mut(index + 3)];
-
-							rsize += self.f1.as_ref().unwrap().write(&buf2)?;
-						} else {
-							let null_padding: [u8; 2] = [0x00; 0x02];
-							rsize += self.f1.as_ref().unwrap().write(&null_padding)?;
-						}
-					}
-				}
-
-				Ok(rsize)
-			}
-		} else {
-			Ok(self.f0.as_ref().unwrap().write(buf)?)
-		}
+		Ok(self.file.write(buf)?)
 	}
 
 	fn len(&mut self) -> Result<u64, Box<dyn std::error::Error>> {
-		if self.stripped {
-			Ok(self.f0.as_ref().unwrap().metadata().unwrap().len() * 2)
+		Ok(self.size)
+	}
+
+	fn collation(&mut self) -> Result<BuildIODataCollation, Box<dyn std::error::Error>> {
+		Ok(self.collation)
+	}
+}
+
+#[allow(dead_code)]
+pub struct DiskIO;
+impl BuildIO for DiskIO {
+	fn file_path(&mut self) -> Result<String, Box<dyn std::error::Error>> {
+		Ok("".into())
+	}
+
+	fn open(file_path: String, collation: Option<BuildIODataCollation>) -> Result<Box<dyn BuildIO>, Box<dyn std::error::Error>> {
+		if Regex::new(r"\.(chd|dif)$")?.is_match(file_path.as_str()) {
+			CompressedHunkDiskIO::open(file_path.clone(), collation)
 		} else {
-			Ok(self.f0.as_ref().unwrap().metadata().unwrap().len())
+			RawDiskIO::open(file_path.clone(), collation)
 		}
+	}
+
+	fn create(file_path: String, collation: Option<BuildIODataCollation>, size: u64) -> Result<Box<dyn BuildIO>, Box<dyn std::error::Error>> {
+		if Regex::new(r"\.(chd|dif)$")?.is_match(file_path.as_str()) {
+			CompressedHunkDiskIO::create(file_path.clone(), collation, size)
+		} else {
+			RawDiskIO::create(file_path.clone(), collation, size)
+		}
+	}
+
+	fn seek(&mut self, _pos: u64) -> Result<u64, Box<dyn std::error::Error>>  {
+		Ok(0)
+	}
+
+	fn read(&mut self, _buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
+		Ok(0)
+	}
+
+	fn write(&mut self, _buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
+		Ok(0)
+	}
+
+	fn len(&mut self) -> Result<u64, Box<dyn std::error::Error>> {
+		Ok(0)
+	}
+
+	fn collation(&mut self) -> Result<BuildIODataCollation, Box<dyn std::error::Error>> {
+		Ok(BuildIODataCollation::Raw)
 	}
 }
