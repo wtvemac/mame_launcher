@@ -1812,7 +1812,7 @@ fn save_ssid(raw_ssid: [u8; 0x08], ui_weak: slint::Weak<MainWindow>, is_blocking
 	Ok(())
 }
 
-fn save_bootrom(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_source: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn import_bootrom(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_source: bool) -> Result<(), Box<dyn std::error::Error>> {
 	let _ = ui_weak.upgrade_in_event_loop(move |ui: MainWindow| {
 		let ui_weak = ui.as_weak();
 
@@ -1949,7 +1949,7 @@ fn save_bootrom(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_so
 	Ok(())
 }
 
-fn save_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_source: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn import_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_source: bool) -> Result<(), Box<dyn std::error::Error>> {
 	let _ = ui_weak.upgrade_in_event_loop(move |ui: MainWindow| {
 		let ui_weak = ui.as_weak();
 		
@@ -2231,7 +2231,7 @@ fn get_rommy_file(in_file_path: String, python_path: String, rommy_path: String)
 	Ok(image_path)
 }
 
-fn choose_bootrom(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error::Error>> {
+fn start_bootrom_import(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error::Error>> {
 	match choose_build_file(ui_weak.clone()) {
 		Ok(selected_file_path) => {
 			if selected_file_path != "" {
@@ -2252,7 +2252,7 @@ fn choose_bootrom(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::e
 							match get_rommy_file(selected_file_path, python_path, rommy_path) {
 								Ok(rommy_file_path) => {
 									if rommy_file_path != "" {
-										let _ = save_bootrom(rommy_file_path.clone(), ui_weak_cpy, true);
+										let _ = import_bootrom(rommy_file_path.clone(), ui_weak_cpy, true);
 									} else {
 										ui_weak.unwrap().set_launcher_state_message("There was a problem running Rommy.".into());
 									}
@@ -2265,7 +2265,7 @@ fn choose_bootrom(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::e
 							disable_loading(&ui_weak);
 						});
 					} else {
-						let _ = save_bootrom(selected_file_path.clone(), ui_weak, false);
+						let _ = import_bootrom(selected_file_path.clone(), ui_weak, false);
 					}
 				});
 			}
@@ -2276,7 +2276,7 @@ fn choose_bootrom(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::e
 	Ok(())
 }
 
-fn choose_approm(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error::Error>> {
+fn start_approm_import(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error::Error>> {
 	match choose_build_file(ui_weak.clone()) {
 		Ok(selected_file_path) => {
 			if selected_file_path != "" {
@@ -2297,7 +2297,7 @@ fn choose_approm(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::er
 							match get_rommy_file(selected_file_path, python_path, rommy_path) {
 								Ok(rommy_file_path) => {
 									if rommy_file_path != "" {
-										let _ = save_approm(rommy_file_path.clone(), ui_weak_cpy, true);
+										let _ = import_approm(rommy_file_path.clone(), ui_weak_cpy, true);
 									} else {
 										
 									}
@@ -2312,7 +2312,7 @@ fn choose_approm(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::er
 					} else {
 						// There's a case where someone might want to choose a flash_bank0 file since people are distributing them around.
 						// I'm not going to handle that case. Have the user choose an actual .o file.
-						let _ = save_approm(selected_file_path.clone(), ui_weak, false);
+						let _ = import_approm(selected_file_path.clone(), ui_weak, false);
 					}
 				});
 			}
@@ -3178,13 +3178,13 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 	});
 
 	ui_weak = ui.as_weak();
-	ui.global::<UIMAMEOptions>().on_choose_bootrom(move || {
-		let _ = choose_bootrom(ui_weak.clone());
+	ui.global::<UIMAMEOptions>().on_import_bootrom(move || {
+		let _ = start_bootrom_import(ui_weak.clone());
 	});
 
 	ui_weak = ui.as_weak();
-	ui.global::<UIMAMEOptions>().on_choose_approm(move || {
-		let _ = choose_approm(ui_weak.clone());
+	ui.global::<UIMAMEOptions>().on_import_approm(move || {
+		let _ = start_approm_import(ui_weak.clone());
 	});
 
 	ui_weak = ui.as_weak();

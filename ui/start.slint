@@ -80,8 +80,8 @@ export global UIMAMEOptions {
 	callback select-box();
 	callback select-bootrom();
 	callback select-approm();
-	callback choose-bootrom();
-	callback choose-approm();
+	callback import-bootrom();
+	callback import-approm();
 	callback choose-hdimg();
 	callback unset-hdimg();
 	callback generate-ssid();
@@ -128,7 +128,7 @@ export component StartPage inherits Page {
 				text: @tr("Import Build");
 				height: 34px;
 				clicked => {
-					UIMAMEOptions.choose-bootrom();
+					UIMAMEOptions.import-bootrom();
 				}
 			}
 		}
@@ -173,7 +173,7 @@ export component StartPage inherits Page {
 				text: @tr("Import Build");
 				height: 34px;
 				clicked => {
-					UIMAMEOptions.choose-approm();
+					UIMAMEOptions.import-approm();
 				}
 			}
 		}
