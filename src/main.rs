@@ -1046,7 +1046,7 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 					selected_approm = approm.clone();
 				}
 			}
-		}		
+		}
 	} else {
 		can_choose_hdimg = false;
 
@@ -1064,6 +1064,12 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 				Ok(approms) => approms,
 				Err(_e) => vec![]
 			};
+
+			for approm in available_approms.iter() {
+				if approm.status == "selected" {
+					selected_approm = approm.clone();
+				}
+			}
 		} else {
 			available_approms = match get_flash_approms(config, &selected_machine, selected_bootrom_index) {
 				Ok(approms) => approms,
