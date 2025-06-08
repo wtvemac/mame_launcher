@@ -8,6 +8,8 @@ use super::buildio::{
 	flashdiskio::FlashdiskIO
 };
 
+const WEBTV_BLOCK_SIZE: u64 = 0x00000200;
+
 const RAW_LAYOUT_CHECK_OFFSET: u64 = 0x00000000;
 const RAW_LAYOUT_CHECK_MASK: u32 = 0xffffff00;
 const RAW_LAYOUT_CHECK_VALUE: u32 = 0x10000000;
@@ -15,6 +17,10 @@ const RAW_BUILD_OFFSET0: u64 = 0x00000000;
 
 const PARTITION_TABLE_MAGIC: u32 = 0x74696d6e; // timn
 const PARTITION_TABLE_MAGIC_OFFSET: u64 = 0x00000008;
+
+const FLASHDISK_ADMININFO_OFFSET: u64 = 0x00000600;
+const FLASHDISK_NVRAM_SIZE_CHECK_VALUE: u32 = 0x00004000;
+const FLASHDISK_BUILD_HEADER_OFFSET: u64 = 0x00000800;
 
 const LC2_PARTITION_TABLE_OFFSET: u64 = 0x014c1000;
 const LC2_BUILD_SELECT_OFFSET: u64 = 0x01080600;
@@ -32,6 +38,47 @@ const UTV_BUILD_OFFSET0: u64 = 0x13480600;
 const UTV_BUILD_OFFSET1: u64 = 0x15480600;
 
 const NO_ROMFS_FLAG: u32 = 0x4e6f4653; // NoFS
+
+#[allow(dead_code)]
+#[derive(Debug, Copy, Clone, FromBytes)]
+#[packbytes(be)]
+pub struct DiskAdminInfo {
+	pub primary_nv_alloc_bytes: u32,
+	pub secondary_nv_alloc_bytes: u32,
+	pub browser_alloc_bytes: u32,
+	pub select_alloc_bytes: u32,
+	pub diag_alloc_bytes: u32,
+	pub tier3_alloc_bytes: u32,
+	pub unknown1: u32,
+	pub unknown2: u32,
+	pub primary_nv_size: u32,
+	pub secondary_nv_size: u32,
+	pub browser_size: u32,
+	pub unknown3: u32,
+	pub unknown4: u32,
+	pub diag_size: u32,
+	pub tier3_size: u32,
+	pub unknown5: u32,
+	pub unknown6: u32,
+	pub primary_nv0_block: u32,
+	pub unknown7: u32,
+	pub secondary_nv0_block: u32,
+	pub diag_block: u32,
+	pub browser0_block: u32,
+	pub browser1_block: u32,
+	pub browser_select_block: u32,
+	pub primary_nv1_block: u32,
+	pub unknown8: u32,
+	pub secondary_nv1_block: u32,
+	pub primary_nv_select_block: u32,
+	pub secondary_nv_select_block: u32,
+	pub tier3_block: u32,
+	pub unknown9: u32,
+	pub unknown10: u32,
+	pub unknown11: u32,
+	pub checksum: u32,
+	pub unknown_marker: u32
+}
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -178,6 +225,19 @@ impl BuildMeta {
 
 	fn get_layout(&mut self) -> Result<BuildMetaLayout, Box<dyn std::error::Error>> {
 		let file_size = self.io.len().unwrap_or(0);
+		
+		
+		// Check flashdisk admin info block
+		if file_size > FLASHDISK_ADMININFO_OFFSET {
+			let _ = self.io.seek(FLASHDISK_ADMININFO_OFFSET)?;
+			let mut flashdisk_check = [0x00; 0x8c];
+			let _ = self.io.read(&mut flashdisk_check).unwrap_or(0);
+			let dai = DiskAdminInfo::from_bytes(flashdisk_check);
+			if dai.primary_nv_alloc_bytes == FLASHDISK_NVRAM_SIZE_CHECK_VALUE
+			&& dai.secondary_nv_alloc_bytes == FLASHDISK_NVRAM_SIZE_CHECK_VALUE {
+				return Ok(BuildMetaLayout::FlashdiskLayout);
+			}
+		}
 
 		if file_size > UTV_PARTITION_TABLE_OFFSET {
 			let _ = self.io.seek(UTV_PARTITION_TABLE_OFFSET + PARTITION_TABLE_MAGIC_OFFSET)?;
@@ -242,6 +302,19 @@ impl BuildMeta {
 			self.selected_build_index = self.get_selected_build_index().unwrap_or(1);
 			self.build_info[0] = self.get_buildinfo(UTV_BUILD_OFFSET0).unwrap_or(BuildMeta::default_buildinfo());
 			self.build_info[1] = self.get_buildinfo(UTV_BUILD_OFFSET1).unwrap_or(BuildMeta::default_buildinfo());
+		} else if self.layout == BuildMetaLayout::FlashdiskLayout {
+			let _ = self.io.seek(FLASHDISK_ADMININFO_OFFSET)?;
+			let mut disk_admininfo_data = [0x00; 0x8c];
+			let _ = self.io.read(&mut disk_admininfo_data).unwrap_or(0);
+			let dai = DiskAdminInfo::from_bytes(disk_admininfo_data);
+
+			let build0_offset = (dai.browser0_block as u64 * WEBTV_BLOCK_SIZE) + FLASHDISK_BUILD_HEADER_OFFSET;
+			let build1_offset = (dai.browser1_block as u64 * WEBTV_BLOCK_SIZE) + FLASHDISK_BUILD_HEADER_OFFSET;
+
+			self.build_count = 2;
+			self.selected_build_index = self.get_selected_build_index().unwrap_or(1);
+			self.build_info[0] = self.get_buildinfo(build0_offset).unwrap_or(BuildMeta::default_buildinfo());
+			self.build_info[1] = self.get_buildinfo(build1_offset).unwrap_or(BuildMeta::default_buildinfo());
 		} else {
 			self.build_count = 1;
 			self.selected_build_index = 0;
@@ -270,6 +343,22 @@ impl BuildMeta {
 			} else {
 				return Ok(1);
 			}
+		} else if self.layout == BuildMetaLayout::FlashdiskLayout {
+			let _ = self.io.seek(FLASHDISK_ADMININFO_OFFSET)?;
+			let mut disk_admininfo_data = [0x00; 0x8c];
+			let _ = self.io.read(&mut disk_admininfo_data).unwrap_or(0);
+			let dai = DiskAdminInfo::from_bytes(disk_admininfo_data);
+
+			let browser_select_offset = dai.browser_select_block as u64 * WEBTV_BLOCK_SIZE;
+
+			let _ = self.io.seek(browser_select_offset)?;
+			let mut partition_count_check = [0x00; 0x04];
+			let _ = self.io.read(&mut partition_count_check).unwrap_or(1);
+			if partition_count_check[0] == 0x00 {
+				return Ok(0);
+			} else {
+				return Ok(1);
+			}
 		} else {
 			return Ok(0);
 		}
@@ -280,7 +369,10 @@ impl BuildMeta {
 
 		buildinfo.build_header = self.get_build_header(build_offset).unwrap_or(BuildMeta::default_build_header());
 
-		buildinfo.calculated_code_checksum = self.calculate_dword_checksum(build_offset, buildinfo.build_header.code_dword_length, Some(0x02)).unwrap_or(0);
+		// Can't check code checksum on flashdisk builds without decompressing
+		if self.layout != BuildMetaLayout::FlashdiskLayout {
+			buildinfo.calculated_code_checksum = self.calculate_dword_checksum(build_offset, buildinfo.build_header.code_dword_length, Some(0x02)).unwrap_or(0);
+		}
 
 		if self.layout == BuildMetaLayout::RawLayout {
 			let valid_classic_bd_instructions: [u64; 3] = [
@@ -305,7 +397,8 @@ impl BuildMeta {
 			}
 		}
 
-		if buildinfo.build_header.romfs_address != NO_ROMFS_FLAG { // != NoFS
+		// Can't check ROMFS on flashdisk builds without decompressing or if the ROMFS address is NoFS
+		if self.layout != BuildMetaLayout::FlashdiskLayout && buildinfo.build_header.romfs_address != NO_ROMFS_FLAG {
 			buildinfo.romfs_offset = buildinfo.build_header.romfs_address.wrapping_sub(buildinfo.build_header.build_base_address) as u64;
 			buildinfo.romfs_header = self.get_romfs_header(build_offset, buildinfo.romfs_offset).unwrap_or(buildinfo.romfs_header);
 

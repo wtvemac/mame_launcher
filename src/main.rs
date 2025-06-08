@@ -620,8 +620,69 @@ fn get_disk_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode,
 	Ok(approms)
 }
 
-fn get_flashdisk_approms(_config: &LauncherConfig, _selected_machine: &MAMEMachineNode, _selected_bootrom_index: usize) -> Result<Vec<VerifiableBuildItem>, Box<dyn std::error::Error>> {
-	Ok(vec![])
+fn get_flashdisk_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode, selected_bootrom_index: usize) -> Result<Vec<VerifiableBuildItem>, Box<dyn std::error::Error>> {
+	let mut approms: Vec<VerifiableBuildItem> = vec![];
+
+	let config_persistent_paths = config.persistent.paths.clone();
+	let mame_executable_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
+	let mame_directory_path = LauncherConfig::get_parent(mame_executable_path).unwrap_or("".into());
+
+	let selected_box = 
+		selected_machine.name
+		.clone()
+		.unwrap_or("".into());
+
+	let file_path;
+	if selected_bootrom_index > 0 {
+		file_path = mame_directory_path.clone() + "/nvram/" + &selected_box + "_" + &selected_bootrom_index.to_string() + "/mdoc_flash0";
+	} else {
+		file_path = mame_directory_path.clone() + "/nvram/" + &selected_box + "/mdoc_flash0";
+	}
+
+	match BuildMeta::open_flashdisk(file_path, Some(BuildIODataCollation::Raw)) {
+		Ok(build_meta) => {
+			let mut build_index = 0;
+			for buildinfo in build_meta.build_info.iter() {
+				let mut approm = VerifiableBuildItem {
+					hint: "".into(),
+					value: ("mdoc[".to_owned() + &build_index.to_string() + "]").into(),
+					status: "".into(),
+					description: "".into(),
+					hash: "".into(),
+					build_storage_type: BuildStorageType::DiskBuild,
+					build_storage_state: BuildStorageState::UnknownBuildState,
+					build_info: None
+				};
+
+				if build_index == build_meta.selected_build_index {
+					approm.status = "selected".to_string();
+				}
+
+				approm.build_info = Some(buildinfo.clone());
+				approm.hint = buildinfo.build_header.build_version.clone().to_string().into();
+
+				if buildinfo.build_header.build_base_address < APPROM3_DISK_BASE_ADDRESS_MIN || buildinfo.build_header.build_base_address > APPROM3_DISK_BASE_ADDRESS_MAX {
+					approm.build_storage_state = BuildStorageState::BadBaseAddress;
+				} else {
+					approm.build_storage_state = BuildStorageState::BuildLooksGood;
+				}
+
+				approms.push(approm);
+
+				build_index += 1;
+
+				if build_index >= build_meta.build_count {
+					break;
+				}
+			};
+		},
+		_ => {
+			//
+		}
+	};
+
+
+	Ok(approms)
 }
 
 fn get_ssids(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> Result<Vec<VerifiableSSIDItem>, Box<dyn std::error::Error>> {
