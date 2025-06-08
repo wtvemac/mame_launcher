@@ -32,6 +32,8 @@ export global UIMAMEOptions {
 	in-out property<int> selected_bootrom_index: 0;
 
 	// Selected ROM->AppROM
+	in-out property<bool> uses_disk_approms: false;
+	in-out property<bool> uses_mdoc_approms: false;
 	in-out property<bool> can_choose_hdimg: false;
 	in-out property<[HintedItem]> selectable_approms: [];
 	in-out property<string> selected_approm: "";

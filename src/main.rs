@@ -8,7 +8,7 @@ mod wtv;
 use std::{
 	collections::HashMap, 
 	fs::File,
-	io::{BufReader, Read, Write, Cursor}, 
+	io::{BufReader, Read, Write, Cursor, Seek, SeekFrom}, 
 	path::Path, process::{Command, Stdio},
 	env,
 	sync::{
@@ -965,17 +965,19 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 		build_info: None,
 	};
 
+	let mut uses_disk_approms = false;
+	let mut uses_mdoc_approms = false;
 	let can_choose_hdimg;
-	let mut is_disk_approms = false;
+
 	for device in selected_machine.device.clone().unwrap_or(vec![]).iter() {
 		if device.dtype.clone().unwrap_or("".to_string()) == "harddisk" {
-			is_disk_approms = true;
+			uses_disk_approms = true;
 			break;
 		}
 	}
 
 	let available_approms;
-	if is_disk_approms {
+	if uses_disk_approms {
 		if selected_machine.disk.iter().count() > 0 {
 			match selected_machine.disk.clone() {
 				Some(disks) => {
@@ -1048,17 +1050,16 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 	} else {
 		can_choose_hdimg = false;
 
-		let mut has_mdoc = false;
 		if selected_machine.device_ref.iter().count() > 0 {
 			for device_ref in selected_machine.device_ref.clone().unwrap_or(vec![]).iter() {
 				if device_ref.name.clone().unwrap_or("".to_string()) == "mdoc_collection" {
-					has_mdoc = true;
+					uses_mdoc_approms = true;
 					break;
 				}
 			}
 		}
 
-		if has_mdoc {
+		if uses_mdoc_approms {
 			available_approms = match get_flashdisk_approms(config, &selected_machine, selected_bootrom_index) {
 				Ok(approms) => approms,
 				Err(_e) => vec![]
@@ -1080,6 +1081,9 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 
 		let ui_mame = ui.global::<UIMAMEOptions>();
 
+
+		ui_mame.set_uses_disk_approms(uses_disk_approms);
+		ui_mame.set_uses_mdoc_approms(uses_mdoc_approms);
 		ui_mame.set_can_choose_hdimg(can_choose_hdimg);
 
 		// Convert available approms into a list the UI can use.
@@ -1949,110 +1953,125 @@ fn import_bootrom(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_
 	Ok(())
 }
 
-fn import_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_source: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn import_flash_approm(config: &LauncherConfig, selected_box: &String, selected_bootrom_index: usize, source_data: &mut Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+	let config_persistent_paths = config.persistent.paths.clone();
+	let mame_executable_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
+	let mame_directory_path = LauncherConfig::get_parent(mame_executable_path).unwrap_or("".into());
+
+	let approm_directory_path: String;
+	if selected_bootrom_index > 0 {
+		approm_directory_path = mame_directory_path.clone() + "/nvram/" + &selected_box + "_" + &selected_bootrom_index.to_string();
+	} else {
+		approm_directory_path = mame_directory_path.clone() + "/nvram/" + &selected_box;
+	}
+
+	let approm_file_path = approm_directory_path.clone() + "/" + APPROM1_FLASH_FILE_PREFIX;
+	let approm_collation = BuildIODataCollation::StrippedROMs;
+	let approm_rom_size;
+
+	let is_dev_box = Regex::new(r"^wtv\d+dev$").unwrap().is_match(selected_box.as_str());
+	let is_pal_box = Regex::new(r"^wtv\d+pal$").unwrap().is_match(selected_box.as_str());
+
+	if is_dev_box || is_pal_box {
+		approm_rom_size = 0x400000;
+	} else {
+		approm_rom_size = 0x200000;
+	}
+
+	if approm_directory_path != "" && approm_file_path != "" {
+		match std::fs::create_dir_all(approm_directory_path) {
+			Ok(_) => {
+				match ROMIO::create(approm_file_path, Some(approm_collation), approm_rom_size) {
+					Ok(mut destf) => {
+						let _ = destf.seek(0);
+						let _ = destf.write(source_data);
+					},
+					_ => {
+						// Problem opening destination.
+					}
+				};
+			},
+			_ => {
+				// Problem creating destination path.
+			}
+		}
+	}
+
+	Ok(())
+}
+
+fn import_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_source: bool, correct_checksums: bool) -> Result<(), Box<dyn std::error::Error>> {
 	let _ = ui_weak.upgrade_in_event_loop(move |ui: MainWindow| {
 		let ui_weak = ui.as_weak();
-		
-		let correct_checksums = true;
 
 		let ui_mame = ui.global::<UIMAMEOptions>();
 		let selected_box = ui_mame.get_selected_box().to_string();
 		let selected_bootrom_index: usize = ui_mame.get_selected_bootrom_index() as usize;
+
+		let uses_disk_approms = ui_mame.get_uses_disk_approms();
+		let uses_mdoc_approms = ui_mame.get_uses_mdoc_approms();
 
 		let _ = std::thread::spawn(move || {
 			enable_loading(&ui_weak, "Saving AppROM".into());
 
 			let config = LauncherConfig::new().unwrap();
 
-			let config_persistent_paths = config.persistent.paths.clone();
-			let mame_executable_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
-			let mame_directory_path = LauncherConfig::get_parent(mame_executable_path).unwrap_or("".into());
+			match File::open(source_path.clone()) {
+				Ok(mut srcf) => {
+					let source_size = srcf.metadata().unwrap().len();
 
+					if source_size > 0 {
+						// Don't read more than 64MB
+						let mut source_data: Vec<u8> = vec![0x00; source_size.max(4000000) as usize];
 
-			let approm_directory_path: String;
-			if selected_bootrom_index > 0 {
-				approm_directory_path = mame_directory_path.clone() + "/nvram/" + &selected_box + "_" + &selected_bootrom_index.to_string();
-			} else {
-				approm_directory_path = mame_directory_path.clone() + "/nvram/" + &selected_box;
-			}
+						let _ = srcf.seek(SeekFrom::Start(0));
+						let _ = srcf.read(&mut source_data);
 
-			let approm_file_path = approm_directory_path.clone() + "/" + APPROM1_FLASH_FILE_PREFIX;
-			let approm_collation = BuildIODataCollation::StrippedROMs;
-			let approm_rom_size;
+						// This serves as a convience like it does in my WebTV Disk Editor.
+						if correct_checksums {
+							match BuildMeta::open_rom(source_path.clone(), None) {
+								Ok(build_meta) => {
+									let correct_code_checksum = build_meta.build_info[0].calculated_code_checksum;
+									let correct_romfs_checksum = build_meta.build_info[0].calculated_romfs_checksum;
+									let romfs_offset = build_meta.build_info[0].romfs_offset as usize;
 
-			let is_dev_box = Regex::new(r"^wtv\d+dev$").unwrap().is_match(selected_box.as_str());
-			let is_pal_box = Regex::new(r"^wtv\d+pal$").unwrap().is_match(selected_box.as_str());
-
-			if is_dev_box || is_pal_box {
-				approm_rom_size = 0x400000;
-			} else {
-				approm_rom_size = 0x200000;
-			}
-
-			if approm_directory_path != "" && approm_file_path != "" {
-				match std::fs::create_dir_all(approm_directory_path) {
-					Ok(_) => {
-						match ROMIO::create(approm_file_path, Some(approm_collation), approm_rom_size) {
-							Ok(mut destf) => {
-								match File::open(source_path.clone()) {
-									Ok(mut srcf) => {
-										let mut buffer: Vec<u8> = vec![0x00; approm_rom_size as usize];
-
-										let _ = srcf.read(&mut buffer);
-
-										// This serves as a convience like it does in my WebTV Disk Editor.
-										if correct_checksums {
-											let mut correct_code_checksum = 0x00000000;
-											let mut correct_romfs_checksum = 0x00000000;
-											let mut romfs_offset: usize = 0x00;
-
-											match BuildMeta::open_rom(source_path.clone(), None) {
-												Ok(build_meta) => {
-													correct_code_checksum = build_meta.build_info[0].calculated_code_checksum;
-													correct_romfs_checksum = build_meta.build_info[0].calculated_romfs_checksum;
-													romfs_offset = build_meta.build_info[0].romfs_offset as usize;
-												},
-												_ => { }
-											}
-
-											if correct_code_checksum != 0x00000000 {
-												buffer[0x08] = ((correct_code_checksum >> 0x18) & 0xff) as u8;
-												buffer[0x09] = ((correct_code_checksum >> 0x10) & 0xff) as u8;
-												buffer[0x0a] = ((correct_code_checksum >> 0x08) & 0xff) as u8;
-												buffer[0x0b] = ((correct_code_checksum >> 0x00) & 0xff) as u8;
-											}
-
-											if correct_romfs_checksum != 0x00000000 && romfs_offset > 0x00 && romfs_offset <= (approm_rom_size as usize) {
-												buffer[romfs_offset - 0x04] = ((correct_romfs_checksum >> 0x18) & 0xff) as u8;
-												buffer[romfs_offset - 0x03] = ((correct_romfs_checksum >> 0x10) & 0xff) as u8;
-												buffer[romfs_offset - 0x02] = ((correct_romfs_checksum >> 0x08) & 0xff) as u8;
-												buffer[romfs_offset - 0x01] = ((correct_romfs_checksum >> 0x00) & 0xff) as u8;
-											}
-										}
-
-										let _ = destf.write(&mut buffer);
-
-										if remove_source {
-											match std::fs::remove_file(source_path.clone()) {
-												_ => { }
-											};
-										}
-									},
-									_ => {
-										// Problem opening source.
+									if correct_code_checksum != 0x00000000 {
+										source_data[0x08] = ((correct_code_checksum >> 0x18) & 0xff) as u8;
+										source_data[0x09] = ((correct_code_checksum >> 0x10) & 0xff) as u8;
+										source_data[0x0a] = ((correct_code_checksum >> 0x08) & 0xff) as u8;
+										source_data[0x0b] = ((correct_code_checksum >> 0x00) & 0xff) as u8;
 									}
-								};
-							},
-							_ => {
-								// Problem opening destination.
-							}
-						};
-					},
-					_ => {
-						// Problem creating destination path.
+		
+									if correct_romfs_checksum != 0x00000000 && romfs_offset > 0x00 && romfs_offset <= (source_size as usize) {
+										source_data[romfs_offset - 0x04] = ((correct_romfs_checksum >> 0x18) & 0xff) as u8;
+										source_data[romfs_offset - 0x03] = ((correct_romfs_checksum >> 0x10) & 0xff) as u8;
+										source_data[romfs_offset - 0x02] = ((correct_romfs_checksum >> 0x08) & 0xff) as u8;
+										source_data[romfs_offset - 0x01] = ((correct_romfs_checksum >> 0x00) & 0xff) as u8;
+									}
+								},
+								_ => { }
+							};
+						}
+
+						if uses_disk_approms {
+							//let _ = import_disk_approm(&config, &selected_box, selected_bootrom_index, &mut source_data);
+						} else if uses_mdoc_approms {
+							//let _ = import_mdoc_approm(&config, &selected_box, selected_bootrom_index, &mut source_data);
+						} else {
+							let _ = import_flash_approm(&config, &selected_box, selected_bootrom_index, &mut source_data);
+						}
 					}
+
+					if remove_source {
+						match std::fs::remove_file(source_path.clone()) {
+							_ => { }
+						};
+					}
+				},
+				_ => {
+					// Problem opening source.
 				}
-			}
+			};
 
 			disable_loading(&ui_weak);
 
@@ -2297,7 +2316,7 @@ fn start_approm_import(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn s
 							match get_rommy_file(selected_file_path, python_path, rommy_path) {
 								Ok(rommy_file_path) => {
 									if rommy_file_path != "" {
-										let _ = import_approm(rommy_file_path.clone(), ui_weak_cpy, true);
+										let _ = import_approm(rommy_file_path.clone(), ui_weak_cpy, true, true);
 									} else {
 										
 									}
@@ -2312,7 +2331,7 @@ fn start_approm_import(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn s
 					} else {
 						// There's a case where someone might want to choose a flash_bank0 file since people are distributing them around.
 						// I'm not going to handle that case. Have the user choose an actual .o file.
-						let _ = import_approm(selected_file_path.clone(), ui_weak, false);
+						let _ = import_approm(selected_file_path.clone(), ui_weak, false, true);
 					}
 				});
 			}
