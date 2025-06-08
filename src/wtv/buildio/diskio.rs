@@ -153,6 +153,12 @@ impl BuildIO for CompressedHunkDiskIO {
 		}
 	}
 
+	fn stream_position(&mut self) -> Result<u64, Box<dyn std::error::Error>> {
+		let hunk_size = self.chd.header().hunk_size() as u64;
+
+		Ok((self.current_hunk_index as u64 * hunk_size) + self.current_hunk_offset as u64)
+	}
+
 	fn read(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
 		if buf.len() < 0x4 {
 			Err("Buffer length needs to be 4 bytes or greater.".into())
@@ -258,6 +264,10 @@ impl BuildIO for RawDiskIO {
 		Ok(self.file.seek(SeekFrom::Start(pos))?)
 	}
 
+	fn stream_position(&mut self) -> Result<u64, Box<dyn std::error::Error>> {
+		Ok(self.file.stream_position()?)
+	}
+
 	fn read(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
 		if buf.len() < 0x4 {
 			Err("Buffer length needs to be 4 bytes or greater.".into())
@@ -309,6 +319,10 @@ impl BuildIO for DiskIO {
 	}
 
 	fn seek(&mut self, _pos: u64) -> Result<u64, Box<dyn std::error::Error>>  {
+		Ok(0)
+	}
+
+	fn stream_position(&mut self) -> Result<u64, Box<dyn std::error::Error>>  {
 		Ok(0)
 	}
 

@@ -85,6 +85,10 @@ impl BuildIO for ROMIO {
 		}
 	}
 
+	fn stream_position(&mut self) -> Result<u64, Box<dyn std::error::Error>> {
+		Ok(self.f0.stream_position()?)
+	}
+
 	fn read(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
 		if self.collation == BuildIODataCollation::StrippedROMs {
 			if buf.len() < 0x4 {

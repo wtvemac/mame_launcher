@@ -42,6 +42,8 @@ pub trait BuildIO {
 
 	fn seek(&mut self, pos: u64) -> Result<u64, Box<dyn std::error::Error>>;
 
+	fn stream_position(&mut self) -> Result<u64, Box<dyn std::error::Error>>;
+
 	fn read(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>>;
 
 	fn write(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>>;

@@ -274,6 +274,10 @@ impl BuildIO for FlashdiskIO {
 		}
 	}
 
+	fn stream_position(&mut self) -> Result<u64, Box<dyn std::error::Error>>  {
+		Ok((self.current_page_index as u64 * USER_PAGE_SIZE) + self.current_page_offset as u64)
+	}
+
 	fn read(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
 		if buf.len() < 0x4 {
 			return Err("Buffer length needs to be 4 bytes or greater.".into());
