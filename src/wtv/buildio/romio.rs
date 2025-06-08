@@ -92,15 +92,19 @@ impl BuildIO for ROMIO {
 			} else if (buf.len() & 1) == 1 {
 				Err("Buffer needs to be a multiple of 2.".into())
 			} else {
-					let mut rsize: usize = 0x0;
+				let mut rsize: usize = 0x0;
 
-				for index in (0..buf.len()).step_by(4) {
-					rsize += self.f0.read(&mut buf[(index + 0)..(index + 2)])?;
+				if self.collation == BuildIODataCollation::StrippedROMs {
+					for index in (0..buf.len()).step_by(4) {
+						rsize += self.f0.read(&mut buf[(index + 0)..(index + 2)])?;
 
-					// Stop reading if the buffer is a miltiple of 2 but not a multiple of 4. For example, like reading into a 62 byte buffer.
-					if (index + 4) <= buf.len() {
-						rsize += self.f1.as_ref().unwrap().read(&mut buf[(index + 2)..(index + 4)])?;
+						// Stop reading if the buffer is a miltiple of 2 but not a multiple of 4. For example, like reading into a 62 byte buffer.
+						if (index + 4) <= buf.len() {
+							rsize += self.f1.as_ref().unwrap().read(&mut buf[(index + 2)..(index + 4)])?;
+						}
 					}
+				} else {
+					rsize += self.f0.read(buf)?;
 				}
 
 				Ok(rsize)
@@ -117,24 +121,27 @@ impl BuildIO for ROMIO {
 			} else if (buf.len() & 1) == 1 {
 				Err("Buffer needs to be a multiple of 2.".into())
 			} else {
-					let mut rsize: usize = 0x0;
+				let mut rsize: usize = 0x0;
 
-				for index in (0..buf.len()).step_by(4) {
-					unsafe {
-						let buf1: [u8; 2] = [*buf.get_unchecked_mut(index + 0), *buf.get_unchecked_mut(index + 1)];
+				if self.collation == BuildIODataCollation::StrippedROMs {
+					let mut buf0= vec![0x00 as u8; buf.len()/2];
+					let mut buf1 = vec![0x00 as u8; buf.len()/2];
 
-						rsize += self.f0.write(&buf1)?;
+					let mut stripped_bufindex = 0;
+					for whole_bufindex in (0..buf.len()).step_by(4) {
+						buf0[stripped_bufindex + 0] = buf[whole_bufindex + 0];
+						buf0[stripped_bufindex + 1] = buf[whole_bufindex + 1];
 
-						// Write null padding if the buffer is a miltiple of 2 but not a multiple of 4. For example, like writing from a 62 byte buffer.
-						if (index + 4) <= buf.len() {
-							let buf2: [u8; 2] = [*buf.get_unchecked_mut(index + 2), *buf.get_unchecked_mut(index + 3)];
-
-							rsize += self.f1.as_ref().unwrap().write(&buf2)?;
-						} else {
-							let null_padding: [u8; 2] = [0x00; 0x02];
-							rsize += self.f1.as_ref().unwrap().write(&null_padding)?;
-						}
+						buf1[stripped_bufindex + 0] = buf[whole_bufindex + 2];
+						buf1[stripped_bufindex + 1] = buf[whole_bufindex + 3];
+						
+						stripped_bufindex += 2;
 					}
+
+					rsize += self.f0.write(&buf0)?;
+					rsize += self.f1.as_ref().unwrap().write(&buf1)?;
+				} else {
+					rsize += self.f0.write(&buf)?;
 				}
 
 				Ok(rsize)
