@@ -289,7 +289,7 @@ impl BuildIO for FlashdiskIO {
 			let mut current_buf_index = 0;
 
 			while read_total_size < need_total_size {
-				if !self.current_page_read && self.current_page_index < self.user_page_offsets.iter().len(){
+				if !self.current_page_read && self.current_page_index < self.user_page_offsets.len() {
 					let page_offset = self.user_page_offsets[self.current_page_index];
 					if page_offset == EMPTY_PAGE {
 						self.current_page.fill(0xff);
@@ -297,11 +297,11 @@ impl BuildIO for FlashdiskIO {
 						self.file.seek(SeekFrom::Start(page_offset))?;
 
 						match self.file.read(&mut self.current_page) {
+							Ok(_) => {
+								self.current_page_read = true;
+							},
 							Err(e) => {
 								return Err(Box::new(e));
-							}
-							_ => {
-								//
 							}
 						};
 					}
@@ -313,7 +313,7 @@ impl BuildIO for FlashdiskIO {
 					self.current_page_read = false;
 					self.current_page_index += 1;
 
-					if self.current_page_index < self.user_page_offsets.iter().len() {
+					if self.current_page_index >= self.user_page_offsets.len() {
 						self.current_page_index = 0;
 					}
 				}
@@ -323,9 +323,10 @@ impl BuildIO for FlashdiskIO {
 
 				current_buf_index += current_read_size;
 				read_total_size += current_read_size;
-				self.current_page_offset += current_read_size;
 
-				if !self.current_page_read {
+				if self.current_page_read {
+					self.current_page_offset += current_read_size;
+				} else {
 					self.current_page_offset = 0;
 				}
 			}
