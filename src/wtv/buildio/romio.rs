@@ -156,11 +156,7 @@ impl BuildIO for ROMIO {
 	}
 
 	fn len(&mut self) -> Result<u64, Box<dyn std::error::Error>> {
-		if self.collation == BuildIODataCollation::StrippedROMs {
-			Ok(self.size * 2)
-		} else {
-			Ok(self.size)
-		}
+		Ok(self.size)
 	}
 
 	fn collation(&mut self) -> Result<BuildIODataCollation, Box<dyn std::error::Error>> {
