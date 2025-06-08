@@ -109,8 +109,8 @@ pub struct BuildInfo {
 	pub available: bool,
 	pub build_header: BuildHeader,
 	pub romfs_header: ROMFSHeader,
-	pub build_offset: u64,
-	pub romfs_offset: u64,
+	pub build_offset: u64, // Relative to the start of the file
+	pub romfs_offset: u64, // Relative to the the build offset
 	pub calculated_code_checksum: u32,
 	pub calculated_romfs_checksum: u32,
 }
@@ -363,11 +363,13 @@ impl BuildMeta {
 	fn get_buildinfo(&mut self, build_offset: u64) -> Result<BuildInfo, Box<dyn std::error::Error>> {
 		let mut buildinfo = BuildMeta::default_buildinfo();
 
-		buildinfo.build_header = self.get_build_header(build_offset).unwrap_or(BuildMeta::default_build_header());
+		buildinfo.build_offset = build_offset;
+
+		buildinfo.build_header = self.get_build_header(buildinfo.build_offset).unwrap_or(BuildMeta::default_build_header());
 
 		// Can't check code checksum on flashdisk builds without decompressing
 		if self.layout != BuildMetaLayout::FlashdiskLayout {
-			buildinfo.calculated_code_checksum = self.calculate_dword_checksum(build_offset, buildinfo.build_header.code_dword_length, Some(0x02)).unwrap_or(0);
+			buildinfo.calculated_code_checksum = self.calculate_dword_checksum(buildinfo.build_offset, buildinfo.build_header.code_dword_length, Some(0x02)).unwrap_or(0);
 		}
 
 		if self.layout == BuildMetaLayout::RawLayout {
@@ -396,7 +398,7 @@ impl BuildMeta {
 		// Can't check ROMFS on flashdisk builds without decompressing or if the ROMFS address is NoFS
 		if self.layout != BuildMetaLayout::FlashdiskLayout && buildinfo.build_header.romfs_address != NO_ROMFS_FLAG {
 			buildinfo.romfs_offset = buildinfo.build_header.romfs_address.wrapping_sub(buildinfo.build_header.build_base_address) as u64;
-			buildinfo.romfs_header = self.get_romfs_header(build_offset, buildinfo.romfs_offset).unwrap_or(buildinfo.romfs_header);
+			buildinfo.romfs_header = self.get_romfs_header(buildinfo.build_offset, buildinfo.romfs_offset).unwrap_or(buildinfo.romfs_header);
 
 			let romfs_dword_length = buildinfo.romfs_header.romfs_dword_length.wrapping_mul(0x04) as u64;
 			let romfs_end_offset = buildinfo.romfs_offset.wrapping_sub(romfs_dword_length).wrapping_sub(0x08);
@@ -404,10 +406,9 @@ impl BuildMeta {
 				Ok(len) => len,
 				_ => 0
 			};
-			let abs_romfs_end_offset = build_offset.wrapping_add(romfs_end_offset);
 
-			if romfs_dword_length > 0 && abs_romfs_end_offset <= data_length {
-				buildinfo.calculated_romfs_checksum = self.calculate_dword_checksum(build_offset + romfs_end_offset, buildinfo.romfs_header.romfs_dword_length, None).unwrap_or(0);
+			if romfs_dword_length > 0 && romfs_end_offset.wrapping_add(buildinfo.build_offset) <= data_length {
+				buildinfo.calculated_romfs_checksum = self.calculate_dword_checksum(buildinfo.build_offset + romfs_end_offset, buildinfo.romfs_header.romfs_dword_length, None).unwrap_or(0);
 			}
 		}
 
