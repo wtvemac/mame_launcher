@@ -1,4 +1,4 @@
-use packbytes::FromBytes;
+use packbytes::{FromBytes, ToBytes};
 
 use super::{BuildIO, BuildIODataCollation};
 use std::fs::File;
@@ -9,6 +9,9 @@ use std::io::{Read, Write, Seek, SeekFrom};
 const USR_PAGE_SIZE: u64 = 0x00000200;
 const SPR_PAGE_SIZE: u64 = 0x00000010;
 const PAGES_PER_UNIT: u64 = 0x00000020;
+const DISKINFO_UNITS: u64 = 0x00000002;
+
+const DISK_MAGIC: [u8; 6] = [b'A', b'N', b'A', b'N', b'D', 0x00];
 
 const WRITTEN_MARK: i16 = 0x5555;
 //const FOLDED_MARK: i16 = 0x5555;
@@ -16,33 +19,79 @@ const ERASED_MARK: i16 = 0x3c69;
 
 const EMPTY_PAGE: u64 = 0xffffffff;
 
+#[allow(dead_code)]
+#[derive(Debug, Copy, Clone, FromBytes, ToBytes)]
+#[packbytes(le)]
+pub struct DiskInformation {
+	pub magic: [u8; 6],
+	pub total_usable_units: i16,
+	pub frist_usable_unit: i16,
+	pub usable_size: i32,
+}
 
 #[allow(dead_code)]
-#[derive(Debug, Copy, Clone, FromBytes)]
+#[derive(Debug, Copy, Clone, FromBytes, ToBytes)]
 #[packbytes(le)]
-pub struct UserControlInformation {
-	pub page0_info: u64,
+pub struct PageInformation {
+	pub usr_ecc_data: [u8; 6],
+	pub usr_data_status: i16
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Copy, Clone, FromBytes, ToBytes)]
+#[packbytes(le)]
+pub struct UnitOrderInformation {
 	pub usr_virtual_unit_number: i16,
 	pub usr_replace_unit_number: i16,
 	pub spr_virtual_unit_number: i16,
 	pub spr_replace_unit_number: i16,
+}
 
-	pub page1_info: u64,
+#[allow(dead_code)]
+#[derive(Debug, Copy, Clone, FromBytes, ToBytes)]
+#[packbytes(le)]
+pub struct UnitEraseInformation {
 	pub wear_info: i32,
 	pub usr_erase_status: i16,
 	pub spr_erase_status: i16,
+}
 
-	pub page2_info: u64,
+#[allow(dead_code)]
+#[derive(Debug, Copy, Clone, FromBytes, ToBytes)]
+#[packbytes(le)]
+pub struct UnitFoldInformation {
 	pub usr_fold_status: i16,
-	pub spr_fold_status: i16
+	pub spr_fold_status: i16,
+	pub unused: i32
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Copy, Clone, FromBytes, ToBytes)]
+#[packbytes(le)]
+pub struct UnitBlankInformation {
+	pub data: [u8; 8]
 }
 
 #[allow(dead_code)]
 #[derive(Debug, Copy, Clone, FromBytes)]
 #[packbytes(le)]
-pub struct PageInformation {
-	pub usr_ecc_data: [u8; 6],
-	pub usr_data_status: i16
+pub struct UserControlInformation {
+	pub page0_info: PageInformation,
+	pub order: UnitOrderInformation,
+
+	pub page1_info: PageInformation,
+	pub erase: UnitEraseInformation,
+
+	pub page2_info: PageInformation,
+	pub fold: UnitFoldInformation,
+}
+
+#[allow(dead_code)]
+pub struct PageWriteInfo {
+	pub page_index: usize,
+	pub page_offset: usize,
+	pub size: usize,
+	pub data: [u8; USR_PAGE_SIZE as usize]
 }
 
 #[allow(dead_code)]
@@ -58,7 +107,8 @@ pub struct FlashdiskIO {
 	current_page_index: usize,
 	current_page_offset: usize,
 	current_page_read: bool,
-	current_page: Vec<u8>
+	current_page: Vec<u8>,
+	pending_page_writes: Vec<PageWriteInfo>
 
 }
 
@@ -164,7 +214,7 @@ impl FlashdiskIO {
 				let _ = self.file.seek(SeekFrom::Start(self.total_usr_size + unit_offset))?;
 				match UserControlInformation::read_packed(&mut self.file) {
 					Ok(uci) => {
-						if uci.usr_erase_status == ERASED_MARK && uci.usr_virtual_unit_number > -1 {
+						if uci.erase.usr_erase_status == ERASED_MARK && uci.order.usr_virtual_unit_number > -1 {
 							let mut page_index = 0;
 							while page_index < PAGES_PER_UNIT {
 								let page_offset = unit_offset + (page_index * SPR_PAGE_SIZE);
@@ -172,7 +222,7 @@ impl FlashdiskIO {
 								match PageInformation::read_packed(&mut self.file) {
 									Ok(pi) => {
 										if pi.usr_data_status == WRITTEN_MARK {
-											let virtual_page_index = ((uci.usr_virtual_unit_number as u64 * PAGES_PER_UNIT) + page_index) as usize;
+											let virtual_page_index = ((uci.order.usr_virtual_unit_number as u64 * PAGES_PER_UNIT) + page_index) as usize;
 											let usr_page_offset = ((physical_unit_index * PAGES_PER_UNIT) + page_index) * USR_PAGE_SIZE;
 
 											if virtual_page_index < self.usr_page_offsets.iter().len() {
@@ -186,8 +236,8 @@ impl FlashdiskIO {
 								};
 								page_index += 1;
 							}
-							if uci.usr_replace_unit_number != -1 {
-								physical_unit_index = uci.usr_replace_unit_number as u64;
+							if uci.order.usr_replace_unit_number != -1 {
+								physical_unit_index = uci.order.usr_replace_unit_number as u64;
 							} else {
 								break;
 							}
@@ -225,7 +275,8 @@ impl BuildIO for FlashdiskIO {
 			current_page_index: 0,
 			current_page_offset: 0,
 			current_page_read: false,
-			current_page: vec![0xff; USR_PAGE_SIZE as usize]
+			current_page: vec![0xff; USR_PAGE_SIZE as usize],
+			pending_page_writes: vec![]
 		};
 
 		io.size = io.file.metadata().unwrap().len();
@@ -250,7 +301,8 @@ impl BuildIO for FlashdiskIO {
 			current_page_index: 0,
 			current_page_offset: 0,
 			current_page_read: false,
-			current_page: vec![0xff; USR_PAGE_SIZE as usize]
+			current_page: vec![0xff; USR_PAGE_SIZE as usize],
+			pending_page_writes: vec![]
 		};
 
 		let _= io.detect_mdoc_config();
@@ -339,10 +391,168 @@ impl BuildIO for FlashdiskIO {
 	}
 
 	fn write(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
-		Ok(self.file.write(buf)?)
+		if buf.len() < 0x4 {
+			return Err("Buffer length needs to be 4 bytes or greater.".into());
+		} else if (buf.len() & 1) == 1 {
+			return Err("Buffer length needs to be a multiple of 2.".into());
+		} else {
+			let need_total_size = buf.len();
+			let mut write_total_size = 0;
+			let mut current_buf_index = 0;
+
+			while write_total_size < need_total_size {
+				let mut current_write_size = need_total_size - write_total_size;
+				let write_page_index = self.current_page_index;
+				let write_page_offset = self.current_page_offset;
+
+				if current_write_size > (USR_PAGE_SIZE as usize - self.current_page_offset) {
+					current_write_size = USR_PAGE_SIZE as usize - self.current_page_offset;
+					self.current_page_index += 1;
+					self.current_page_offset = 0;
+				} else {
+					self.current_page_offset += current_write_size;
+				}
+
+				let mut page_write_info = PageWriteInfo {
+					page_index: write_page_index,
+					page_offset: write_page_offset,
+					size: current_write_size,
+					data: [0x00; USR_PAGE_SIZE as usize]
+				};
+
+				page_write_info.data[0..current_write_size as usize]
+					.copy_from_slice(&buf[current_buf_index as usize..(current_buf_index + current_write_size) as usize]);
+
+					self.pending_page_writes.push(page_write_info);
+
+				current_buf_index += current_write_size;
+				write_total_size += current_write_size;
+			}
+
+			Ok(write_total_size)
+		}
+
+		//Ok(self.file.write(buf)?)
 	}
 
+	// We read in the entire disk, recreate the spare table then write the disk back to a file (saving a backup)
+	// This is less complex than trying to write to disk normally since we don't need to keep track of replace units, wear leveling etc...
+	// and is possible since this isn't real hardware where keeping track of those things matter.
 	fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+		if self.pending_page_writes.len() > 0 {
+			let mut usr_data = vec![0xff as u8; self.total_usr_size as usize];
+			let mut spr_data = vec![0xff as u8; self.total_spr_size as usize];
+
+			if usr_data.len() > 0 {
+				let usr_start_index = (DISKINFO_UNITS * (USR_PAGE_SIZE * PAGES_PER_UNIT)) as usize;
+
+				let _ = self.seek(0);
+				let _ = self.read(&mut usr_data[usr_start_index..]);
+
+				for pri in self.pending_page_writes.iter() {
+					let usr_index = usr_start_index + (pri.page_index * USR_PAGE_SIZE as usize) + pri.page_offset;
+
+					usr_data[usr_index..(usr_index + pri.size)]
+						.copy_from_slice(&pri.data[0..pri.size]);
+				}
+
+				self.pending_page_writes.clear();
+
+				for header_index in 0..DISKINFO_UNITS {
+					let usr_index = (header_index * (USR_PAGE_SIZE * PAGES_PER_UNIT)) as usize;
+
+					let disk_information = DiskInformation {
+						magic: DISK_MAGIC,
+						total_usable_units: (self.total_usr_size / (USR_PAGE_SIZE * PAGES_PER_UNIT)) as i16,
+						frist_usable_unit: 0,
+						usable_size: (self.total_usr_size as usize - usr_start_index) as i32
+					}.to_le_bytes();
+
+					usr_data[usr_index..(usr_index + disk_information.len()) as usize]
+						.copy_from_slice(&disk_information);
+				}
+
+				if spr_data.len() > 0 {
+					let mut unit_index = 0;
+					let mut usable_unit_index = 0;
+					let mut page_index = 0;
+					let mut unit_spr_index = 0;
+					let mut page_spr_index = 0;
+					let mut unit_written_to = false;
+					for start_index in (0..usr_data.len()).step_by(USR_PAGE_SIZE as usize) {
+						let end_index = (start_index + USR_PAGE_SIZE as usize).min(usr_data.len());
+
+						let page_written_to = match usr_data[start_index..end_index].iter().find(|&&b| b != 0xff) {
+							Some(_) => true,
+							_ => false
+						};
+
+						if page_written_to {
+							unit_written_to = true;
+
+							let page_info = PageInformation {
+								usr_ecc_data: [0x00; 6],
+								usr_data_status: WRITTEN_MARK
+							}.to_le_bytes();
+
+
+							spr_data[page_spr_index as usize..(page_spr_index + (SPR_PAGE_SIZE / 2)) as usize]
+								.copy_from_slice(&page_info);
+						}
+
+						page_spr_index += SPR_PAGE_SIZE;
+
+						page_index += 1;
+						if page_index == PAGES_PER_UNIT {
+							if unit_index >= DISKINFO_UNITS {
+								if unit_written_to {
+									spr_data[(unit_spr_index + (SPR_PAGE_SIZE / 2)) as usize..(unit_spr_index + SPR_PAGE_SIZE) as usize]
+									.copy_from_slice(&UnitOrderInformation {
+										usr_virtual_unit_number: usable_unit_index as i16,
+										usr_replace_unit_number: -1,
+										spr_virtual_unit_number: usable_unit_index as i16,
+										spr_replace_unit_number: -1
+									}.to_le_bytes());
+								}
+
+								usable_unit_index += 1;
+							}
+
+							unit_spr_index += SPR_PAGE_SIZE;
+
+							// All units should be at least erased even if nothing was written to them.
+
+							spr_data[(unit_spr_index + (SPR_PAGE_SIZE / 2)) as usize..(unit_spr_index + SPR_PAGE_SIZE) as usize]
+							.copy_from_slice(&UnitEraseInformation {
+								wear_info: 1,
+								usr_erase_status: ERASED_MARK,
+								spr_erase_status: ERASED_MARK
+							}.to_le_bytes());
+
+							unit_index += 1;
+							page_index = 0;
+							unit_spr_index = page_spr_index;
+							unit_written_to = false;
+						}
+					}
+				}
+
+				// Create a backup
+				let _ = std::fs::copy(&self.file_path, self.file_path.clone() + ".bak");
+
+				match File::create(&self.file_path) {
+					Ok(mut dstf) => {
+						let _ = dstf.seek(SeekFrom::Start(0));
+						let _ = dstf.write(&usr_data);
+						let _ = dstf.write(&spr_data);
+					},
+					_ => {
+						//
+					}
+				};
+			}
+		}
+
 		Ok(())
 	}
 
