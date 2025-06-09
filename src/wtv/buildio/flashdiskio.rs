@@ -305,7 +305,7 @@ impl BuildIO for FlashdiskIO {
 			pending_page_writes: vec![]
 		};
 
-		let _= io.detect_mdoc_config();
+		let _ = io.set_mdoc_config(size, (size / USR_PAGE_SIZE) * SPR_PAGE_SIZE);
 
 		Ok(Box::new(io))
 	}
