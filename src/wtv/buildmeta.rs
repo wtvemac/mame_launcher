@@ -459,7 +459,7 @@ impl BuildMeta {
 			self.build_info[0] = self.get_buildinfo(UTV_BUILD_OFFSET0).unwrap_or(BuildMeta::default_buildinfo());
 			self.build_info[1] = self.get_buildinfo(UTV_BUILD_OFFSET1).unwrap_or(BuildMeta::default_buildinfo());
 		} else if self.layout == BuildMetaLayout::FlashdiskLayout {
-			if self.admin_info.browser_alloc_bytes > 0 && self.admin_info.browser_size > 0 {
+			if self.admin_info.browser_alloc_bytes > 0 && self.admin_info.browser_size > 0 && self.admin_info.browser_alloc_bytes < self.io.len().unwrap_or(0) as u32 {
 				let build0_offset = (self.admin_info.browser0_block as u64 * WEBTV_BLOCK_SIZE) + FLASHDISK_BUILD_HEADER_OFFSET;
 
 				self.build_count = 1;
