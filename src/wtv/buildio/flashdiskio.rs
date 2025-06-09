@@ -1,8 +1,11 @@
 use packbytes::{FromBytes, ToBytes};
 
 use super::{BuildIO, BuildIODataCollation};
-use std::fs::{File, OpenOptions};
-use std::io::{Read, Write, Seek, SeekFrom};
+use std::{
+	fs::{File, OpenOptions},
+	io::{Read, Write, Seek, SeekFrom},
+	path::Path
+};
 
 // These values can change depending on what MDOC chip is used.
 // I've only seen these values used with the MDOC chips WebTV supports 
@@ -538,7 +541,9 @@ impl BuildIO for FlashdiskIO {
 				}
 
 				// Create a backup
-				let _ = std::fs::copy(&self.file_path, self.file_path.clone() + ".bak");
+				if Path::new(&self.file_path).exists() {
+					let _ = std::fs::copy(&self.file_path, self.file_path.clone() + ".bak");
+				}
 
 				match File::create(&self.file_path) {
 					Ok(mut dstf) => {
