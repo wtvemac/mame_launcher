@@ -1,5 +1,5 @@
 use super::{BuildIO, BuildIODataCollation};
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Write, Seek, SeekFrom};
 
 #[allow(dead_code)]
@@ -24,8 +24,8 @@ impl BuildIO for ROMIO {
 				file_path: file_path.clone(),
 				collation: collation.unwrap_or(BuildIODataCollation::Raw),
 				size: 0,
-				f0: File::open(file_path.clone() + "0")?,
-				f1: Some(File::open(file_path.clone() + "1")?)
+				f0: OpenOptions::new().read(true).write(true).open(file_path.clone() + "0")?,
+				f1: Some(OpenOptions::new().read(true).write(true).open(file_path.clone() + "1")?)
 			};
 
 			io.size = io.f0.metadata().unwrap().len() * 2;
@@ -34,7 +34,7 @@ impl BuildIO for ROMIO {
 				file_path: file_path.clone(),
 				collation: collation.unwrap_or(BuildIODataCollation::Raw),
 				size: 0,
-				f0: File::open(file_path.clone())?,
+				f0: OpenOptions::new().read(true).write(true).open(file_path.clone())?,
 				f1: None
 			};
 
@@ -52,8 +52,8 @@ impl BuildIO for ROMIO {
 				file_path: file_path.clone(),
 				collation: collation.unwrap_or(BuildIODataCollation::Raw),
 				size: size,
-				f0: File::create(file_path.clone() + "0")?,
-				f1: Some(File::create(file_path.clone() + "1")?)
+				f0: OpenOptions::new().read(true).write(true).create(true).open(file_path.clone() + "0")?,
+				f1: Some(OpenOptions::new().read(true).write(true).create(true).open(file_path.clone() + "1")?)
 			};
 		} else {
 			io = ROMIO {

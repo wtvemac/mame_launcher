@@ -1,6 +1,6 @@
 use super::{BuildIO, BuildIODataCollation};
 use std::{
-	fs::File,
+	fs::{File, OpenOptions},
 	path::Path
 };
 use std::io::{Read, Write, Seek, SeekFrom};
@@ -245,7 +245,7 @@ impl BuildIO for RawDiskIO {
 			file_path: file_path.clone(),
 			collation: collation.unwrap_or(BuildIODataCollation::Raw),
 			size: 0,
-			file: File::open(file_path.clone())?
+			file: OpenOptions::new().read(true).write(true).open(file_path.clone())?
 		};
 
 		io.size = io.file.metadata().unwrap().len();
@@ -258,7 +258,7 @@ impl BuildIO for RawDiskIO {
 			file_path: file_path.clone(),
 			collation: collation.unwrap_or(BuildIODataCollation::Raw),
 			size: size,
-			file: File::create(file_path.clone())?,
+			file: OpenOptions::new().read(true).write(true).create(true).open(file_path.clone())?,
 		};
 
 		Ok(Box::new(io))

@@ -1,7 +1,7 @@
 use packbytes::{FromBytes, ToBytes};
 
 use super::{BuildIO, BuildIODataCollation};
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Write, Seek, SeekFrom};
 
 // These values can change depending on what MDOC chip is used.
@@ -267,7 +267,7 @@ impl BuildIO for FlashdiskIO {
 			file_path: file_path.clone(),
 			collation: collation.unwrap_or(BuildIODataCollation::Raw),
 			size: 0,
-			file: File::open(file_path.clone())?,
+			file: OpenOptions::new().read(true).write(true).open(file_path.clone())?,
 			total_usr_size: 0,
 			total_spr_size: 0,
 			total_units: 0,
@@ -293,7 +293,7 @@ impl BuildIO for FlashdiskIO {
 			file_path: file_path.clone(),
 			collation: collation.unwrap_or(BuildIODataCollation::Raw),
 			size: size,
-			file: File::create(file_path.clone())?,
+			file: OpenOptions::new().read(true).write(true).create(true).open(file_path.clone())?,
 			total_usr_size: 0,
 			total_spr_size: 0,
 			total_units: 0,
