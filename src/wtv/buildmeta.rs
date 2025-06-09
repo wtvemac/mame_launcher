@@ -150,7 +150,7 @@ impl BuildMeta {
 	pub fn open_rom(file_path: String, collation: Option<BuildIODataCollation>) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
 		match ROMIO::open(file_path.clone(), collation) {
 			Ok(srcf) => {
-				BuildMeta::new(srcf)
+				BuildMeta::new(srcf, None)
 			},
 			Err(e) => {
 				Err(e)
@@ -161,7 +161,7 @@ impl BuildMeta {
 	pub fn open_disk(file_path: String, collation: Option<BuildIODataCollation>) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
 		match DiskIO::open(file_path.clone(), collation) {
 			Ok(srcf) => {
-				BuildMeta::new(srcf)
+				BuildMeta::new(srcf, None)
 			},
 			Err(e) => {
 				Err(e)
@@ -172,7 +172,7 @@ impl BuildMeta {
 	pub fn open_flashdisk(file_path: String, collation: Option<BuildIODataCollation>) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
 		match FlashdiskIO::open(file_path.clone(), collation) {
 			Ok(srcf) => {
-				BuildMeta::new(srcf)
+				BuildMeta::new(srcf, Some(BuildMetaLayout::FlashdiskLayout))
 			},
 			Err(e) => {
 				Err(e)
@@ -180,12 +180,16 @@ impl BuildMeta {
 		}
 	}
 
-	pub fn new(build_io: Box<dyn BuildIO>) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
+	pub fn new(build_io: Box<dyn BuildIO>, layout: Option<BuildMetaLayout>) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
 		let mut wtv_buildmeta = BuildMeta::default_buildmeta(build_io);
 
 		wtv_buildmeta.file_path = wtv_buildmeta.io.file_path().unwrap_or("".into()).clone();
 		wtv_buildmeta.collation = wtv_buildmeta.io.collation().unwrap_or(BuildIODataCollation::Raw);
-		wtv_buildmeta.layout = wtv_buildmeta.get_layout().unwrap_or(BuildMetaLayout::UnknownLayout);
+
+		wtv_buildmeta.layout = match layout {
+			Some(forced_layout) => forced_layout,
+			_ => wtv_buildmeta.get_layout().unwrap_or(BuildMetaLayout::UnknownLayout)
+		};
 
 		let _ = wtv_buildmeta.load_buildinfo();
 
