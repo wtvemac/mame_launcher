@@ -7,6 +7,7 @@ pub struct ROMIO {
 	file_path: String,
 	collation: BuildIODataCollation,
 	size: u64,
+	created: bool,
 	f0: File,
 	f1: Option<File>
 }
@@ -24,6 +25,7 @@ impl BuildIO for ROMIO {
 				file_path: file_path.clone(),
 				collation: collation.unwrap_or(BuildIODataCollation::Raw),
 				size: 0,
+				created: false,
 				f0: OpenOptions::new().read(true).write(true).open(file_path.clone() + "0")?,
 				f1: Some(OpenOptions::new().read(true).write(true).open(file_path.clone() + "1")?)
 			};
@@ -34,6 +36,7 @@ impl BuildIO for ROMIO {
 				file_path: file_path.clone(),
 				collation: collation.unwrap_or(BuildIODataCollation::Raw),
 				size: 0,
+				created: false,
 				f0: OpenOptions::new().read(true).write(true).open(file_path.clone())?,
 				f1: None
 			};
@@ -52,6 +55,7 @@ impl BuildIO for ROMIO {
 				file_path: file_path.clone(),
 				collation: collation.unwrap_or(BuildIODataCollation::Raw),
 				size: size,
+				created: true,
 				f0: OpenOptions::new().read(true).write(true).create(true).open(file_path.clone() + "0")?,
 				f1: Some(OpenOptions::new().read(true).write(true).create(true).open(file_path.clone() + "1")?)
 			};
@@ -60,7 +64,8 @@ impl BuildIO for ROMIO {
 				file_path: file_path.clone(),
 				collation: collation.unwrap_or(BuildIODataCollation::Raw),
 				size: size,
-				f0: File::create(file_path.clone())?,
+				created: true,
+				f0: OpenOptions::new().read(true).write(true).create(true).open(file_path.clone())?,
 				f1: None
 			};
 		}

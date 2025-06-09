@@ -12,6 +12,7 @@ struct CompressedHunkDiskIO {
 	file_path: String,
 	collation: BuildIODataCollation,
 	size: u64,
+	created: bool,
 	chd: Box<Chd<File>>,
 	current_hunk_index: u32,
 	current_hunk_offset: usize,
@@ -73,6 +74,7 @@ impl BuildIO for CompressedHunkDiskIO {
 				file_path: file_path.clone(),
 				collation: collation.unwrap_or(BuildIODataCollation::Raw),
 				size: 0,
+				created: false,
 				chd: 
 					Box::new(
 						Chd::open(
@@ -97,6 +99,7 @@ impl BuildIO for CompressedHunkDiskIO {
 				file_path: file_path.clone(),
 				collation: collation.unwrap_or(BuildIODataCollation::Raw),
 				size: 0,
+				created: false,
 				chd:
 					Box::new(
 						Chd::open(
@@ -122,6 +125,7 @@ impl BuildIO for CompressedHunkDiskIO {
 			file_path: file_path.clone(),
 			collation: collation.unwrap_or(BuildIODataCollation::Raw),
 			size: size,
+			created: true,
 			chd: Box::new(Chd::open(File::open(file_path.clone())?, None)?),
 			current_hunk_index: 0,
 			current_hunk_offset: 0,
@@ -235,6 +239,7 @@ struct RawDiskIO {
 	file_path: String,
 	collation: BuildIODataCollation,
 	size: u64,
+	created: bool,
 	file: File,
 }
 impl BuildIO for RawDiskIO {
@@ -247,6 +252,7 @@ impl BuildIO for RawDiskIO {
 			file_path: file_path.clone(),
 			collation: collation.unwrap_or(BuildIODataCollation::Raw),
 			size: 0,
+			created: false,
 			file: OpenOptions::new().read(true).write(true).open(file_path.clone())?
 		};
 
@@ -260,6 +266,7 @@ impl BuildIO for RawDiskIO {
 			file_path: file_path.clone(),
 			collation: collation.unwrap_or(BuildIODataCollation::Raw),
 			size: size,
+			created: true,
 			file: OpenOptions::new().read(true).write(true).create(true).open(file_path.clone())?,
 		};
 
