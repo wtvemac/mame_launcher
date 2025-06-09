@@ -48,6 +48,8 @@ pub trait BuildIO {
 
 	fn write(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>>;
 
+	fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>>;
+
 	fn len(&mut self) -> Result<u64, Box<dyn std::error::Error>>;
 
 	fn collation(&mut self) -> Result<BuildIODataCollation, Box<dyn std::error::Error>>;

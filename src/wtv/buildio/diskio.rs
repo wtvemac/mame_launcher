@@ -215,6 +215,10 @@ impl BuildIO for CompressedHunkDiskIO {
 		Ok(0)
 	}
 
+	fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+		Ok(())
+	}
+
 	fn len(&mut self) -> Result<u64, Box<dyn std::error::Error>> {
 		Ok(self.size)
 	}
@@ -286,6 +290,10 @@ impl BuildIO for RawDiskIO {
 		Ok(self.file.write(buf)?)
 	}
 
+	fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+		Ok(())
+	}
+
 	fn len(&mut self) -> Result<u64, Box<dyn std::error::Error>> {
 		Ok(self.size)
 	}
@@ -332,6 +340,10 @@ impl BuildIO for DiskIO {
 
 	fn write(&mut self, _buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
 		Ok(0)
+	}
+
+	fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+		Ok(())
 	}
 
 	fn len(&mut self) -> Result<u64, Box<dyn std::error::Error>> {

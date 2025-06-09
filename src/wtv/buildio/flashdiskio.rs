@@ -342,6 +342,10 @@ impl BuildIO for FlashdiskIO {
 		Ok(self.file.write(buf)?)
 	}
 
+	fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+		Ok(())
+	}
+
 	fn len(&mut self) -> Result<u64, Box<dyn std::error::Error>> {
 		Ok(self.total_usr_size)
 	}

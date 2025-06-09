@@ -155,6 +155,10 @@ impl BuildIO for ROMIO {
 		}
 	}
 
+	fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+		Ok(())
+	}
+
 	fn len(&mut self) -> Result<u64, Box<dyn std::error::Error>> {
 		Ok(self.size)
 	}
