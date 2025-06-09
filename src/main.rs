@@ -2091,6 +2091,25 @@ fn import_flashdisk_approm(config: &LauncherConfig, selected_box: &String, selec
 	Ok(())
 }
 
+fn get_flashdisk_size(selected_machine: &MAMEMachineNode) -> Result<usize, Box<dyn std::error::Error>> {
+	if selected_machine.device_ref.iter().count() > 0 {
+		for device_ref in selected_machine.device_ref.clone().unwrap_or(vec![]).iter() {
+			let device_ref_name = device_ref.name.clone().unwrap_or("".to_string());
+			if device_ref_name == "mdoc_2810_0016" {
+				return Ok(16 * 1024 * 1024);
+			} else if device_ref_name == "mdoc_2810_0008" {
+				return Ok(8 * 1024 * 1024);
+			} else if device_ref_name == "mdoc_2810_0004" {
+				return Ok(4 * 1024 * 1024);
+			} else if device_ref_name == "mdoc_2810_0002" {
+				return Ok(2 * 1024 * 1024);
+			}
+		}
+	}
+
+	Ok(DEFAULT_FLASHDISK_SIZE as usize)
+}
+
 fn import_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_source: bool, correct_checksums: bool) -> Result<(), Box<dyn std::error::Error>> {
 	let _ = ui_weak.upgrade_in_event_loop(move |ui: MainWindow| {
 		let ui_weak = ui.as_weak();
@@ -2181,7 +2200,6 @@ fn import_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_s
 								}
 							}
 						} else if uses_mdoc_approms {
-							let mut flashdisk_size = DEFAULT_FLASHDISK_SIZE;
 							for machine in config.clone().mame.machine.unwrap_or(vec![]).iter() {
 								let machine_name = 
 									machine.name
@@ -2189,28 +2207,14 @@ fn import_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_s
 									.unwrap_or("".into());
 
 								if machine_name == *selected_box {
-									if machine.device_ref.iter().count() > 0 {
-										for device_ref in machine.device_ref.clone().unwrap_or(vec![]).iter() {
-											let device_ref_name = device_ref.name.clone().unwrap_or("".to_string());
-											if device_ref_name == "mdoc_2810_0016" {
-												flashdisk_size = 16 * 1024 * 1024;
-												break;
-											} else if device_ref_name == "mdoc_2810_0008" {
-												flashdisk_size = 8 * 1024 * 1024;
-												break;
-											} else if device_ref_name == "mdoc_2810_0004" {
-												flashdisk_size = 4 * 1024 * 1024;
-												break;
-											} else if device_ref_name == "mdoc_2810_0002" {
-												flashdisk_size = 2 * 1024 * 1024;
-												break;
-											}
-										}
-									}
+									let flashdisk_size = match get_flashdisk_size(&machine) {
+										Ok(flashdisk_size) => flashdisk_size as u64,
+										_ => DEFAULT_FLASHDISK_SIZE
+									};
+
+									let _ = import_flashdisk_approm(&config, &selected_box, selected_bootrom_index, flashdisk_size, &mut source_data);
 								}
 							}
-
-							let _ = import_flashdisk_approm(&config, &selected_box, selected_bootrom_index, flashdisk_size, &mut source_data);
 						} else {
 							let _ = import_flash_approm(&config, &selected_box, selected_bootrom_index, &mut source_data);
 						}
