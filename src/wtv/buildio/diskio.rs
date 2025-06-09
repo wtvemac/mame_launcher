@@ -212,6 +212,8 @@ impl BuildIO for CompressedHunkDiskIO {
 	}
 
 	fn write(&mut self, _buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
+		//let _ = BuildIODataCollation::convert_raw_data(buf, self.collation);
+
 		Ok(0)
 	}
 
@@ -287,6 +289,8 @@ impl BuildIO for RawDiskIO {
 	}
 
 	fn write(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
+		let _ = BuildIODataCollation::convert_raw_data(buf, self.collation);
+
 		Ok(self.file.write(buf)?)
 	}
 
