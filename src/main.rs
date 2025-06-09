@@ -541,7 +541,9 @@ fn populate_approms_from_disk_file(approms: &mut Vec<VerifiableBuildItem>, file_
 				approm.build_info = Some(buildinfo.clone());
 				approm.hint = buildinfo.build_header.build_version.clone().to_string().into();
 
-				if buildinfo.build_header.code_checksum != buildinfo.calculated_code_checksum {
+				if build_meta.build_count == 0 {
+					approm.build_storage_state = BuildStorageState::CantReadBuild;
+				} else if buildinfo.build_header.code_checksum != buildinfo.calculated_code_checksum {
 					approm.build_storage_state = BuildStorageState::CodeChecksumMismatch;
 				} else if buildinfo.romfs_header.romfs_checksum != buildinfo.calculated_romfs_checksum {
 					approm.build_storage_state = BuildStorageState::RomfsChecksumMismatch;
@@ -558,7 +560,7 @@ fn populate_approms_from_disk_file(approms: &mut Vec<VerifiableBuildItem>, file_
 				if build_index >= build_meta.build_count {
 					break;
 				}
-			};
+			}
 		},
 		_ => {
 			//
@@ -661,7 +663,9 @@ fn get_flashdisk_approms(config: &LauncherConfig, selected_machine: &MAMEMachine
 				approm.build_info = Some(buildinfo.clone());
 				approm.hint = buildinfo.build_header.build_version.clone().to_string().into();
 
-				if buildinfo.build_header.build_base_address < APPROM3_DISK_BASE_ADDRESS_MIN || buildinfo.build_header.build_base_address > APPROM3_DISK_BASE_ADDRESS_MAX {
+				if build_meta.build_count == 0 {
+					approm.build_storage_state = BuildStorageState::CantReadBuild;
+				} else if buildinfo.build_header.build_base_address < APPROM3_DISK_BASE_ADDRESS_MIN || buildinfo.build_header.build_base_address > APPROM3_DISK_BASE_ADDRESS_MAX {
 					approm.build_storage_state = BuildStorageState::BadBaseAddress;
 				} else {
 					approm.build_storage_state = BuildStorageState::BuildLooksGood;
