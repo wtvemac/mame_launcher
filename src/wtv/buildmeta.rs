@@ -187,7 +187,13 @@ impl BuildMeta {
 		wtv_buildmeta.collation = wtv_buildmeta.io.collation().unwrap_or(BuildIODataCollation::Raw);
 
 		wtv_buildmeta.layout = match layout {
-			Some(forced_layout) => forced_layout,
+			Some(forced_layout) => {
+				if forced_layout == BuildMetaLayout::FlashdiskLayout {
+					let _ = wtv_buildmeta.get_admininfo();
+				}
+
+				forced_layout
+			},
 			_ => wtv_buildmeta.get_layout().unwrap_or(BuildMetaLayout::UnknownLayout)
 		};
 
@@ -233,16 +239,23 @@ impl BuildMeta {
 		DiskAdminInfo::from_bytes([0x00; 0x8c])
 	}
 
+	fn get_admininfo(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+		let _ = self.io.seek(FLASHDISK_ADMININFO_OFFSET)?;
+		let mut flashdisk_check = [0x00; 0x8c];
+		let _ = self.io.read(&mut flashdisk_check).unwrap_or(0);
+		self.admin_info = DiskAdminInfo::from_bytes(flashdisk_check);
+
+		Ok(())
+	}
+
 	fn get_layout(&mut self) -> Result<BuildMetaLayout, Box<dyn std::error::Error>> {
 		let file_size = self.io.len().unwrap_or(0);
 		
 		
 		// Check flashdisk admin info block
 		if file_size > FLASHDISK_ADMININFO_OFFSET {
-			let _ = self.io.seek(FLASHDISK_ADMININFO_OFFSET)?;
-			let mut flashdisk_check = [0x00; 0x8c];
-			let _ = self.io.read(&mut flashdisk_check).unwrap_or(0);
-			self.admin_info = DiskAdminInfo::from_bytes(flashdisk_check);
+			let _ = self.get_admininfo();
+
 			if self.admin_info.primary_nv_alloc_bytes == FLASHDISK_NVRAM_SIZE_CHECK_VALUE
 			&& self.admin_info.secondary_nv_alloc_bytes == FLASHDISK_NVRAM_SIZE_CHECK_VALUE {
 				return Ok(BuildMetaLayout::FlashdiskLayout);
