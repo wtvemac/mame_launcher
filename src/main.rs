@@ -2010,6 +2010,48 @@ fn import_flash_approm(config: &LauncherConfig, selected_box: &String, selected_
 	Ok(())
 }
 
+fn import_disk_approm(selected_box: &String, file_path: &String, source_data: &mut Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+	let disk_collation = match Regex::new(r"^wtv\d+utv").unwrap().is_match(selected_box.as_str()) {
+		true => BuildIODataCollation::ByteSwapped1632,
+		false => BuildIODataCollation::ByteSwapped16,
+	};
+
+	match BuildMeta::open_disk(file_path.to_string(), Some(disk_collation)) {
+		Ok(mut buildmeta) => {
+			let _ = buildmeta.write_build(source_data);
+		},
+		_ => {
+			// Problem opening destination.
+		}
+	};
+
+	Ok(())
+}
+
+fn import_flashdisk_approm(config: &LauncherConfig, selected_box: &String, selected_bootrom_index: usize, source_data: &mut Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+	let config_persistent_paths = config.persistent.paths.clone();
+	let mame_executable_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
+	let mame_directory_path = LauncherConfig::get_parent(mame_executable_path).unwrap_or("".into());
+
+	let file_path;
+	if selected_bootrom_index > 0 {
+		file_path = mame_directory_path.clone() + "/nvram/" + &selected_box + "_" + &selected_bootrom_index.to_string() + "/mdoc_flash0";
+	} else {
+		file_path = mame_directory_path.clone() + "/nvram/" + &selected_box + "/mdoc_flash0";
+	}
+
+	match BuildMeta::open_flashdisk(file_path, Some(BuildIODataCollation::Raw)) {
+		Ok(mut buildmeta) => {
+			let _ = buildmeta.write_build(source_data);
+		},
+		_ => {
+			// Problem opening destination.
+		}
+	};
+
+	Ok(())
+}
+
 fn import_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_source: bool, correct_checksums: bool) -> Result<(), Box<dyn std::error::Error>> {
 	let _ = ui_weak.upgrade_in_event_loop(move |ui: MainWindow| {
 		let ui_weak = ui.as_weak();
@@ -2020,6 +2062,9 @@ fn import_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_s
 
 		let uses_disk_approms = ui_mame.get_uses_disk_approms();
 		let uses_mdoc_approms = ui_mame.get_uses_mdoc_approms();
+
+		let selected_hdimg_path: String = ui_mame.get_selected_hdimg_path().to_string();
+		let selected_hdimg_enabled = ui_mame.get_selected_hdimg_enabled();
 
 		let _ = std::thread::spawn(move || {
 			enable_loading(&ui_weak, "Saving AppROM".into());
@@ -2064,9 +2109,40 @@ fn import_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_s
 						}
 
 						if uses_disk_approms {
-							//let _ = import_disk_approm(&config, &selected_box, selected_bootrom_index, &mut source_data);
+							if selected_hdimg_enabled && selected_hdimg_path != "" {
+								let _ = import_disk_approm(&selected_box, &selected_hdimg_path, &mut source_data);
+							} else {
+								for machine in config.mame.machine.unwrap_or(vec![]).iter() {
+									let machine_name = 
+										machine.name
+										.clone()
+										.unwrap_or("".into());
+
+									if machine_name == *selected_box {
+										if machine.disk.iter().count() > 0 {
+											match machine.disk.clone() {
+												Some(disks) => {
+													let disk_name = disks[0].name.clone().unwrap_or("".into());
+													let disk_file = disk_name.clone() + ".chd";
+
+													let config_persistent_paths = config.persistent.paths.clone();
+													let mame_executable_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
+													let mame_directory_path = LauncherConfig::get_parent(mame_executable_path).unwrap_or("".into());
+									
+													let preset_img_path = mame_directory_path.clone() + "/roms/" + &selected_box + "/" + &disk_file;
+
+													let _ = import_disk_approm(&selected_box, &preset_img_path, &mut source_data);
+												},
+												_ => {
+													//
+												}
+											};
+										}
+									}
+								}
+							}
 						} else if uses_mdoc_approms {
-							//let _ = import_mdoc_approm(&config, &selected_box, selected_bootrom_index, &mut source_data);
+							let _ = import_flashdisk_approm(&config, &selected_box, selected_bootrom_index, &mut source_data);
 						} else {
 							let _ = import_flash_approm(&config, &selected_box, selected_bootrom_index, &mut source_data);
 						}
