@@ -56,9 +56,14 @@ use wtv::{
 	buildio::{
 		BuildIO,
 		BuildIODataCollation,
-		romio::ROMIO
+		romio::ROMIO,
+		flashdiskio::FlashdiskIO
 	},
-	buildmeta::{BuildMeta, BuildInfo},
+	buildmeta::{
+		BuildMeta,
+		BuildMetaLayout,
+		BuildInfo
+	},
 	ssid::{SSIDInfo, SSIDBoxType, SSIDManufacture}
 };
 
@@ -79,6 +84,7 @@ const APPROM2_FLASH_FILE_PREFIX: &'static str = "approm_flash";
 const APPROM3_FLASH_FILE_PREFIX: &'static str = "bank1_flash";
 const APPROM_HDIMG_PREFIX: &'static str = "hdimg";
 const ALLOW_APPROM2_FILES: bool = false;
+const DEFAULT_FLASHDISK_SIZE: u64 = 8 * 1024 * 1024;
 const PUBLIC_TOUCHPP_ADDRESS: &'static str = "wtv.ooguy.com:1122";
 const CONSOLE_SCROLLBACK_LINES: usize = 9000;
 #[cfg(target_os = "linux")]
@@ -625,14 +631,25 @@ fn get_disk_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode,
 fn get_flashdisk_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode, selected_bootrom_index: usize) -> Result<Vec<VerifiableBuildItem>, Box<dyn std::error::Error>> {
 	let mut approms: Vec<VerifiableBuildItem> = vec![];
 
-	let config_persistent_paths = config.persistent.paths.clone();
-	let mame_executable_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
-	let mame_directory_path = LauncherConfig::get_parent(mame_executable_path).unwrap_or("".into());
-
 	let selected_box = 
 		selected_machine.name
 		.clone()
 		.unwrap_or("".into());
+
+	let config_persistent_paths = config.persistent.paths.clone();
+	let mame_executable_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
+	let mame_directory_path = LauncherConfig::get_parent(mame_executable_path).unwrap_or("".into());
+
+	let mut approm = VerifiableBuildItem {
+		hint: "".into(),
+		value: "".into(),
+		status: "".into(),
+		description: "".into(),
+		hash: "".into(),
+		build_storage_type: BuildStorageType::DiskBuild,
+		build_storage_state: BuildStorageState::UnknownBuildState,
+		build_info: None
+	};
 
 	let file_path;
 	if selected_bootrom_index > 0 {
@@ -641,50 +658,45 @@ fn get_flashdisk_approms(config: &LauncherConfig, selected_machine: &MAMEMachine
 		file_path = mame_directory_path.clone() + "/nvram/" + &selected_box + "/mdoc_flash0";
 	}
 
-	match BuildMeta::open_flashdisk(file_path, Some(BuildIODataCollation::Raw)) {
-		Ok(build_meta) => {
-			let mut build_index = 0;
-			for buildinfo in build_meta.build_info.iter() {
-				let mut approm = VerifiableBuildItem {
-					hint: "".into(),
-					value: ("mdoc[".to_owned() + &build_index.to_string() + "]").into(),
-					status: "".into(),
-					description: "".into(),
-					hash: "".into(),
-					build_storage_type: BuildStorageType::DiskBuild,
-					build_storage_state: BuildStorageState::UnknownBuildState,
-					build_info: None
+	if Path::new(&file_path).exists() {
+		match BuildMeta::open_flashdisk(file_path, Some(BuildIODataCollation::Raw)) {
+			Ok(build_meta) => {
+				let mut build_index = 0;
+				for buildinfo in build_meta.build_info.iter() {
+
+					if build_index == build_meta.selected_build_index {
+						approm.status = "selected".to_string();
+					}
+
+					approm.build_info = Some(buildinfo.clone());
+					approm.hint = buildinfo.build_header.build_version.clone().to_string().into();
+					approm.value = ("mdoc[".to_owned() + &build_index.to_string() + "]").into();
+
+					if build_meta.build_count == 0 {
+						approm.build_storage_state = BuildStorageState::CantReadBuild;
+					} else if buildinfo.build_header.build_base_address < APPROM3_DISK_BASE_ADDRESS_MIN || buildinfo.build_header.build_base_address > APPROM3_DISK_BASE_ADDRESS_MAX {
+						approm.build_storage_state = BuildStorageState::BadBaseAddress;
+					} else {
+						approm.build_storage_state = BuildStorageState::BuildLooksGood;
+					}
+
+
+					build_index += 1;
+
+					if build_index >= build_meta.build_count {
+						break;
+					}
 				};
+			},
+			_ => {
+				//
+			}
+		};
+	} else {
+		approm.build_storage_state = BuildStorageState::FileNotFound;
+	}
 
-				if build_index == build_meta.selected_build_index {
-					approm.status = "selected".to_string();
-				}
-
-				approm.build_info = Some(buildinfo.clone());
-				approm.hint = buildinfo.build_header.build_version.clone().to_string().into();
-
-				if build_meta.build_count == 0 {
-					approm.build_storage_state = BuildStorageState::CantReadBuild;
-				} else if buildinfo.build_header.build_base_address < APPROM3_DISK_BASE_ADDRESS_MIN || buildinfo.build_header.build_base_address > APPROM3_DISK_BASE_ADDRESS_MAX {
-					approm.build_storage_state = BuildStorageState::BadBaseAddress;
-				} else {
-					approm.build_storage_state = BuildStorageState::BuildLooksGood;
-				}
-
-				approms.push(approm);
-
-				build_index += 1;
-
-				if build_index >= build_meta.build_count {
-					break;
-				}
-			};
-		},
-		_ => {
-			//
-		}
-	};
-
+	approms.push(approm);
 
 	Ok(approms)
 }
@@ -2028,26 +2040,53 @@ fn import_disk_approm(selected_box: &String, file_path: &String, source_data: &m
 	Ok(())
 }
 
-fn import_flashdisk_approm(config: &LauncherConfig, selected_box: &String, selected_bootrom_index: usize, source_data: &mut Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+fn import_flashdisk_approm(config: &LauncherConfig, selected_box: &String, selected_bootrom_index: usize, size: u64, source_data: &mut Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
 	let config_persistent_paths = config.persistent.paths.clone();
 	let mame_executable_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
 	let mame_directory_path = LauncherConfig::get_parent(mame_executable_path).unwrap_or("".into());
 
-	let file_path;
+	let disk_directory_path: String;
 	if selected_bootrom_index > 0 {
-		file_path = mame_directory_path.clone() + "/nvram/" + &selected_box + "_" + &selected_bootrom_index.to_string() + "/mdoc_flash0";
+		disk_directory_path = mame_directory_path.clone() + "/nvram/" + &selected_box + "_" + &selected_bootrom_index.to_string();
 	} else {
-		file_path = mame_directory_path.clone() + "/nvram/" + &selected_box + "/mdoc_flash0";
+		disk_directory_path = mame_directory_path.clone() + "/nvram/" + &selected_box;
 	}
 
-	match BuildMeta::open_flashdisk(file_path, Some(BuildIODataCollation::Raw)) {
-		Ok(mut buildmeta) => {
-			let _ = buildmeta.write_build(source_data);
-		},
-		_ => {
-			// Problem opening destination.
+	let disk_file_path = disk_directory_path.clone() + "/mdoc_flash0";
+
+	if Path::new(&disk_file_path).exists() {
+		match BuildMeta::open_flashdisk(disk_file_path, Some(BuildIODataCollation::Raw)) {
+			Ok(mut buildmeta) => {
+				let _ = buildmeta.write_build(source_data);
+			},
+			_ => {
+				// Problem opening destination.
+			}
+		};
+	} else if disk_directory_path != "" && disk_file_path != "" {
+		match std::fs::create_dir_all(disk_directory_path) {
+			Ok(_) => {
+				match FlashdiskIO::create(disk_file_path, Some(BuildIODataCollation::Raw), size) {
+					Ok(io) => {
+						match BuildMeta::new(io, Some(BuildMetaLayout::FlashdiskLayout)) {
+							Ok(mut buildmeta) => {
+								let _ = buildmeta.write_build(source_data);
+							},
+							_ => {
+								// Problem opening destination.
+							}
+						};
+					},
+					_ => {
+						// Problem opening destination.
+					}
+				};
+			},
+			_ => {
+				// Problem creating destination path.
+			}
 		}
-	};
+	}
 
 	Ok(())
 }
@@ -2142,7 +2181,36 @@ fn import_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_s
 								}
 							}
 						} else if uses_mdoc_approms {
-							let _ = import_flashdisk_approm(&config, &selected_box, selected_bootrom_index, &mut source_data);
+							let mut flashdisk_size = DEFAULT_FLASHDISK_SIZE;
+							for machine in config.clone().mame.machine.unwrap_or(vec![]).iter() {
+								let machine_name = 
+									machine.name
+									.clone()
+									.unwrap_or("".into());
+
+								if machine_name == *selected_box {
+									if machine.device_ref.iter().count() > 0 {
+										for device_ref in machine.device_ref.clone().unwrap_or(vec![]).iter() {
+											let device_ref_name = device_ref.name.clone().unwrap_or("".to_string());
+											if device_ref_name == "mdoc_2810_0016" {
+												flashdisk_size = 16 * 1024 * 1024;
+												break;
+											} else if device_ref_name == "mdoc_2810_0008" {
+												flashdisk_size = 8 * 1024 * 1024;
+												break;
+											} else if device_ref_name == "mdoc_2810_0004" {
+												flashdisk_size = 4 * 1024 * 1024;
+												break;
+											} else if device_ref_name == "mdoc_2810_0002" {
+												flashdisk_size = 2 * 1024 * 1024;
+												break;
+											}
+										}
+									}
+								}
+							}
+
+							let _ = import_flashdisk_approm(&config, &selected_box, selected_bootrom_index, flashdisk_size, &mut source_data);
 						} else {
 							let _ = import_flash_approm(&config, &selected_box, selected_bootrom_index, &mut source_data);
 						}
