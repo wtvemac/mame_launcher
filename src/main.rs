@@ -658,40 +658,51 @@ fn get_flashdisk_approms(config: &LauncherConfig, selected_machine: &MAMEMachine
 		file_path = mame_directory_path.clone() + "/nvram/" + &selected_box + "/mdoc_flash0";
 	}
 
+	let flashdisk_size = match get_flashdisk_size(&selected_machine) {
+		Ok(flashdisk_size) => flashdisk_size as u64,
+		_ => DEFAULT_FLASHDISK_SIZE
+	};
+
 	if Path::new(&file_path).exists() {
-		match BuildMeta::open_flashdisk(file_path, Some(BuildIODataCollation::Raw)) {
-			Ok(build_meta) => {
-				let mut build_index = 0;
-				for buildinfo in build_meta.build_info.iter() {
+		if flashdisk_size < Path::new(&file_path).metadata().unwrap().len() {
+			// The file is borked so remove it. There are some cases where this isn't intended but most times this will correct some issues.
+			let _ = std::fs::remove_file(&file_path);
+			approm.build_storage_state = BuildStorageState::FileNotFound;
+		} else {
+			match BuildMeta::open_flashdisk(file_path, Some(BuildIODataCollation::Raw)) {
+				Ok(build_meta) => {
+					let mut build_index = 0;
+					for buildinfo in build_meta.build_info.iter() {
 
-					if build_index == build_meta.selected_build_index {
-						approm.status = "selected".to_string();
-					}
+						if build_index == build_meta.selected_build_index {
+							approm.status = "selected".to_string();
+						}
 
-					approm.build_info = Some(buildinfo.clone());
-					approm.hint = buildinfo.build_header.build_version.clone().to_string().into();
-					approm.value = ("mdoc[".to_owned() + &build_index.to_string() + "]").into();
+						approm.build_info = Some(buildinfo.clone());
+						approm.hint = buildinfo.build_header.build_version.clone().to_string().into();
+						approm.value = ("mdoc[".to_owned() + &build_index.to_string() + "]").into();
 
-					if build_meta.build_count == 0 {
-						approm.build_storage_state = BuildStorageState::CantReadBuild;
-					} else if buildinfo.build_header.build_base_address < APPROM3_DISK_BASE_ADDRESS_MIN || buildinfo.build_header.build_base_address > APPROM3_DISK_BASE_ADDRESS_MAX {
-						approm.build_storage_state = BuildStorageState::BadBaseAddress;
-					} else {
-						approm.build_storage_state = BuildStorageState::BuildLooksGood;
-					}
+						if build_meta.build_count == 0 {
+							approm.build_storage_state = BuildStorageState::CantReadBuild;
+						} else if buildinfo.build_header.build_base_address < APPROM3_DISK_BASE_ADDRESS_MIN || buildinfo.build_header.build_base_address > APPROM3_DISK_BASE_ADDRESS_MAX {
+							approm.build_storage_state = BuildStorageState::BadBaseAddress;
+						} else {
+							approm.build_storage_state = BuildStorageState::BuildLooksGood;
+						}
 
 
-					build_index += 1;
+						build_index += 1;
 
-					if build_index >= build_meta.build_count {
-						break;
-					}
-				};
-			},
-			_ => {
-				//
-			}
-		};
+						if build_index >= build_meta.build_count {
+							break;
+						}
+					};
+				},
+				_ => {
+					//
+				}
+			};
+		}
 	} else {
 		approm.build_storage_state = BuildStorageState::FileNotFound;
 	}
