@@ -664,7 +664,7 @@ fn get_flashdisk_approms(config: &LauncherConfig, selected_machine: &MAMEMachine
 	};
 
 	if Path::new(&file_path).exists() {
-		if flashdisk_size < Path::new(&file_path).metadata().unwrap().len() {
+		if flashdisk_size > Path::new(&file_path).metadata().unwrap().len() {
 			// The file is borked so remove it. There are some cases where this isn't intended but most times this will correct some issues.
 			let _ = std::fs::remove_file(&file_path);
 			approm.build_storage_state = BuildStorageState::FileNotFound;
