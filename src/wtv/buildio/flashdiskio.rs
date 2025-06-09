@@ -6,8 +6,8 @@ use std::io::{Read, Write, Seek, SeekFrom};
 
 // These values can change depending on what MDOC chip is used.
 // I've only seen these values used with the MDOC chips WebTV supports 
-const USER_PAGE_SIZE: u64 = 0x00000200;
-const SPARE_PAGE_SIZE: u64 = 0x00000010;
+const USR_PAGE_SIZE: u64 = 0x00000200;
+const SPR_PAGE_SIZE: u64 = 0x00000010;
 const PAGES_PER_UNIT: u64 = 0x00000020;
 
 const WRITTEN_MARK: i16 = 0x5555;
@@ -15,6 +15,7 @@ const WRITTEN_MARK: i16 = 0x5555;
 const ERASED_MARK: i16 = 0x3c69;
 
 const EMPTY_PAGE: u64 = 0xffffffff;
+
 
 #[allow(dead_code)]
 #[derive(Debug, Copy, Clone, FromBytes)]
@@ -40,8 +41,8 @@ pub struct UserControlInformation {
 #[derive(Debug, Copy, Clone, FromBytes)]
 #[packbytes(le)]
 pub struct PageInformation {
-	pub user_ecc_data: [u8; 6],
-	pub user_data_status: i16
+	pub usr_ecc_data: [u8; 6],
+	pub usr_data_status: i16
 }
 
 #[allow(dead_code)]
@@ -50,10 +51,10 @@ pub struct FlashdiskIO {
 	collation: BuildIODataCollation,
 	size: u64,
 	file: File,
-	total_user_size: u64,
-	total_spare_size: u64,
+	total_usr_size: u64,
+	total_spr_size: u64,
 	total_units: u64,
-	user_page_offsets: Vec<u64>,
+	usr_page_offsets: Vec<u64>,
 	current_page_index: usize,
 	current_page_offset: usize,
 	current_page_read: bool,
@@ -67,25 +68,25 @@ impl FlashdiskIO {
 	fn detect_mdoc_config(&mut self) -> Result<(), Box<dyn std::error::Error>> {
 		let file_size = self.file.metadata().unwrap().len();
 
-		// user_size  = ( spare_size / spare_page_size ) * user_page_size
-		// spare_size = ( user_size  / user_page_size  ) * spare_page_size
-		// file_size  = user_size + spare_size
+		// usr_size  = (spr_size / SPR_PAGE_SIZE) * USR_PAGE_SIZE
+		// spr_size  = (usr_size / USR_PAGE_SIZE) * SPR_PAGE_SIZE
+		// file_size = usr_size + spr_size
 
-		let total_user_size = ((file_size as f64) / (1.0 + ((SPARE_PAGE_SIZE as f64) / (USER_PAGE_SIZE as f64)))) as u64;
-		let total_spare_size = file_size - total_user_size;
+		let total_usr_size = ((file_size as f64) / (1.0 + ((SPR_PAGE_SIZE as f64) / (USR_PAGE_SIZE as f64)))) as u64;
+		let total_spr_size = file_size - total_usr_size;
 
-		let _ = self.set_mdoc_config(total_user_size, total_spare_size);
+		let _ = self.set_mdoc_config(total_usr_size, total_spr_size);
 
 		Ok(())
 	}
 
-	pub fn set_mdoc_config(&mut self, total_user_size: u64, total_spare_size: u64) -> Result<(), Box<dyn std::error::Error>> {
-		self.total_user_size = total_user_size;
-		self.total_spare_size = total_spare_size;
+	pub fn set_mdoc_config(&mut self, total_usr_size: u64, total_spr_size: u64) -> Result<(), Box<dyn std::error::Error>> {
+		self.total_usr_size = total_usr_size;
+		self.total_spr_size = total_spr_size;
 
-		let total_pages = self.total_user_size / USER_PAGE_SIZE;
+		let total_pages = self.total_usr_size / USR_PAGE_SIZE;
 		self.total_units = total_pages / PAGES_PER_UNIT;
-		self.user_page_offsets = vec![EMPTY_PAGE; total_pages as usize];
+		self.usr_page_offsets = vec![EMPTY_PAGE; total_pages as usize];
 
 		Ok(())
 	}
@@ -159,23 +160,23 @@ impl FlashdiskIO {
 
 			let mut chain_index = 0;
 			while chain_index < self.total_units {
-				let unit_offset = physical_unit_index * (SPARE_PAGE_SIZE * PAGES_PER_UNIT);
-				let _ = self.file.seek(SeekFrom::Start(self.total_user_size + unit_offset))?;
+				let unit_offset = physical_unit_index * (SPR_PAGE_SIZE * PAGES_PER_UNIT);
+				let _ = self.file.seek(SeekFrom::Start(self.total_usr_size + unit_offset))?;
 				match UserControlInformation::read_packed(&mut self.file) {
 					Ok(uci) => {
 						if uci.usr_erase_status == ERASED_MARK && uci.usr_virtual_unit_number > -1 {
 							let mut page_index = 0;
 							while page_index < PAGES_PER_UNIT {
-								let page_offset = unit_offset + (page_index * SPARE_PAGE_SIZE);
-								let _ = self.file.seek(SeekFrom::Start(self.total_user_size + page_offset))?;
+								let page_offset = unit_offset + (page_index * SPR_PAGE_SIZE);
+								let _ = self.file.seek(SeekFrom::Start(self.total_usr_size + page_offset))?;
 								match PageInformation::read_packed(&mut self.file) {
 									Ok(pi) => {
-										if pi.user_data_status == WRITTEN_MARK {
+										if pi.usr_data_status == WRITTEN_MARK {
 											let virtual_page_index = ((uci.usr_virtual_unit_number as u64 * PAGES_PER_UNIT) + page_index) as usize;
-											let user_page_offset = ((physical_unit_index * PAGES_PER_UNIT) + page_index) * USER_PAGE_SIZE;
+											let usr_page_offset = ((physical_unit_index * PAGES_PER_UNIT) + page_index) * USR_PAGE_SIZE;
 
-											if virtual_page_index < self.user_page_offsets.iter().len() {
-												self.user_page_offsets[virtual_page_index] = user_page_offset;
+											if virtual_page_index < self.usr_page_offsets.iter().len() {
+												self.usr_page_offsets[virtual_page_index] = usr_page_offset;
 											}
 										}
 									},
@@ -217,14 +218,14 @@ impl BuildIO for FlashdiskIO {
 			collation: collation.unwrap_or(BuildIODataCollation::Raw),
 			size: 0,
 			file: File::open(file_path.clone())?,
-			total_user_size: 0,
-			total_spare_size: 0,
+			total_usr_size: 0,
+			total_spr_size: 0,
 			total_units: 0,
-			user_page_offsets: vec![],
+			usr_page_offsets: vec![],
 			current_page_index: 0,
 			current_page_offset: 0,
 			current_page_read: false,
-			current_page: vec![0xff; USER_PAGE_SIZE as usize]
+			current_page: vec![0xff; USR_PAGE_SIZE as usize]
 		};
 
 		io.size = io.file.metadata().unwrap().len();
@@ -242,14 +243,14 @@ impl BuildIO for FlashdiskIO {
 			collation: collation.unwrap_or(BuildIODataCollation::Raw),
 			size: size,
 			file: File::create(file_path.clone())?,
-			total_user_size: 0,
-			total_spare_size: 0,
+			total_usr_size: 0,
+			total_spr_size: 0,
 			total_units: 0,
-			user_page_offsets: vec![],
+			usr_page_offsets: vec![],
 			current_page_index: 0,
 			current_page_offset: 0,
 			current_page_read: false,
-			current_page: vec![0xff; USER_PAGE_SIZE as usize]
+			current_page: vec![0xff; USR_PAGE_SIZE as usize]
 		};
 
 		let _= io.detect_mdoc_config();
@@ -258,10 +259,10 @@ impl BuildIO for FlashdiskIO {
 	}
 
 	fn seek(&mut self, pos: u64) -> Result<u64, Box<dyn std::error::Error>>  {
-		self.current_page_index = (pos / USER_PAGE_SIZE) as usize;
+		self.current_page_index = (pos / USR_PAGE_SIZE) as usize;
 
-		if self.current_page_index < self.user_page_offsets.iter().len() {
-			self.current_page_offset = (pos % USER_PAGE_SIZE) as usize;
+		if self.current_page_index < self.usr_page_offsets.iter().len() {
+			self.current_page_offset = (pos % USR_PAGE_SIZE) as usize;
 			self.current_page_read = false;
 
 			Ok(pos)
@@ -275,7 +276,7 @@ impl BuildIO for FlashdiskIO {
 	}
 
 	fn stream_position(&mut self) -> Result<u64, Box<dyn std::error::Error>>  {
-		Ok((self.current_page_index as u64 * USER_PAGE_SIZE) + self.current_page_offset as u64)
+		Ok((self.current_page_index as u64 * USR_PAGE_SIZE) + self.current_page_offset as u64)
 	}
 
 	fn read(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
@@ -289,8 +290,8 @@ impl BuildIO for FlashdiskIO {
 			let mut current_buf_index = 0;
 
 			while read_total_size < need_total_size {
-				if !self.current_page_read && self.current_page_index < self.user_page_offsets.len() {
-					let page_offset = self.user_page_offsets[self.current_page_index];
+				if !self.current_page_read && self.current_page_index < self.usr_page_offsets.len() {
+					let page_offset = self.usr_page_offsets[self.current_page_index];
 					if page_offset == EMPTY_PAGE {
 						self.current_page.fill(0xff);
 					} else {
@@ -308,12 +309,12 @@ impl BuildIO for FlashdiskIO {
 				}
 	
 				let mut current_read_size = need_total_size - read_total_size;
-				if current_read_size > (USER_PAGE_SIZE as usize - self.current_page_offset) {
-					current_read_size = USER_PAGE_SIZE as usize - self.current_page_offset;
+				if current_read_size > (USR_PAGE_SIZE as usize - self.current_page_offset) {
+					current_read_size = USR_PAGE_SIZE as usize - self.current_page_offset;
 					self.current_page_read = false;
 					self.current_page_index += 1;
 
-					if self.current_page_index >= self.user_page_offsets.len() {
+					if self.current_page_index >= self.usr_page_offsets.len() {
 						self.current_page_index = 0;
 					}
 				}
@@ -342,7 +343,7 @@ impl BuildIO for FlashdiskIO {
 	}
 
 	fn len(&mut self) -> Result<u64, Box<dyn std::error::Error>> {
-		Ok(self.total_user_size)
+		Ok(self.total_usr_size)
 	}
 
 	fn collation(&mut self) -> Result<BuildIODataCollation, Box<dyn std::error::Error>> {
