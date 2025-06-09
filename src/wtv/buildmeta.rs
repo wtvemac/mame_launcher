@@ -309,11 +309,15 @@ impl BuildMeta {
 			self.build_info[0] = self.get_buildinfo(UTV_BUILD_OFFSET0).unwrap_or(BuildMeta::default_buildinfo());
 			self.build_info[1] = self.get_buildinfo(UTV_BUILD_OFFSET1).unwrap_or(BuildMeta::default_buildinfo());
 		} else if self.layout == BuildMetaLayout::FlashdiskLayout {
-			let build0_offset = (self.admin_info.browser0_block as u64 * WEBTV_BLOCK_SIZE) + FLASHDISK_BUILD_HEADER_OFFSET;
+			if self.admin_info.browser_alloc_bytes > 0 && self.admin_info.browser_size > 0 {
+				let build0_offset = (self.admin_info.browser0_block as u64 * WEBTV_BLOCK_SIZE) + FLASHDISK_BUILD_HEADER_OFFSET;
 
-			self.build_count = 1;
-			self.selected_build_index = 0;
-			self.build_info[0] = self.get_buildinfo(build0_offset).unwrap_or(BuildMeta::default_buildinfo());
+				self.build_count = 1;
+				self.selected_build_index = 0;
+				self.build_info[0] = self.get_buildinfo(build0_offset).unwrap_or(BuildMeta::default_buildinfo());
+			} else {
+				self.build_count = 0;
+			}
 		} else {
 			self.build_count = 1;
 			self.selected_build_index = 0;
