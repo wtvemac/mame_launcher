@@ -1,3 +1,4 @@
+use packbytes::{FromBytes, ToBytes};
 use super::{BuildIO, BuildIODataCollation};
 use std::{
 	fs::{File, OpenOptions},
@@ -6,6 +7,64 @@ use std::{
 use std::io::{Read, Write, Seek, SeekFrom};
 use chd::Chd;
 use regex::Regex;
+
+const CHD_HEADER_SIZE: u32 = 0x0000007c;
+const CHD_METADATA_SIZE: u32 = 0x00000010;
+const CHD_HEADER_VERSION: u32 = 5;
+const CHD_METADATA_CHUNK_ID: u32 = 0x47444444; // GDDD
+const CHD_METADATA_SECS: u32 = 0x0000003f;
+const CHD_METADATA_HEADS: u32 = 0x00000010;
+
+const CHD_MAGIC: [u8; 8] = [b'M', b'C', b'o', b'm', b'p', b'r', b'H', b'D'];
+
+#[allow(dead_code)]
+#[derive(Debug, Copy, Clone, FromBytes, ToBytes)]
+#[packbytes(be)]
+pub struct Sha1Hash {
+	hash: [u8; 20]
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Copy, Clone, FromBytes, ToBytes)]
+#[packbytes(be)]
+pub struct CHDHeaderV5 {
+	pub magic: [u8; 8],
+	pub header_size: u32,
+	pub header_version: u32,
+	pub compressor: [u32; 4],
+	pub uncompressed_size: u64,
+	pub hunk_map_offset: u64,
+	pub disk_metadata_offset: u64,
+	pub hunk_size_bytes: u32,
+	pub sector_size_bytes: u32,
+	pub sha1: [Sha1Hash; 3],
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Copy, Clone, FromBytes, ToBytes)]
+#[packbytes(be)]
+pub struct DataU24 {
+	ms: u8,
+	ls: u16
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Copy, Clone, FromBytes, ToBytes)]
+#[packbytes(be)]
+pub struct CHDChunkMetadata {
+	pub chunk_id: u32,
+	pub flags: u8,
+	pub size: DataU24,
+	pub next_offset: u64,
+}
+
+#[allow(dead_code)]
+pub struct HunkWriteInfo {
+	pub hunk_index: usize,
+	pub hunk_offset: usize,
+	pub size: usize,
+	pub data: Vec<u8>
+}
 
 #[allow(dead_code)]
 struct CompressedHunkDiskIO {
@@ -18,15 +77,14 @@ struct CompressedHunkDiskIO {
 	current_hunk_index: u32,
 	current_hunk_offset: usize,
 	current_hunk_read: bool,
-	current_hunk: Vec<u8>
+	current_hunk: Vec<u8>,
+	pending_hunk_writes: Vec<HunkWriteInfo>
 }
 impl CompressedHunkDiskIO {
 	fn read_hunk(&mut self) -> Result<(), Box<dyn std::error::Error>> {
 		let mut hunk = self.chd.hunk(self.current_hunk_index)?;
 				
-		let mut temp_buf = Vec::new();
-
-		hunk.read_hunk_in(&mut temp_buf, &mut self.current_hunk)?;
+		hunk.read_hunk_in(&mut Vec::new(), &mut self.current_hunk)?;
 
 		self.current_hunk_read = true;
 
@@ -67,7 +125,7 @@ impl BuildIO for CompressedHunkDiskIO {
 		let diff_file_path = CompressedHunkDiskIO::find_diff_file(file_path.clone()).unwrap_or("".into());
 
 		let chd;
-		if diff_file_path != "" {
+		if diff_file_path != "" && Path::new(&diff_file_path).exists() {
 			chd = Box::new(Chd::open(
 					File::open(diff_file_path.clone())?, 
 			Some(Box::new(Chd::open(
@@ -92,7 +150,8 @@ impl BuildIO for CompressedHunkDiskIO {
 			current_hunk_index: 0,
 			current_hunk_offset: 0,
 			current_hunk_read: false,
-			current_hunk: vec![]
+			current_hunk: vec![],
+			pending_hunk_writes: vec![]
 		};
 
 		io.size = io.chd.header().logical_bytes();
@@ -112,7 +171,8 @@ impl BuildIO for CompressedHunkDiskIO {
 			current_hunk_index: 0,
 			current_hunk_offset: 0,
 			current_hunk_read: false,
-			current_hunk: vec![]
+			current_hunk: vec![],
+			pending_hunk_writes: vec![]
 		};
 
 		io.current_hunk = io.chd.get_hunksized_buffer();
@@ -197,13 +257,195 @@ impl BuildIO for CompressedHunkDiskIO {
 		}
 	}
 
-	fn write(&mut self, _buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
-		//let _ = BuildIODataCollation::convert_raw_data(buf, self.collation);
+	fn write(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
+		if buf.len() < 0x4 {
+			return Err("Buffer length needs to be 4 bytes or greater.".into());
+		} else if (buf.len() & 1) == 1 {
+			return Err("Buffer length needs to be a multiple of 2.".into());
+		} else {
+			let _ = BuildIODataCollation::convert_raw_data(buf, self.collation);
 
-		Ok(0)
+			let hunk_size = self.chd.header().hunk_size() as usize;
+
+			let need_total_size = buf.len();
+			let mut write_total_size = 0;
+			let mut current_buf_index = 0;
+
+			while write_total_size < need_total_size {
+				let mut current_write_size = need_total_size - write_total_size;
+				let write_hunk_index = self.current_hunk_index as usize;
+				let write_hunk_offset = self.current_hunk_offset as usize;
+
+				if current_write_size > (hunk_size - self.current_hunk_offset) {
+					current_write_size = hunk_size - self.current_hunk_offset;
+					self.current_hunk_index += 1;
+					self.current_hunk_offset = 0;
+				} else {
+					self.current_hunk_offset += current_write_size;
+				}
+
+				self.pending_hunk_writes.push(HunkWriteInfo {
+					hunk_index: write_hunk_index,
+					hunk_offset: write_hunk_offset,
+					size: current_write_size,
+					data: buf[current_buf_index as usize..(current_buf_index + current_write_size) as usize].to_vec()
+				});
+
+				current_buf_index += current_write_size;
+				write_total_size += current_write_size;
+			}
+
+			Ok(write_total_size)
+		}
 	}
 
 	fn commit(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+		if self.pending_hunk_writes.len() > 0 {
+			let hunk_size = self.chd.header().hunk_size() as usize;
+			let hunk_count = self.chd.header().hunk_count() as usize;
+
+			let mut hunk_map = vec![0x00000000 as u32; hunk_count];
+
+			let metadata = "CYLS:".to_owned() + &(self.len().unwrap_or(0) / (CHD_METADATA_HEADS * CHD_METADATA_SECS * self.chd.header().unit_bytes()) as u64).to_string() + ","
+				+ "HEADS:" + &CHD_METADATA_HEADS.to_string() + ","
+				+ "SECS:"  + &CHD_METADATA_SECS.to_string() + ","
+				+ "BPS:"   + &self.chd.header().unit_bytes().to_string();
+
+			// The hunk data starts after the header, metadata and hunk map table.
+			// This is the header size + metadata size + size of the hunk map for all hunks. Then align up so it's divisible by the hunk size.
+			let metadata_offset = (CHD_HEADER_SIZE as usize) + (hunk_count * 4);
+			let metadata_end_offset = metadata_offset + CHD_METADATA_SIZE as usize + metadata.len() + 1;
+			let hunk_data_offset = (metadata_end_offset + (hunk_size - 1)) & !(hunk_size - 1);
+			// The hunks are mapped to a hunk index that starts at the top of the file. So we figure out how many hunk-sized entries we skip before we get to the actual hunk data.
+			let start_file_hunk_index = hunk_data_offset / hunk_size;
+
+			// Create a backup
+			let has_diff = Path::new(&self.diff_path).exists();
+			if has_diff {
+				let _ = std::fs::copy(&self.diff_path, self.diff_path.clone() + ".bak");
+			}
+
+			let mut current_file_hunk_index = 0;
+			match File::create(&self.diff_path) {
+				Ok(mut dstf) => {
+					let _ = dstf.seek(SeekFrom::Start(0));
+
+					let parent_sha1 = match self.chd.header().has_parent() {
+						true => self.chd.header().parent_sha1().unwrap_or([0x00; 20]),
+						false => self.chd.header().sha1().unwrap_or([0x00; 20]),
+					};
+
+					let _ = dstf.write(&CHDHeaderV5 {
+						magic: CHD_MAGIC,
+						header_size: CHD_HEADER_SIZE,
+						header_version: CHD_HEADER_VERSION,
+						compressor: [0; 4],
+						uncompressed_size: self.len().unwrap_or(0),
+						hunk_map_offset: CHD_HEADER_SIZE as u64,
+						disk_metadata_offset: metadata_offset as u64,
+						hunk_size_bytes: hunk_size as u32,
+						sector_size_bytes: self.chd.header().unit_bytes(),
+						sha1: [
+							Sha1Hash { hash: [0x00; 20] },
+							Sha1Hash { hash: [0x00; 20] },
+							Sha1Hash { hash: parent_sha1 }
+						],
+					}.to_be_bytes());
+
+					let mut hunks = vec![];
+					for hwi in self.pending_hunk_writes.iter() {
+						let mut current_hunk = self.chd.get_hunksized_buffer();
+
+						if hwi.hunk_offset > 0 || hwi.size < hunk_size {
+							let mut hunk = self.chd.hunk(hwi.hunk_index as u32)?;
+
+							hunk.read_hunk_in(&mut Vec::new(), &mut current_hunk)?;
+						}
+
+						current_hunk[hwi.hunk_offset as usize..(hwi.hunk_offset + hwi.size) as usize]
+							.copy_from_slice(&hwi.data);
+
+						hunk_map[hwi.hunk_index] = (start_file_hunk_index + current_file_hunk_index) as u32;
+
+						current_file_hunk_index += 1;
+
+						hunks.push(current_hunk);
+					}
+
+					for hunk_map_entry in hunk_map.iter() {
+						let _ = dstf.write(&hunk_map_entry.to_be_bytes());
+					}
+
+					let _ = dstf.write(&CHDChunkMetadata {
+						chunk_id: CHD_METADATA_CHUNK_ID,
+						flags: 1,
+						size: DataU24 { ms: 0, ls: metadata.len() as u16 + 1 },
+						next_offset: 0,
+					}.to_be_bytes());
+
+					let _ = dstf.write(&mut metadata.as_bytes());
+					let _ = dstf.write(&[0x00; 1]);
+
+					// Padding so the first hunk is correctly aligned.
+					let _ = dstf.write(&vec![0x00 as u8; hunk_data_offset - metadata_end_offset]);
+
+					for hunk in hunks.iter() {
+						let _ = dstf.write(&hunk);
+					}
+
+					// Write back hunks that weren't changed from the previoud diff.
+					if has_diff {
+						match File::open(&(self.diff_path.clone() + ".bak")) {
+							Ok(mut file) => {
+								let _ = file.seek(SeekFrom::Start(0))?;
+								match CHDHeaderV5::read_packed(&mut file) {
+									Ok(dif_header) => {
+										if dif_header.header_version == CHD_HEADER_VERSION {
+											for hunk_index in 0..hunk_map.len() {
+												if hunk_map[hunk_index] == 0x00000000 {
+													let hunk_map_entry_offset = CHD_HEADER_SIZE as u64 + (hunk_index * 4) as u64;
+
+													let _ = file.seek(SeekFrom::Start(hunk_map_entry_offset));
+													let mut file_hunk_index_buff = [0x00 as u8; 4];
+													let _ = file.read(&mut file_hunk_index_buff);
+													let file_hunk_index = u32::from_be_bytes(file_hunk_index_buff) as u64;
+
+													if file_hunk_index != 0x00000000 {
+														let mut current_hunk = self.chd.get_hunksized_buffer();
+														let _ = file.seek(SeekFrom::Start(file_hunk_index * hunk_size as u64))?;
+														let _ = file.read(&mut current_hunk);
+
+														let _ = dstf.seek(SeekFrom::Start(hunk_map_entry_offset));
+														let _ = dstf.write(&((start_file_hunk_index + current_file_hunk_index) as u32).to_be_bytes());
+
+														let _ = dstf.seek(SeekFrom::End(0))?;
+														let _ = dstf.write(&current_hunk);
+
+														current_file_hunk_index += 1;
+													}
+												}
+											}
+										}
+									},
+									_ => {
+										//
+									}
+								};
+							},
+							_ => {
+								//
+							}
+						}
+					}
+				},
+				_ => {
+					//
+				}
+			};
+
+			self.pending_hunk_writes.clear();
+		}
+
 		Ok(())
 	}
 
