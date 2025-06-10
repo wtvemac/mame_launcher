@@ -10,6 +10,7 @@ use regex::Regex;
 #[allow(dead_code)]
 struct CompressedHunkDiskIO {
 	file_path: String,
+	diff_path: String,
 	collation: BuildIODataCollation,
 	size: u64,
 	created: bool,
@@ -31,6 +32,31 @@ impl CompressedHunkDiskIO {
 
 		Ok(())
 	}
+
+	fn find_diff_file(chd_file_path: String) -> Result<String, Box<dyn std::error::Error>> {
+		let path = Path::new(&chd_file_path);
+
+		let chd_parent = match path.parent() {
+			Some(parent) => parent.to_str().unwrap_or("".into()),
+			_ => "".into()
+		};
+
+		if chd_parent != "" {
+			let chd_stem = match path.file_stem() {
+				Some(stem) => stem.to_str().unwrap_or("".into()),
+				_ => "".into()
+			};
+
+			// Only using diff file if this is a CHD for a WebTV preset file inside MAME
+			// Checking if the chd file is in the /roms/XXX/ folder to detect MAME
+			if Path::new(&(chd_parent.to_owned() + "/../../roms")).exists() {
+				// We return the path to where the diff file would exist.
+				return Ok(chd_parent.to_owned() + "/../../diff/" + chd_stem + ".dif");
+			}
+		}
+
+		Ok("".into())
+	}
 }
 impl BuildIO for CompressedHunkDiskIO {
 	fn file_path(&mut self) -> Result<String, Box<dyn std::error::Error>> {
@@ -38,81 +64,36 @@ impl BuildIO for CompressedHunkDiskIO {
 	}
 
 	fn open(file_path: String, collation: Option<BuildIODataCollation>) -> Result<Box<dyn BuildIO>, Box<dyn std::error::Error>> {
-		let path = Path::new(&file_path);
+		let diff_file_path = CompressedHunkDiskIO::find_diff_file(file_path.clone()).unwrap_or("".into());
 
-		let diff_file_path = match path.parent() {
-			Some(parent) => {
-				match parent.to_str() {
-					Some(parent_str) => {
-						let file_path_stem = match path.file_stem() {
-							Some(file_stem) => {
-								file_stem.to_str().unwrap_or("".into())
-							},
-							_ => {
-								//panic!("Couldn't get file stem from file path.");
-								"".into()
-							}
-						};
-	
-						parent_str.to_owned() + "/../../diff/" + file_path_stem + ".dif"
-					},
-					_ => {
-						//panic!("Couldn't get parent directory string from file path");
-						"".into()
-					}
-				}
-			},
-			_ => {
-				//panic!("Couldn't find parent directory from file path.");
-				"".into()
-			}
-		};
-		
-		let mut io: CompressedHunkDiskIO;
-		if Path::new(&diff_file_path).exists() {
-			io = CompressedHunkDiskIO {
-				file_path: file_path.clone(),
-				collation: collation.unwrap_or(BuildIODataCollation::Raw),
-				size: 0,
-				created: false,
-				chd: 
-					Box::new(
-						Chd::open(
-							File::open(diff_file_path.clone())?, 
-					Some(
-								Box::new(
-									Chd::open(
-										File::open(file_path.clone())?, 
-										None
-									)?
-								)
-							)
-						)?
-					),
-				current_hunk_index: 0,
-				current_hunk_offset: 0,
-				current_hunk_read: false,
-				current_hunk: vec![]
-			};
+		let chd;
+		if diff_file_path != "" {
+			chd = Box::new(Chd::open(
+					File::open(diff_file_path.clone())?, 
+			Some(Box::new(Chd::open(
+						File::open(file_path.clone())?, 
+						None
+					)?))
+				)?);
 		} else {
-			io = CompressedHunkDiskIO {
-				file_path: file_path.clone(),
-				collation: collation.unwrap_or(BuildIODataCollation::Raw),
-				size: 0,
-				created: false,
-				chd:
-					Box::new(
-						Chd::open(
-							File::open(file_path.clone())?, 
-							None
-						)?
-					),
-				current_hunk_index: 0,
-				current_hunk_offset: 0,
-				current_hunk_read: false,
-				current_hunk: vec![]
-			};
+			chd = Box::new(Chd::open(
+					File::open(file_path.clone())?, 
+					None
+				)?);
 		}
+
+		let mut io = CompressedHunkDiskIO {
+			file_path: file_path.clone(),
+			diff_path: diff_file_path.clone(),
+			collation: collation.unwrap_or(BuildIODataCollation::Raw),
+			size: 0,
+			created: false,
+			chd: chd,
+			current_hunk_index: 0,
+			current_hunk_offset: 0,
+			current_hunk_read: false,
+			current_hunk: vec![]
+		};
 
 		io.size = io.chd.header().logical_bytes();
 		io.current_hunk = io.chd.get_hunksized_buffer();
@@ -123,6 +104,7 @@ impl BuildIO for CompressedHunkDiskIO {
 	fn create(file_path: String, collation: Option<BuildIODataCollation>, size: u64) -> Result<Box<dyn BuildIO>, Box<dyn std::error::Error>> {
 		let mut io = CompressedHunkDiskIO {
 			file_path: file_path.clone(),
+			diff_path: CompressedHunkDiskIO::find_diff_file(file_path.clone()).unwrap_or("".into()).clone(),
 			collation: collation.unwrap_or(BuildIODataCollation::Raw),
 			size: size,
 			created: true,
