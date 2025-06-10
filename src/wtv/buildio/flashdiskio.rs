@@ -94,7 +94,7 @@ pub struct PageWriteInfo {
 	pub page_index: usize,
 	pub page_offset: usize,
 	pub size: usize,
-	pub data: [u8; USR_PAGE_SIZE as usize]
+	pub data: Vec<u8>
 }
 
 #[allow(dead_code)]
@@ -419,17 +419,12 @@ impl BuildIO for FlashdiskIO {
 					self.current_page_offset += current_write_size;
 				}
 
-				let mut page_write_info = PageWriteInfo {
+				self.pending_page_writes.push(PageWriteInfo {
 					page_index: write_page_index,
 					page_offset: write_page_offset,
 					size: current_write_size,
-					data: [0x00; USR_PAGE_SIZE as usize]
-				};
-
-				page_write_info.data[0..current_write_size as usize]
-					.copy_from_slice(&buf[current_buf_index as usize..(current_buf_index + current_write_size) as usize]);
-
-					self.pending_page_writes.push(page_write_info);
+					data: buf[current_buf_index as usize..(current_buf_index + current_write_size) as usize].to_vec()
+				});
 
 				current_buf_index += current_write_size;
 				write_total_size += current_write_size;
