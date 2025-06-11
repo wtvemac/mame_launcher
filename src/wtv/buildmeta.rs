@@ -335,6 +335,20 @@ impl BuildMeta {
 		Ok(result)
 	}
 
+	pub fn set_selected_build_index(&mut self, selected_index: u8) -> Result<(), Box<dyn std::error::Error>> {
+		if self.layout == BuildMetaLayout::LC2DiskLayout {
+			let _ = self.io.seek(LC2_BUILD_SELECT_OFFSET)?;
+			let _ = self.io.write(&mut [selected_index, 0, 0, 0]);
+			let _ = self.io.commit();
+		} else if self.layout == BuildMetaLayout::UTVDiskLayout {
+			let _ = self.io.seek(UTV_BUILD_SELECT_OFFSET)?;
+			let _ = self.io.write(&mut [selected_index, 0, 0, 0]);
+			let _ = self.io.commit();
+		}
+
+		Ok(())
+	}
+
 	fn default_buildmeta(build_io: Box<dyn BuildIO>) -> BuildMeta {
 		BuildMeta {
 			file_path: "".into(),

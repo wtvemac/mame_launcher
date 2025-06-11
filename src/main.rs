@@ -1986,6 +1986,26 @@ fn import_bootrom(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_
 	Ok(())
 }
 
+fn set_disk_selected_approm(selected_box: &String, file_path: &String, selected_index: u8) -> Result<(), Box<dyn std::error::Error>> {
+	let disk_collation = match Regex::new(r"^wtv\d+utv").unwrap().is_match(selected_box.as_str()) {
+		true => BuildIODataCollation::ByteSwapped1632,
+		false => BuildIODataCollation::ByteSwapped16,
+	};
+
+	match BuildMeta::open_disk(file_path.to_string(), Some(disk_collation)) {
+		Ok(mut buildmeta) => {
+			if buildmeta.selected_build_index != selected_index {
+				let _ = buildmeta.set_selected_build_index(selected_index);
+			}
+		},
+		_ => {
+			// Problem opening destination.
+		}
+	};
+
+	Ok(())
+}
+
 fn import_flash_approm(config: &LauncherConfig, selected_box: &String, selected_bootrom_index: usize, source_data: &mut Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
 	let config_persistent_paths = config.persistent.paths.clone();
 	let mame_executable_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
@@ -2460,6 +2480,87 @@ fn start_bootrom_import(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn 
 		},
 		_ => { }
 	}
+
+	Ok(())
+}
+
+fn start_approm_select(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error::Error>> {
+	let selected_approm = ui_weak.unwrap().global::<UIMAMEOptions>().get_selected_approm();
+
+	let _ = std::thread::spawn(move || {
+		enable_loading(&ui_weak, "Selecting Approm".into());
+
+		match LauncherConfig::new() {
+			Ok(config) => {
+				let selected_index;
+				let hdimg_enabled;
+				match Regex::new(r"^(?<name>.+?)\[(?<index>\d+?)\]").unwrap().captures(selected_approm.as_str()) {
+					Some(matches) => {
+						hdimg_enabled = &matches["name"] == APPROM_HDIMG_PREFIX;
+						selected_index = (&matches["index"]).parse::<u8>().unwrap();
+					},
+					_ => {
+						hdimg_enabled = false;
+						selected_index = 0;
+					}
+				};
+
+				let selected_box = config.persistent.mame_options.selected_box.clone().unwrap_or("".into());
+		
+				let mut selected_hdimg_enabled = match config.persistent.mame_options.selected_hdimg_enabled {
+					Some(hdimg_enabled) => hdimg_enabled,
+					_ => HashMap::new()
+				};
+				selected_hdimg_enabled.insert(selected_box.clone(), hdimg_enabled);
+
+				if hdimg_enabled {
+					let selected_hdimg_path = match config.persistent.mame_options.selected_hdimg_paths {
+						Some(hdimg_paths) => hdimg_paths[&selected_box].clone(),
+						_ => "".into()
+					};
+
+					if selected_hdimg_path != "" {
+						let _ = set_disk_selected_approm(&selected_box.clone(), &selected_hdimg_path, selected_index);
+					}
+				} else {
+					for machine in config.mame.machine.unwrap_or(vec![]).iter() {
+						let machine_name = 
+							machine.name
+							.clone()
+							.unwrap_or("".into());
+
+						if machine_name == *selected_box {
+							if machine.disk.iter().count() > 0 {
+								match machine.disk.clone() {
+									Some(disks) => {
+										let disk_name = disks[0].name.clone().unwrap_or("".into());
+										let disk_file = disk_name.clone() + ".chd";
+
+										let config_persistent_paths = config.persistent.paths.clone();
+										let mame_executable_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
+										let mame_directory_path = LauncherConfig::get_parent(mame_executable_path.clone()).unwrap_or("".into());
+
+										let preset_img_path = mame_directory_path.clone() + "/roms/" + &selected_box + "/" + &disk_file;
+
+										let _ = set_disk_selected_approm(&selected_box.clone(), &preset_img_path, selected_index);
+									},
+									_ => {
+										//
+									}
+								}
+							}
+						}
+					}
+				}
+
+				let _ = save_config(ui_weak.clone(), true, None, Some(selected_hdimg_enabled));
+			},
+			_ => {
+			}
+		};
+
+		disable_loading(&ui_weak);
+	});
 
 	Ok(())
 }
@@ -3343,26 +3444,7 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 
 	ui_weak = ui.as_weak();
 	ui.global::<UIMAMEOptions>().on_select_approm(move || {
-		match LauncherConfig::get_persistent_config() {
-			Ok(config) => {
-				let selected_approm = ui_weak.unwrap().global::<UIMAMEOptions>().get_selected_approm();
-
-				let hdimg_enabled = match Regex::new(r"^(?<name>.+?)\[(?<index>\d+?)\]").unwrap().captures(selected_approm.as_str()) {
-					Some(matches) => &matches["name"] == APPROM_HDIMG_PREFIX,
-					_ => false
-				};
-		
-				let mut selected_hdimg_enabled = match config.mame_options.selected_hdimg_enabled {
-					Some(hdimg_enabled) => hdimg_enabled,
-					_ => HashMap::new()
-				};
-				selected_hdimg_enabled.insert(config.mame_options.selected_box.clone().unwrap_or("".into()), hdimg_enabled);
-		
-				let _ = save_config(ui_weak.clone(), true, None, Some(selected_hdimg_enabled));
-			},
-			_ => {
-			}
-		};
+		let _ = start_approm_select(ui_weak.clone());
 	});
 
 	ui_weak = ui.as_weak();
