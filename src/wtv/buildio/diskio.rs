@@ -325,7 +325,7 @@ impl BuildIO for CompressedHunkDiskIO {
 				let _ = std::fs::copy(&self.diff_path, self.diff_path.clone() + ".bak");
 			}
 
-			let mut current_file_hunk_index = 0;
+			let mut current_file_hunk_index = start_file_hunk_index;
 			match File::create(&self.diff_path) {
 				Ok(mut dstf) => {
 					let _ = dstf.seek(SeekFrom::Start(0));
@@ -365,16 +365,59 @@ impl BuildIO for CompressedHunkDiskIO {
 						current_hunk[hwi.hunk_offset as usize..(hwi.hunk_offset + hwi.size) as usize]
 							.copy_from_slice(&hwi.data);
 
-						hunk_map[hwi.hunk_index] = (start_file_hunk_index + current_file_hunk_index) as u32;
+						hunk_map[hwi.hunk_index] = current_file_hunk_index as u32;
 
 						current_file_hunk_index += 1;
 
 						hunks.push(current_hunk);
 					}
 
-					for hunk_map_entry in hunk_map.iter() {
-						let _ = dstf.write(&hunk_map_entry.to_be_bytes());
+					let mut missing_hunk_offsets = vec![];
+					// Write back hunks that weren't changed from the old diff.
+					if has_diff {
+						match File::open(&(self.diff_path.clone() + ".bak")) {
+							Ok(mut old_diff) => {
+								let _ = old_diff.seek(SeekFrom::Start(0))?;
+								match CHDHeaderV5::read_packed(&mut old_diff) {
+									Ok(old_dif_header) => {
+										if old_dif_header.header_version == CHD_HEADER_VERSION {
+											// Read in the hunk offsets from the original diff file that need to be moved.
+
+											for hunk_map_index in 0..hunk_map.len() {
+												// Only move hunks that don't have data in the new diff file
+												if hunk_map[hunk_map_index] == 0x00000000 {
+													let mut file_hunk_index_buff = [0x00 as u8; 4];
+													let _ = old_diff.seek(SeekFrom::Start(old_dif_header.hunk_map_offset + (hunk_map_index * 4) as u64));
+													let _ = old_diff.read(&mut file_hunk_index_buff);
+													let file_hunk_index = u32::from_be_bytes(file_hunk_index_buff) as u64;
+
+													// If the old diff has data then move it.
+													if file_hunk_index != 0x00000000 {
+														hunk_map[hunk_map_index] = current_file_hunk_index as u32;
+														current_file_hunk_index += 1;
+
+														missing_hunk_offsets.push(file_hunk_index * hunk_size as u64);
+													}
+												}
+											}
+										}
+									},
+									_ => {
+										//
+									}
+								};
+							},
+							_ => {
+								//
+							}
+						}
 					}
+
+					let mut hunk_map_block = vec![];
+					for hunk_map_entry in hunk_map.iter() {
+						hunk_map_block.extend_from_slice(&hunk_map_entry.to_be_bytes());
+					}
+					let _ = dstf.write(&hunk_map_block);
 
 					let _ = dstf.write(&CHDChunkMetadata {
 						chunk_id: CHD_METADATA_CHUNK_ID,
@@ -393,45 +436,19 @@ impl BuildIO for CompressedHunkDiskIO {
 						let _ = dstf.write(&hunk);
 					}
 
-					// Write back hunks that weren't changed from the previoud diff.
-					if has_diff {
+					// Move the hunks from the old to the new diff file.
+
+					if has_diff && missing_hunk_offsets.len() > 0 {
 						match File::open(&(self.diff_path.clone() + ".bak")) {
-							Ok(mut file) => {
-								let _ = file.seek(SeekFrom::Start(0))?;
-								match CHDHeaderV5::read_packed(&mut file) {
-									Ok(dif_header) => {
-										if dif_header.header_version == CHD_HEADER_VERSION {
-											for hunk_index in 0..hunk_map.len() {
-												if hunk_map[hunk_index] == 0x00000000 {
-													let hunk_map_entry_offset = CHD_HEADER_SIZE as u64 + (hunk_index * 4) as u64;
+							Ok(mut old_diff) => {
+								for hunk_offset in missing_hunk_offsets.iter() {
+									let mut missing_hunk = self.chd.get_hunksized_buffer();
+									let _ = old_diff.seek(SeekFrom::Start(*hunk_offset))?;
+									let _ = old_diff.read(&mut missing_hunk);
 
-													let _ = file.seek(SeekFrom::Start(hunk_map_entry_offset));
-													let mut file_hunk_index_buff = [0x00 as u8; 4];
-													let _ = file.read(&mut file_hunk_index_buff);
-													let file_hunk_index = u32::from_be_bytes(file_hunk_index_buff) as u64;
-
-													if file_hunk_index != 0x00000000 {
-														let mut current_hunk = self.chd.get_hunksized_buffer();
-														let _ = file.seek(SeekFrom::Start(file_hunk_index * hunk_size as u64))?;
-														let _ = file.read(&mut current_hunk);
-
-														let _ = dstf.seek(SeekFrom::Start(hunk_map_entry_offset));
-														let _ = dstf.write(&((start_file_hunk_index + current_file_hunk_index) as u32).to_be_bytes());
-
-														let _ = dstf.seek(SeekFrom::End(0))?;
-														let _ = dstf.write(&current_hunk);
-
-														current_file_hunk_index += 1;
-													}
-												}
-											}
-										}
-									},
-									_ => {
-										//
-									}
-								};
-							},
+									let _ = dstf.write(&missing_hunk);
+								}
+							}
 							_ => {
 								//
 							}
