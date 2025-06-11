@@ -21,7 +21,15 @@ import {
 	IconButton
 } from "./widgets/iconbutton.slint";
 
+export enum BuildImportState {
+	ImportUnavailable,
+	WillReplace,
+	WillCreate
+}
+
 export global UIMAMEOptions {
+
+
 	// Selected Box
 	in-out property<[HintedItem]> selectable_boxes: [];
 	in-out property<string> selected_box: "";
@@ -30,6 +38,7 @@ export global UIMAMEOptions {
 	in-out property<[HintedItem]> selectable_bootroms: [];
 	in-out property<string> selected_bootrom: "";
 	in-out property<int> selected_bootrom_index: 0;
+	in-out property<BuildImportState> bootrom_import_state: BuildImportState.ImportUnavailable;
 
 	// Selected ROM->AppROM
 	in-out property<bool> uses_disk_approms: false;
@@ -39,6 +48,7 @@ export global UIMAMEOptions {
 	in-out property<string> selected_approm: "";
 	in-out property<string> selected_hdimg_path: "";
 	in-out property<bool> selected_hdimg_enabled: false;
+	in-out property<BuildImportState> approm_import_state: BuildImportState.ImportUnavailable;
 
 	// Selected ROM->SSID->Manufacture
 	in-out property<string> ssid-in-file: ""; // used to detect if someone typed a custom SSID. Custom SSIDs are only saved to file when someone starts MAME.
@@ -126,8 +136,8 @@ export component StartPage inherits Page {
 				}
 			}
 			Button {
-				visible: UIMAMEOptions.selected_bootrom != "None" && UIMAMEOptions.selected_bootrom != "WinCE";
-				text: @tr("Import Build");
+				visible: UIMAMEOptions.bootrom_import_state != BuildImportState.ImportUnavailable;
+				text: (UIMAMEOptions.bootrom_import_state == BuildImportState.WillCreate) ? @tr("Import Build") : @tr("Replace Build");
 				height: 34px;
 				clicked => {
 					UIMAMEOptions.import-bootrom();
@@ -171,8 +181,8 @@ export component StartPage inherits Page {
 					}
 			}
 			Button {
-				visible: UIMAMEOptions.selected_approm != "None" && UIMAMEOptions.selected_approm != "WinCE";
-				text: @tr("Import Build");
+				visible: UIMAMEOptions.approm_import_state != BuildImportState.ImportUnavailable;
+				text: (UIMAMEOptions.approm_import_state == BuildImportState.WillCreate) ? @tr("Import Build") : @tr("Replace Build");
 				height: 34px;
 				clicked => {
 					UIMAMEOptions.import-approm();

@@ -921,6 +921,11 @@ fn populate_selected_box_bootroms(ui_weak: &slint::Weak<MainWindow>, config: &La
 
 			ui_mame.set_selected_bootrom(selected_bootrom.value.clone().into());
 			ui_mame.set_selected_bootrom_index(selected_bootrom_index.clone() as i32);
+			if selected_bootrom.value == "None" {
+				ui_mame.set_bootrom_import_state(BuildImportState::ImportUnavailable);
+			} else {
+				ui_mame.set_bootrom_import_state(BuildImportState::WillReplace);
+			}
 
 			if !supress_warnings {
 				match selected_bootrom.build_storage_state {
@@ -932,6 +937,7 @@ fn populate_selected_box_bootroms(ui_weak: &slint::Weak<MainWindow>, config: &La
 					},
 					BuildStorageState::FileNotFound => {
 						ui.set_launcher_state_message("The BootROM image doesn't exist. Please choose a bootrom.o file!".into());
+						ui_mame.set_bootrom_import_state(BuildImportState::WillCreate);
 					},
 					BuildStorageState::RomSizeMismatch => {
 						ui.set_launcher_state_message("BootROM size mismatch! MAME will probably reject this BootROM!".into());
@@ -941,12 +947,15 @@ fn populate_selected_box_bootroms(ui_weak: &slint::Weak<MainWindow>, config: &La
 					},
 					BuildStorageState::StrippedFlashCyclopsed => {
 						ui.set_launcher_state_message("Found one BootROM flash file but couldn't find the other. Choosing a new bootrom.o file may fix this.".into());
+						ui_mame.set_bootrom_import_state(BuildImportState::WillCreate);
 					},
 					BuildStorageState::StrippedFlashMissing => {
 						ui.set_launcher_state_message("Couldn't find a BootROM. The flash files may be missing? Choosing a new bootrom.o file may fix this.".into());
+						ui_mame.set_bootrom_import_state(BuildImportState::WillCreate);
 					},
 					BuildStorageState::CantReadBuild => {
 						ui.set_launcher_state_message("Error parsing BootROM image? Please choose a bootrom.o file!".into());
+						ui_mame.set_bootrom_import_state(BuildImportState::WillCreate);
 					},
 					BuildStorageState::CodeChecksumMismatch => {
 						ui.set_launcher_state_message("BootROM code checksum mismatch! Did you choose an image that's too large? Please choose a new bootrom.o file if it doesn't run!".into());
@@ -962,6 +971,7 @@ fn populate_selected_box_bootroms(ui_weak: &slint::Weak<MainWindow>, config: &La
 		} else {
 			ui_mame.set_selected_bootrom("".into());
 			ui_mame.set_selected_bootrom_index(0);
+			ui_mame.set_bootrom_import_state(BuildImportState::WillCreate);
 
 			if !supress_warnings {
 				ui.set_launcher_state_message("I asked MAME to list its usable BootROMs for this box and it gave me nothing! Broken MAME executable?".into());
@@ -1134,6 +1144,11 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 		ui_mame.set_selectable_approms(slint::ModelRc::new(slint::VecModel::from(selectable_approms)));
 		if available_approms.iter().count() > 0 {
 			ui_mame.set_selected_approm(selected_approm.value.clone().into());
+			if selected_approm.value == "WinCE" {
+				ui_mame.set_approm_import_state(BuildImportState::ImportUnavailable);
+			} else {
+				ui_mame.set_approm_import_state(BuildImportState::WillReplace);
+			}
 
 			if !supress_warnings {
 				match selected_approm.build_storage_state {
@@ -1145,6 +1160,7 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 					},
 					BuildStorageState::FileNotFound => {
 						ui.set_launcher_state_message("The AppROM image doesn't exist. Please choose a approm.o file!".into());
+						ui_mame.set_approm_import_state(BuildImportState::WillCreate);
 					},
 					BuildStorageState::RomSizeMismatch => {
 						// Not checking an AppROM as a verified MAME ROM.
@@ -1154,12 +1170,15 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 					},
 					BuildStorageState::StrippedFlashCyclopsed => {
 						ui.set_launcher_state_message("Found one AppROM flash file but couldn't find the other. Choosing a new approm.o file may fix this.".into());
+						ui_mame.set_approm_import_state(BuildImportState::WillCreate);
 					},
 					BuildStorageState::StrippedFlashMissing => {
 						ui.set_launcher_state_message("Couldn't find an AppROM. The flash files may be missing? Choosing a new approm.o file may fix this.".into());
+						ui_mame.set_approm_import_state(BuildImportState::WillCreate);
 					},
 					BuildStorageState::CantReadBuild => {
 						ui.set_launcher_state_message("Error parsing AppROM image? Please choose a new approm.o file if it doesn't run!".into());
+						ui_mame.set_approm_import_state(BuildImportState::WillCreate);
 					},
 					BuildStorageState::CodeChecksumMismatch => {
 						ui.set_launcher_state_message("AppROM code checksum mismatch! Did you choose an image that's too large? Please choose a new approm.o file if it doesn't run!".into());
@@ -1176,8 +1195,22 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 		} else {
 			ui_mame.set_selected_approm("".into());
 
-			if !supress_warnings {
-				ui.set_launcher_state_message("No AppROMs available. Please choose a new approm.o!".into());
+			if uses_disk_approms {
+				ui_mame.set_approm_import_state(BuildImportState::ImportUnavailable);
+
+				if !supress_warnings {
+					if can_choose_hdimg {
+						ui.set_launcher_state_message("No AppROMs available. Please choose a hard disk image!".into());
+					} else {
+						ui.set_launcher_state_message("No AppROMs available. Unable to find a disk!".into());
+					}
+				}
+			} else {
+				ui_mame.set_approm_import_state(BuildImportState::WillCreate);
+
+				if !supress_warnings {
+					ui.set_launcher_state_message("No AppROMs available. Please choose a new approm.o!".into());
+				}
 			}
 		}
 
