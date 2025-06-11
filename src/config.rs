@@ -212,7 +212,7 @@ impl Paths {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct MAMEOptions {
     pub selected_box: Option<String>,
-    pub selected_bootrom: Option<String>,
+	pub selected_bootroms: Option<HashMap<String, String>>,
     pub selected_modem_bitb_endpoint: Option<String>,
 	pub selected_hdimg_paths: Option<HashMap<String, String>>,
 	pub selected_hdimg_enabled: Option<HashMap<String, bool>>,
@@ -326,7 +326,7 @@ impl LauncherConfig {
 			},
 			mame_options: MAMEOptions {
 				selected_box: Some("wtv1sony".into()),
-				selected_bootrom: Some("".into()),
+				selected_bootroms: None,
 				selected_modem_bitb_endpoint: None,
 				selected_hdimg_paths: None,
 				selected_hdimg_enabled: None,

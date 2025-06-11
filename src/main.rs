@@ -874,6 +874,8 @@ fn get_slots(selected_machine: &MAMEMachineNode) -> Result<Vec<MachineSlotItem>,
 fn populate_selected_box_bootroms(ui_weak: &slint::Weak<MainWindow>, config: &LauncherConfig, selected_machine: &MAMEMachineNode, supress_warnings: bool) -> Result<(usize, BuildStorageState), Box<dyn std::error::Error>> {
 	let config_persistent_mame = config.persistent.mame_options.clone();
 
+	let selected_box = selected_machine.name.clone().unwrap_or("".into());
+
 	let mut selected_bootrom_index: usize = 0;
 	let mut selected_bootrom = VerifiableBuildItem {
 		hint: "".into(),
@@ -886,12 +888,25 @@ fn populate_selected_box_bootroms(ui_weak: &slint::Weak<MainWindow>, config: &La
 		build_info: None,
 	};
 
+	let selected_bootrom_name = match config_persistent_mame.selected_bootroms {
+		Some(bootroms) => {
+			if bootroms.contains_key(&selected_box) {
+				bootroms[&selected_box].clone()
+			} else {
+				"".into()
+			}
+		},
+		_ => {
+			"".into()
+		}
+	};
+
 	let available_bootroms = match get_bootroms(config, selected_machine) {
 		Ok(bootroms) => bootroms,
 		Err(_e) => vec![]
 	};
 	for (index, bootrom) in available_bootroms.iter().enumerate() {
-		if bootrom.value.to_string() == config_persistent_mame.selected_bootrom.clone().unwrap_or("".into()) {
+		if bootrom.value.to_string() == selected_bootrom_name {
 			selected_bootrom = bootrom.clone();
 			selected_bootrom_index = index;
 		}
@@ -1872,7 +1887,7 @@ fn save_ssid(raw_ssid: [u8; 0x08], ui_weak: slint::Weak<MainWindow>, is_blocking
 
 		disable_loading(&ui_weak);
 
-		let _ = save_config(ui_weak.clone(), true, None, None);
+		let _ = save_config(ui_weak.clone(), true, None, None, None);
 	});
 
 	if is_blocking {
@@ -2012,7 +2027,7 @@ fn import_bootrom(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_
 
 			disable_loading(&ui_weak);
 
-			let _ = save_config(ui_weak.clone(), true, None, None);
+			let _ = save_config(ui_weak.clone(), true, None, None, None);
 		});
 	});
 
@@ -2297,20 +2312,35 @@ fn import_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_s
 
 			disable_loading(&ui_weak);
 
-			let _ = save_config(ui_weak.clone(), true, None, None);
+			let _ = save_config(ui_weak.clone(), true, None, None, None);
 		});
 	});
 
 	Ok(())
 }
 
-fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool, new_hdimg_paths: Option<HashMap<String, String>>, new_hdimg_enabled: Option<HashMap<String, bool>>) -> Result<(), Box<dyn std::error::Error>> {
+fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool, new_bootroms: Option<HashMap<String, String>>, new_hdimg_paths: Option<HashMap<String, String>>, new_hdimg_enabled: Option<HashMap<String, bool>>) -> Result<(), Box<dyn std::error::Error>> {
 	enable_loading(&ui_weak.clone(), "Saving Config".into());
 
 	let _ = ui_weak.upgrade_in_event_loop(move |ui| {
 		let ui_paths = ui.global::<UIPaths>();
 		let ui_mame = ui.global::<UIMAMEOptions>();
 
+		let selected_bootroms = match new_bootroms {
+			Some(bootroms) => {
+				Some(bootroms)
+			},
+			_ => {
+				 match LauncherConfig::get_persistent_config() {
+					Ok(config) => {
+						config.mame_options.selected_bootroms
+					},
+					_ => {
+						Some(HashMap::new())
+					}
+				}
+			}
+		};
 
 		let selected_hdimg_paths = match new_hdimg_paths {
 			Some(hdimg_paths) => {
@@ -2355,7 +2385,7 @@ fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool, new_hdimg_paths: 
 			},
 			mame_options: MAMEOptions {
 				selected_box: Some(ui_mame.get_selected_box().into()),
-				selected_bootrom: Some(ui_mame.get_selected_bootrom().into()),
+				selected_bootroms: selected_bootroms,
 				selected_modem_bitb_endpoint: Some(ui_mame.get_selected_modem_bitb_endpoint().into()),
 				selected_hdimg_paths: selected_hdimg_paths,
 				selected_hdimg_enabled: selected_hdimg_enabled,
@@ -2586,7 +2616,7 @@ fn start_approm_select(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn s
 					}
 				}
 
-				let _ = save_config(ui_weak.clone(), true, None, Some(selected_hdimg_enabled));
+				let _ = save_config(ui_weak.clone(), true, None, None, Some(selected_hdimg_enabled));
 			},
 			_ => {
 			}
@@ -2700,7 +2730,7 @@ fn choose_hdimg(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::err
 					selected_hdimg_enabled.insert(selected_box.clone(), true);
 					ui_mame.set_selected_hdimg_enabled(true);
 
-					let _ = save_config(ui_weak.clone(), true, Some(selected_hdimg_paths), Some(selected_hdimg_enabled));
+					let _ = save_config(ui_weak.clone(), true, None, Some(selected_hdimg_paths), Some(selected_hdimg_enabled));
 				},
 				_ => {
 					//
@@ -2735,7 +2765,7 @@ fn unset_hdimg(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::erro
 			selected_hdimg_enabled.remove(&selected_box.clone());
 			ui_mame.set_selected_hdimg_enabled(false);
 
-			let _ = save_config(ui_weak.clone(), true, Some(selected_hdimg_paths), Some(selected_hdimg_enabled));
+			let _ = save_config(ui_weak.clone(), true, None, Some(selected_hdimg_paths), Some(selected_hdimg_enabled));
 		},
 		_ => {
 			//
@@ -3467,12 +3497,31 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 
 	let mut ui_weak = ui.as_weak();
 	ui.global::<UIMAMEOptions>().on_select_box(move || {
-		let _ = save_config(ui_weak.clone(), true, None, None);
+		let _ = save_config(ui_weak.clone(), true, None, None, None);
 	});
 
 	ui_weak = ui.as_weak();
 	ui.global::<UIMAMEOptions>().on_select_bootrom(move || {
-		let _ = save_config(ui_weak.clone(), true, None, None);
+		match LauncherConfig::get_persistent_config() {
+			Ok(config) => {
+				let ui = ui_weak.unwrap();
+				let ui_mame = ui.global::<UIMAMEOptions>();
+
+				let selected_box = ui_mame.get_selected_box().clone().to_string();
+				let selected_bootrom = ui_mame.get_selected_bootrom().clone().to_string();
+
+				let mut selected_bootroms = match config.mame_options.selected_bootroms {
+					Some(bootroms) => bootroms,
+					_ => HashMap::new()
+				};
+				selected_bootroms.insert(selected_box.clone(), selected_bootrom.clone());
+
+				let _ = save_config(ui_weak.clone(), true, Some(selected_bootroms), None, None);
+			},
+			_ => {
+				//
+			}
+		}
 	});
 
 	ui_weak = ui.as_weak();
@@ -3504,7 +3553,7 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 	ui.global::<UIMAMEOptions>().on_start_mame(move || {
 		enable_loading(&ui_weak, "Starting MAME".into());
 
-		let _ = save_config(ui_weak.clone(), true, None, None);
+		let _ = save_config(ui_weak.clone(), true, None, None, None);
 
 		let _ = check_custom_ssid(ui_weak.clone());
 
@@ -3543,7 +3592,7 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 				
 					ui_paths.set_mame_path(executable_file_path.into());
 	
-					let _ = save_config(ui_weak.clone(), true, None, None);
+					let _ = save_config(ui_weak.clone(), true, None, None, None);
 				}
 			},
 			_ => { }
@@ -3562,7 +3611,7 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 
 					let _ = check_rommy(ui_weak.clone());
 
-					let _ = save_config(ui_weak.clone(), false, None, None);
+					let _ = save_config(ui_weak.clone(), false, None, None, None);
 				}
 			},
 			_ => { }
@@ -3581,7 +3630,7 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 
 					let _ = check_rommy(ui_weak.clone());
 
-					let _ = save_config(ui_weak.clone(), false, None, None);
+					let _ = save_config(ui_weak.clone(), false, None, None, None);
 				}
 			},
 			_ => { }
