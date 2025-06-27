@@ -77,7 +77,7 @@ const BOOTROM_FLASH_FILE_PREFIX: &'static str = "bootrom_flash";
 // wtv2 (Plus) boxes will be detected and ran from this launcher but we assume (and can only verify) a flash-based approm 
 const APPROM1_FLASH_BASE_ADDRESS: u32 = 0x9f000000;
 const APPROM2_FLASH_BASE_ADDRESS: u32 = 0x9fe00000;
-const APPROM3_DISK_BASE_ADDRESS_MIN: u32 = 0x80400000;
+const APPROM3_DISK_BASE_ADDRESS_MIN: u32 = 0x80300000;
 const APPROM3_DISK_BASE_ADDRESS_MAX: u32 = 0x84400000;
 const APPROM1_FLASH_FILE_PREFIX: &'static str = "bank0_flash";
 const APPROM2_FLASH_FILE_PREFIX: &'static str = "approm_flash";
