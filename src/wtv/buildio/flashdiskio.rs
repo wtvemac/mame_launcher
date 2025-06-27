@@ -11,7 +11,7 @@ use std::{
 // I've only seen these values used with the MDOC chips WebTV supports 
 const USR_PAGE_SIZE: u64 = 0x00000200;
 const SPR_PAGE_SIZE: u64 = 0x00000010;
-const PAGES_PER_UNIT: u64 = 0x00000020;
+const PAGES_PER_UNIT: u64 = 0x00000010; // 8MB flashdisk, 16MB = 0x20
 const DISKINFO_UNITS: u64 = 0x00000002;
 
 const DISK_MAGIC: [u8; 6] = [b'A', b'N', b'A', b'N', b'D', 0x00];
