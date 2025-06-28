@@ -11,6 +11,7 @@ use std::{
 	io::{BufReader, Read, Write, Cursor, Seek, SeekFrom}, 
 	path::Path, process::{Command, Stdio},
 	env,
+	process::{ChildStdout, ChildStderr},
 	sync::{
 		Arc,
 		atomic::{AtomicBool, Ordering::Relaxed}
@@ -3047,6 +3048,63 @@ fn add_console_text(ui_weak: slint::Weak<MainWindow>, text: String, scroll_mode:
 	Ok(())
 }
 
+fn output_mame_stdio(ui_weak: slint::Weak<MainWindow>, stdout: Option<ChildStdout>, stderr: Option<ChildStderr>) -> Result<bool, Box<dyn std::error::Error>> {
+	let process_has_error = Arc::new(AtomicBool::new(false));
+
+	match (stdout, stderr) {
+		(Some(stdout), Some(stderr)) => {
+			let ui_weak_cpy = ui_weak.clone();
+			let process_has_error = process_has_error.clone();
+			let mut stderr_reader = BufReader::new(stderr);
+			let _ = std::thread::spawn(move || {
+				loop {
+				let mut stderr_buf: [u8; CONSOLE_READ_BUFFER_SIZE] = [0x00; CONSOLE_READ_BUFFER_SIZE];
+					match stderr_reader.read(&mut stderr_buf) {
+						Ok(bytes_read) => {
+							if bytes_read == 0 {
+								break;
+							} else {
+								let console_text = String::from_utf8_lossy(&stderr_buf[0..bytes_read]).to_string();
+
+								// EMAC: stdout and stderr can get jumbled with this implementation...
+								let _ = add_console_text(ui_weak_cpy.clone(), console_text, MAMEConsoleScrollMode::ForceScroll);
+
+								process_has_error.store(true, Relaxed);
+							}
+						},
+						_ => {
+							break;
+						}
+					}
+				}
+			});
+
+			let mut stdout_reader = BufReader::new(stdout);
+			// No thread is spawned here so we block current thread until MAME finishes outputting.
+			let mut stdout_buf: [u8; CONSOLE_READ_BUFFER_SIZE] = [0x00; CONSOLE_READ_BUFFER_SIZE];
+			loop {
+				match stdout_reader.read(&mut stdout_buf) {
+					Ok(bytes_read) => {
+						if bytes_read == 0 {
+							break;
+						} else {
+							let console_text = String::from_utf8_lossy(&stdout_buf[0..bytes_read]).to_string();
+
+							let _ = add_console_text(ui_weak.clone(), console_text, MAMEConsoleScrollMode::ConditionalScroll);
+						}
+					},
+					_ => {
+						break;
+					}
+				}
+			}
+		},
+		_ => { }
+	};
+
+	Ok(process_has_error.load(Relaxed))
+}
+
 fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error::Error>> {
 	let ui = ui_weak.unwrap();
 
@@ -3171,70 +3229,20 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 			mame_command.stderr(Stdio::piped());
 			mame_command.stdout(Stdio::piped());
 
-			let process_has_error = Arc::new(AtomicBool::new(false));
-
-			match mame_command.spawn() {
+			let process_has_error = match mame_command.spawn() {
 				Ok(mame) => {
 					let _= set_mame_pid(ui_weak.clone(), mame.id());
-	
-					match (mame.stdout, mame.stderr) {
-						(Some(stdout), Some(stderr)) => {
-							let mut stderr_buf: [u8; CONSOLE_READ_BUFFER_SIZE] = [0x00; CONSOLE_READ_BUFFER_SIZE];
-							let mut stderr_reader = BufReader::new(stderr);
-							let ui_weak_cpy = ui_weak.clone();
-							let process_has_error = process_has_error.clone();
-							let _ = std::thread::spawn(move || {
-								loop {
-									match stderr_reader.read(&mut stderr_buf) {
-										Ok(bytes_read) => {
-											if bytes_read == 0 {
-												break;
-											} else {
-												let console_text = String::from_utf8_lossy(&stderr_buf[0..bytes_read]).to_string();
 
-												// EMAC: stdout and stderr can get jumbled with this implementation...
-												let _ = add_console_text(ui_weak_cpy.clone(), console_text, MAMEConsoleScrollMode::ForceScroll);
-
-												process_has_error.store(true, Relaxed);
-											}
-										},
-										_ => {
-											break;
-										}
-									}
-								}
-							});
-
-							let mut stdout_buf: [u8; CONSOLE_READ_BUFFER_SIZE] = [0x00; CONSOLE_READ_BUFFER_SIZE];
-							let mut stdout_reader = BufReader::new(stdout);
-							loop {
-								match stdout_reader.read(&mut stdout_buf) {
-									Ok(bytes_read) => {
-										if bytes_read == 0 {
-											break;
-										} else {
-											let console_text = String::from_utf8_lossy(&stdout_buf[0..bytes_read]).to_string();
-			
-											let _ = add_console_text(ui_weak.clone(), console_text, MAMEConsoleScrollMode::ConditionalScroll);
-										}
-									},
-									_ => {
-										break;
-									}
-								}
-							}
-						},
-						_ => { }
-					}
+					output_mame_stdio(ui_weak.clone(), mame.stdout, mame.stderr).unwrap_or(false)
 				},
-				Err(_) => { }
+				Err(_) => false
 			};
 
 			let _= set_mame_pid(ui_weak.clone(), 0);
 
 			let _ = add_console_text(ui_weak.clone(), " \nMAME Ended\n".into(), MAMEConsoleScrollMode::ForceScroll);
 
-			if !process_has_error.load(Relaxed) {
+			if !process_has_error {
 				let _ = ui_weak.clone().upgrade_in_event_loop(move |ui| {
 					let ui_mame = ui.global::<UIMAMEOptions>();
 
