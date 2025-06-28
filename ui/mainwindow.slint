@@ -188,38 +188,6 @@ export component MainWindow inherits Window {
 					read-only: true;
 					wrap: word-wrap;
 				}
-				console-copy := Rectangle {
-					x: console-scroll-to-end.x - self.width - 12px;
-					y: 8px;
-					width: 24px;
-					height: 24px;
-					background: Palette.alternate-background;
-					border-width: 1px;
-					border-radius: 5px;
-					border-color: Palette.alternate-background;
-					Image {
-						x: 0px;
-						y: 0px;
-						height: parent.height;
-						width: parent.width;
-						source: @image-url("images/console-copy.svg");
-						colorize: (console-copy-ta.has-hover) ? #fff : #aaa;
-						console-copy-ta := TouchArea {
-							x: 0px;
-							y: 0px;
-							height: parent.height;
-							width: parent.width;
-							clicked => {
-								tooltip-text.text = "Selection Copied!";
-								tooltip.x = console-copy.x - 58px;
-								tooltip.y = console-copy.y + console-copy.height + 8px;
-								tooltip.opened = true;
-
-								mame-console.copy();
-							}
-						}
-					}
-				}
 				console-scroll-to-end := Rectangle {
 					x: console-close.x - self.width - 12px;
 					y: 8px;
