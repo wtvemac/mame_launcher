@@ -1054,7 +1054,11 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 			selected_hdimg_path = match config_persistent_mame.selected_hdimg_paths {
 				Some(ref hdimg_paths) => {
 					if hdimg_paths.contains_key(&selected_box) {
-						hdimg_paths[&selected_box].clone()
+						if Path::new(&hdimg_paths[&selected_box]).exists() {
+							hdimg_paths[&selected_box].clone()
+						} else {
+							"".to_string()
+						}
 					} else {
 						"".to_string()
 					}
@@ -1233,7 +1237,11 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 			match config_persistent_mame.selected_hdimg_paths {
 				Some(ref hdimg_paths) => {
 					if hdimg_paths.contains_key(&selected_box) {
-						hdimg_paths[&selected_box].clone().into()
+						if Path::new(&hdimg_paths[&selected_box]).exists() {
+							hdimg_paths[&selected_box].clone().into()
+						} else {
+							"".into()
+						}
 					} else {
 						"".into()
 					}
