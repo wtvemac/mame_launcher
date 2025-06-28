@@ -20,7 +20,7 @@ regex = "1.10.4"
 rodio = "0.18.1"
 serde = { version = "1.0.203", features = ["derive"] }
 serialport = "4.3.0"
-slint = "1.8.0"
+slint = "1.12.0"
 strum = "0.26.2"
 strum_macros = "0.26.4"
 sysinfo = "0.30.12"
