@@ -3274,7 +3274,11 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 					let ui_mame = ui.global::<UIMAMEOptions>();
 
 					if !(ui_mame.get_verbose_mode().into() || ui_mame.get_console_input().into() || ui_mame.get_debug_mode().into()) {
-						ui.set_mame_console_enabled(false);
+						let console_enabled = ui.get_mame_console_enabled();
+						if console_enabled {
+							ui.set_mame_console_enabled(false);
+							let _ = load_config(ui_weak.clone());
+						}
 					}
 				});
 			}
@@ -3299,6 +3303,8 @@ fn end_mame(ui_weak: slint::Weak<MainWindow>) {
 			if let Some(process) = sys.process(Pid::from(mame_pid as usize)) {
 				process.kill();
 			}
+
+			let _ = load_config(ui_weak.clone());
 
 			disable_loading(&ui_weak);
 
