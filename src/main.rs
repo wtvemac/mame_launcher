@@ -87,6 +87,7 @@ const APPROM_HDIMG_PREFIX: &'static str = "hdimg";
 const ALLOW_APPROM2_FILES: bool = false;
 const DEFAULT_FLASHDISK_SIZE: u64 = 8 * 1024 * 1024;
 const PUBLIC_TOUCHPP_ADDRESS: &'static str = "wtv.ooguy.com:1122";
+const CONSOLE_READ_BUFFER_SIZE: usize = 1024;
 const CONSOLE_SCROLLBACK_LINES: usize = 9000;
 #[cfg(target_os = "linux")]
 const CONSOLE_KEY_DELAY: u32 = 200 * 1000;
@@ -3040,7 +3041,6 @@ fn add_console_text(ui_weak: slint::Weak<MainWindow>, text: String, scroll_mode:
 
 			ui.set_scroll_mode(scroll_mode);
 			ui.set_mame_console_text((text_lines.join("\n") + &text).into());
-
 		});
 	}
 
@@ -3177,26 +3177,25 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 				Ok(mame) => {
 					let _= set_mame_pid(ui_weak.clone(), mame.id());
 	
-					#[cfg(any(target_os = "windows", target_os = "macos"))]
-					let mut last_byte: u8 = 0x00;
-
 					match (mame.stdout, mame.stderr) {
 						(Some(stdout), Some(stderr)) => {
-							let mut stderr_buf: [u8; 1] = [0x00; 1];
+							let mut stderr_buf: [u8; CONSOLE_READ_BUFFER_SIZE] = [0x00; CONSOLE_READ_BUFFER_SIZE];
 							let mut stderr_reader = BufReader::new(stderr);
 							let ui_weak_cpy = ui_weak.clone();
 							let process_has_error = process_has_error.clone();
 							let _ = std::thread::spawn(move || {
 								loop {
 									match stderr_reader.read(&mut stderr_buf) {
-										Ok(stderr_bytes_read) => {
-											if stderr_bytes_read == 0 {
+										Ok(bytes_read) => {
+											if bytes_read == 0 {
 												break;
 											} else {
-												process_has_error.store(true, Relaxed);
+												let console_text = String::from_utf8_lossy(&stderr_buf[0..bytes_read]).to_string();
 
 												// EMAC: stdout and stderr can get jumbled with this implementation...
-												let _ = add_console_text(ui_weak_cpy.clone(), (stderr_buf[0] as char).to_string(), MAMEConsoleScrollMode::ForceScroll);
+												let _ = add_console_text(ui_weak_cpy.clone(), console_text, MAMEConsoleScrollMode::ForceScroll);
+
+												process_has_error.store(true, Relaxed);
 											}
 										},
 										_ => {
@@ -3206,29 +3205,17 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 								}
 							});
 
-							let mut stdout_buf: [u8; 1] = [0x00; 1];
+							let mut stdout_buf: [u8; CONSOLE_READ_BUFFER_SIZE] = [0x00; CONSOLE_READ_BUFFER_SIZE];
 							let mut stdout_reader = BufReader::new(stdout);
 							loop {
 								match stdout_reader.read(&mut stdout_buf) {
-									Ok(stdout_bytes_read) => {
-										if stdout_bytes_read == 0 {
+									Ok(bytes_read) => {
+										if bytes_read == 0 {
 											break;
 										} else {
-											#[cfg(any(target_os = "windows", target_os = "macos"))]
-											// Don't repeat newline chars.
-											{
-												if stdout_buf[0] == 0x0a || stdout_buf[0] == 0x0d {
-													if last_byte != stdout_buf[0] && (last_byte == 0x0a || last_byte == 0x0d) {
-														last_byte = stdout_buf[0].clone();
-														continue;
-													}
-												}
-
-												last_byte = stdout_buf[0].clone();
-											}
-											
+											let console_text = String::from_utf8_lossy(&stdout_buf[0..bytes_read]).to_string();
 			
-											let _ = add_console_text(ui_weak.clone(), (stdout_buf[0] as char).to_string(), MAMEConsoleScrollMode::ConditionalScroll);
+											let _ = add_console_text(ui_weak.clone(), console_text, MAMEConsoleScrollMode::ConditionalScroll);
 										}
 									},
 									_ => {
