@@ -11,7 +11,6 @@ use std::{
 // I've only seen these values used with the MDOC chips WebTV supports 
 const USR_PAGE_SIZE: u64 = 0x00000200;
 const SPR_PAGE_SIZE: u64 = 0x00000010;
-const PAGES_PER_UNIT: u64 = 0x00000010; // 8MB flashdisk, 16MB = 0x20
 const DISKINFO_UNITS: u64 = 0x00000002;
 
 const DISK_MAGIC: [u8; 6] = [b'A', b'N', b'A', b'N', b'D', 0x00];
@@ -107,6 +106,7 @@ pub struct FlashdiskIO {
 	total_usr_size: u64,
 	total_spr_size: u64,
 	total_units: u64,
+	pages_per_unit: u64,
 	usr_page_offsets: Vec<u64>,
 	current_page_index: usize,
 	current_page_offset: usize,
@@ -117,6 +117,18 @@ pub struct FlashdiskIO {
 }
 
 impl FlashdiskIO {
+	fn calculate_pages_per_unit(total_usr_size: u64) -> Result<u64, Box<dyn std::error::Error>> {
+		Ok(
+			match total_usr_size {
+				0x1000000 => 0x20,
+				0x800000  => 0x10,
+				0x400000  => 0x05,
+				0x200000  => 0x05,
+				_         => 0x10
+			}
+		)
+	}
+
 	// Size detection can easily be done since the page sizes remain the same across all of WebTV's MDOC chips
 	// If there's anything different we should be able to use the device name from MAME's XML.
 	fn detect_mdoc_config(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -128,18 +140,20 @@ impl FlashdiskIO {
 
 		let total_usr_size = ((file_size as f64) / (1.0 + ((SPR_PAGE_SIZE as f64) / (USR_PAGE_SIZE as f64)))) as u64;
 		let total_spr_size = file_size - total_usr_size;
+		let pages_per_unit = FlashdiskIO::calculate_pages_per_unit(total_usr_size).unwrap_or(0);
 
-		let _ = self.set_mdoc_config(total_usr_size, total_spr_size);
+		let _ = self.set_mdoc_config(total_usr_size, total_spr_size, pages_per_unit);
 
 		Ok(())
 	}
 
-	pub fn set_mdoc_config(&mut self, total_usr_size: u64, total_spr_size: u64) -> Result<(), Box<dyn std::error::Error>> {
+	pub fn set_mdoc_config(&mut self, total_usr_size: u64, total_spr_size: u64, pages_per_unit: u64) -> Result<(), Box<dyn std::error::Error>> {
 		self.total_usr_size = total_usr_size;
 		self.total_spr_size = total_spr_size;
+		self.pages_per_unit = pages_per_unit;
 
 		let total_pages = self.total_usr_size / USR_PAGE_SIZE;
-		self.total_units = total_pages / PAGES_PER_UNIT;
+		self.total_units = total_pages / self.pages_per_unit;
 		self.usr_page_offsets = vec![EMPTY_PAGE; total_pages as usize];
 
 		Ok(())
@@ -214,20 +228,20 @@ impl FlashdiskIO {
 
 			let mut chain_index = 0;
 			while chain_index < self.total_units {
-				let unit_offset = physical_unit_index * (SPR_PAGE_SIZE * PAGES_PER_UNIT);
+				let unit_offset = physical_unit_index * (SPR_PAGE_SIZE * self.pages_per_unit);
 				let _ = self.file.seek(SeekFrom::Start(self.total_usr_size + unit_offset))?;
 				match UserControlInformation::read_packed(&mut self.file) {
 					Ok(uci) => {
 						if uci.erase.usr_erase_status == ERASED_MARK && uci.order.usr_virtual_unit_number > -1 {
 							let mut page_index = 0;
-							while page_index < PAGES_PER_UNIT {
+							while page_index < self.pages_per_unit {
 								let page_offset = unit_offset + (page_index * SPR_PAGE_SIZE);
 								let _ = self.file.seek(SeekFrom::Start(self.total_usr_size + page_offset))?;
 								match PageInformation::read_packed(&mut self.file) {
 									Ok(pi) => {
 										if pi.usr_data_status == WRITTEN_MARK {
-											let virtual_page_index = ((uci.order.usr_virtual_unit_number as u64 * PAGES_PER_UNIT) + page_index) as usize;
-											let usr_page_offset = ((physical_unit_index * PAGES_PER_UNIT) + page_index) * USR_PAGE_SIZE;
+											let virtual_page_index = ((uci.order.usr_virtual_unit_number as u64 * self.pages_per_unit) + page_index) as usize;
+											let usr_page_offset = ((physical_unit_index * self.pages_per_unit) + page_index) * USR_PAGE_SIZE;
 
 											if virtual_page_index < self.usr_page_offsets.iter().len() {
 												self.usr_page_offsets[virtual_page_index] = usr_page_offset;
@@ -276,6 +290,7 @@ impl BuildIO for FlashdiskIO {
 			total_usr_size: 0,
 			total_spr_size: 0,
 			total_units: 0,
+			pages_per_unit: 0,
 			usr_page_offsets: vec![],
 			current_page_index: 0,
 			current_page_offset: 0,
@@ -303,6 +318,7 @@ impl BuildIO for FlashdiskIO {
 			total_usr_size: 0,
 			total_spr_size: 0,
 			total_units: 0,
+			pages_per_unit: 0,
 			usr_page_offsets: vec![],
 			current_page_index: 0,
 			current_page_offset: 0,
@@ -311,7 +327,9 @@ impl BuildIO for FlashdiskIO {
 			pending_page_writes: vec![]
 		};
 
-		let _ = io.set_mdoc_config(size, (size / USR_PAGE_SIZE) * SPR_PAGE_SIZE);
+		let pages_per_unit = FlashdiskIO::calculate_pages_per_unit(size).unwrap_or(0);
+
+		let _ = io.set_mdoc_config(size, (size / USR_PAGE_SIZE) * SPR_PAGE_SIZE, pages_per_unit);
 
 		Ok(Box::new(io))
 	}
@@ -445,7 +463,7 @@ impl BuildIO for FlashdiskIO {
 			let mut spr_data = vec![0xff as u8; self.total_spr_size as usize];
 
 			if usr_data.len() > 0 {
-				let usr_start_index = (DISKINFO_UNITS * (USR_PAGE_SIZE * PAGES_PER_UNIT)) as usize;
+				let usr_start_index = (DISKINFO_UNITS * (USR_PAGE_SIZE * self.pages_per_unit)) as usize;
 
 				let _ = self.seek(0);
 				let _ = self.read(&mut usr_data[usr_start_index..]);
@@ -460,11 +478,11 @@ impl BuildIO for FlashdiskIO {
 				self.pending_page_writes.clear();
 
 				for header_index in 0..DISKINFO_UNITS {
-					let usr_index = (header_index * (USR_PAGE_SIZE * PAGES_PER_UNIT)) as usize;
+					let usr_index = (header_index * (USR_PAGE_SIZE * self.pages_per_unit)) as usize;
 
 					let disk_information = DiskInformation {
 						magic: DISK_MAGIC,
-						total_usable_units: (self.total_usr_size / (USR_PAGE_SIZE * PAGES_PER_UNIT)) as i16,
+						total_usable_units: (self.total_usr_size / (USR_PAGE_SIZE * self.pages_per_unit)) as i16,
 						frist_usable_unit: 0,
 						usable_size: (self.total_usr_size as usize - usr_start_index) as i32
 					}.to_le_bytes();
@@ -504,7 +522,7 @@ impl BuildIO for FlashdiskIO {
 						page_spr_index += SPR_PAGE_SIZE;
 
 						page_index += 1;
-						if page_index == PAGES_PER_UNIT {
+						if page_index == self.pages_per_unit {
 							if unit_index >= DISKINFO_UNITS {
 								if unit_written_to {
 									spr_data[(unit_spr_index + (SPR_PAGE_SIZE / 2)) as usize..(unit_spr_index + SPR_PAGE_SIZE) as usize]
