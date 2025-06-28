@@ -48,6 +48,7 @@ export global UIMAMEOptions {
 	in-out property<string> selected_approm: "";
 	in-out property<string> selected_hdimg_path: "";
 	in-out property<bool> selected_hdimg_enabled: false;
+	in-out property<bool> can_revert_approm: false;
 	in-out property<BuildImportState> approm_import_state: BuildImportState.ImportUnavailable;
 
 	// Selected ROM->SSID->Manufacture
@@ -94,6 +95,7 @@ export global UIMAMEOptions {
 	callback select-approm();
 	callback import-bootrom();
 	callback import-approm();
+	callback revert-approm();
 	callback choose-hdimg();
 	callback unset-hdimg();
 	callback generate-ssid();
@@ -178,7 +180,17 @@ export component StartPage inherits Page {
 					selection-changed => {
 						UIMAMEOptions.select-approm();
 					}
+				}
+				IconButton {
+					width: (UIMAMEOptions.can_revert_approm) ? 32px : 0px;
+					height: 34px;
+					padding: 3px;
+					icon: @image-url("images/revert-approm.svg");
+					tooltip: "Revert Preset Image";
+					clicked => {
+						UIMAMEOptions.revert-approm();
 					}
+				}
 			}
 			Button {
 				visible: UIMAMEOptions.approm_import_state != BuildImportState.ImportUnavailable;

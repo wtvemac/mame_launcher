@@ -67,7 +67,7 @@ pub struct HunkWriteInfo {
 }
 
 #[allow(dead_code)]
-struct CompressedHunkDiskIO {
+pub struct CompressedHunkDiskIO {
 	file_path: String,
 	diff_path: String,
 	collation: BuildIODataCollation,
@@ -91,7 +91,7 @@ impl CompressedHunkDiskIO {
 		Ok(())
 	}
 
-	fn find_diff_file(chd_file_path: String) -> Result<String, Box<dyn std::error::Error>> {
+	pub fn find_diff_file(chd_file_path: String) -> Result<String, Box<dyn std::error::Error>> {
 		let path = Path::new(&chd_file_path);
 
 		let chd_parent = match path.parent() {

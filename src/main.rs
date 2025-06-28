@@ -56,6 +56,7 @@ use wtv::{
 	buildio::{
 		BuildIO,
 		BuildIODataCollation,
+		diskio::CompressedHunkDiskIO,
 		romio::ROMIO,
 		flashdiskio::FlashdiskIO
 	},
@@ -156,6 +157,7 @@ struct VerifiableBuildItem {
 	pub value: slint::SharedString,
 	pub description: slint::SharedString,
 	pub status: String,
+	pub can_revert: bool,
 	pub hash: String,
 	pub build_storage_type: BuildStorageType,
 	pub build_storage_state: BuildStorageState,
@@ -302,6 +304,7 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 				value: rom_name.clone().into(),
 				status: rom_status.clone().into(),
 				description: description.into(),
+				can_revert: false,
 				hash: "".into(),
 				build_storage_type: BuildStorageType::MaskRomBuild,
 				build_storage_state: BuildStorageState::UnknownBuildState,
@@ -348,6 +351,7 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 				hint: "".into(),
 				value: BOOTROM_FLASH_FILE_PREFIX.into(),
 				status: "".into(),
+				can_revert: false,
 				description: "BootROM Flash Build".into(),
 				hash: "".into(),
 				build_storage_type: BuildStorageType::StrippedFlashBuild,
@@ -399,6 +403,7 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 				hint: "".into(),
 				value: "None".into(),
 				status: "".into(),
+				can_revert: false,
 				description: "".into(),
 				hash: "".into(),
 				build_storage_type: BuildStorageType::StrippedFlashBuild,
@@ -430,6 +435,7 @@ fn get_flash_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode
 		hint: "".into(),
 		value: APPROM1_FLASH_FILE_PREFIX.into(),
 		status: "".into(),
+		can_revert: false,
 		description: "AppROM Flash Build".into(),
 		hash: "".into(),
 		build_storage_type: BuildStorageType::StrippedFlashBuild,
@@ -524,8 +530,17 @@ fn get_flash_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode
 	Ok(approms)
 }
 
-fn populate_approms_from_disk_file(approms: &mut Vec<VerifiableBuildItem>, file_path: String, collation: Option<BuildIODataCollation>, prefix: String, discription: String)  -> Result<(), Box<dyn std::error::Error>> {
-	match BuildMeta::open_disk(file_path, collation) {
+fn populate_approms_from_disk_file(approms: &mut Vec<VerifiableBuildItem>, file_path: String, collation: Option<BuildIODataCollation>, prefix: String, discription: String, is_preset_disk: bool)  -> Result<(), Box<dyn std::error::Error>> {
+	let can_revert = match is_preset_disk {
+		true => {
+			let diff_file_path = CompressedHunkDiskIO::find_diff_file(file_path.clone()).unwrap_or("".into());
+
+			diff_file_path != "" && Path::new(&diff_file_path).exists()
+		},
+		_ => false
+	};
+
+	match BuildMeta::open_disk(file_path.clone(), collation) {
 		Ok(build_meta) => {
 			let mut build_index = 0;
 			for buildinfo in build_meta.build_info.iter() {
@@ -533,6 +548,7 @@ fn populate_approms_from_disk_file(approms: &mut Vec<VerifiableBuildItem>, file_
 					hint: "".into(),
 					value: (prefix.clone() + "[" + &build_index.to_string() + "]").into(),
 					status: "".into(),
+					can_revert: can_revert,
 					description: discription.clone().into(),
 					hash: "".into(),
 					build_storage_type: BuildStorageType::DiskBuild,
@@ -606,7 +622,8 @@ fn get_disk_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode,
 					preset_img_path, 
 					Some(disk_collation), 
 					disk_name.clone(), 
-					"From preset ".to_owned() + &disk_file.clone() + " file"
+					"From preset ".to_owned() + &disk_file.clone() + " file",
+					true
 				);
 			},
 			_ => {
@@ -621,7 +638,8 @@ fn get_disk_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode,
 			selected_hdimg_path, 
 			Some(disk_collation), 
 			APPROM_HDIMG_PREFIX.to_string(), 
-			"From your HDD image file.".into()
+			"From your HDD image file.".into(),
+			false
 		);
 	}
 
@@ -644,6 +662,7 @@ fn get_flashdisk_approms(config: &LauncherConfig, selected_machine: &MAMEMachine
 		hint: "".into(),
 		value: "".into(),
 		status: "".into(),
+		can_revert: false,
 		description: "".into(),
 		hash: "".into(),
 		build_storage_type: BuildStorageType::DiskBuild,
@@ -882,6 +901,7 @@ fn populate_selected_box_bootroms(ui_weak: &slint::Weak<MainWindow>, config: &La
 		value: "".into(),
 		description: "".into(),
 		status: "".into(),
+		can_revert: false,
 		hash: "".into(),
 		build_storage_type: BuildStorageType::UnknownStorageType,
 		build_storage_state: BuildStorageState::UnknownBuildState,
@@ -1010,6 +1030,7 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 		hint: "".into(),
 		value: "".into(),
 		description: "".into(),
+		can_revert: false,
 		status: "".into(),
 		hash: "".into(),
 		build_storage_type: BuildStorageType::UnknownStorageType,
@@ -1020,6 +1041,7 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 	let mut uses_disk_approms = false;
 	let mut uses_mdoc_approms = false;
 	let can_choose_hdimg;
+	let can_revert_approm;
 
 	for device in selected_machine.device.clone().unwrap_or(vec![]).iter() {
 		if device.dtype.clone().unwrap_or("".to_string()) == "harddisk" {
@@ -1090,7 +1112,7 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 		};
 		
 		for approm in available_approms.iter() {
-			let from_hdimg = match Regex::new(r"^(?<name>.+?)\[(?<index>\d+?)\]").unwrap().captures(approm.value.as_str()) {
+			let from_selected_hdimg = match Regex::new(r"^(?<name>.+?)\[(?<index>\d+?)\]").unwrap().captures(approm.value.as_str()) {
 				Some(matches) => &matches["name"] == APPROM_HDIMG_PREFIX,
 				_ => false
 			};
@@ -1098,7 +1120,7 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 			if approm.status == "selected" {
 				// If we want to select the user hdimg then only check approms from the user hdimg.
 				// Otherwise, only check from the preset image.
-				if from_hdimg && selected_hdimg_enabled || !from_hdimg && !selected_hdimg_enabled {
+				if from_selected_hdimg && selected_hdimg_enabled || !from_selected_hdimg && !selected_hdimg_enabled {
 					selected_approm = approm.clone();
 				}
 			}
@@ -1139,6 +1161,8 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 		selected_approm = available_approms[0].clone();
 	}
 
+	can_revert_approm = selected_approm.value != "" && selected_approm.can_revert;
+
 	let _ = ui_weak.upgrade_in_event_loop(move |ui| {
 
 		let ui_mame = ui.global::<UIMAMEOptions>();
@@ -1147,6 +1171,7 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 		ui_mame.set_uses_disk_approms(uses_disk_approms);
 		ui_mame.set_uses_mdoc_approms(uses_mdoc_approms);
 		ui_mame.set_can_choose_hdimg(can_choose_hdimg);
+		ui_mame.set_can_revert_approm(can_revert_approm);
 
 		// Convert available approms into a list the UI can use.
 		let selectable_approms: slint::VecModel<HintedItem> = Default::default();
@@ -2683,6 +2708,58 @@ fn start_approm_import(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn s
 	Ok(())
 }
 
+fn revert_approm(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error::Error>> {
+	let _ = std::thread::spawn(move || {
+		enable_loading(&ui_weak, "Reverting".into());
+
+		match LauncherConfig::new() {
+			Ok(config) => {
+				let selected_box = config.persistent.mame_options.selected_box.clone().unwrap_or("".into());
+
+				for machine in config.mame.machine.unwrap_or(vec![]).iter() {
+					let machine_name = 
+						machine.name
+						.clone()
+						.unwrap_or("".into());
+
+					if machine_name == *selected_box {
+						if machine.disk.iter().count() > 0 {
+							match machine.disk.clone() {
+								Some(disks) => {
+									let disk_name = disks[0].name.clone().unwrap_or("".into());
+									let disk_file = disk_name.clone() + ".chd";
+
+									let config_persistent_paths = config.persistent.paths.clone();
+									let mame_executable_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
+									let mame_directory_path = LauncherConfig::get_parent(mame_executable_path.clone()).unwrap_or("".into());
+
+									let preset_img_path = mame_directory_path.clone() + "/roms/" + &selected_box + "/" + &disk_file;
+
+									let diff_file_path = CompressedHunkDiskIO::find_diff_file(preset_img_path.clone()).unwrap_or("".into());
+
+									if diff_file_path != "" && Path::new(&diff_file_path).exists() {
+										let _ = std::fs::rename(&diff_file_path, diff_file_path.clone() + ".bak");
+
+										let _ = load_config(ui_weak.clone());
+									}
+								},
+								_ => {
+									//
+								}
+							}
+						}
+					}
+				}
+			},
+			_ => { }
+		};
+
+		disable_loading(&ui_weak);
+	});
+
+	Ok(())
+}
+
 fn choose_hdimg(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error::Error>> {
 	let ui = ui_weak.unwrap();
 	let ui_paths = ui.global::<UIPaths>();
@@ -3535,6 +3612,11 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 	ui_weak = ui.as_weak();
 	ui.global::<UIMAMEOptions>().on_select_approm(move || {
 		let _ = start_approm_select(ui_weak.clone());
+	});
+
+	ui_weak = ui.as_weak();
+	ui.global::<UIMAMEOptions>().on_revert_approm(move || {
+		let _ = revert_approm(ui_weak.clone());
 	});
 
 	ui_weak = ui.as_weak();
