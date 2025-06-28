@@ -26,7 +26,6 @@ export component EditableComboBox inherits Rectangle {
 	in property <string> placeholder-text: "";
 	in property <bool> use-border-style: false;
 	in property <bool> hint-before: false;
-	in property <bool> close-popup-on-click: true;
 	
 	property <bool> i-ishinted: (hintedmodel.length > 0);
 	property <int> i-index: 0;
@@ -189,7 +188,7 @@ export component EditableComboBox inherits Rectangle {
 		y: root.height;
 		width: root.width;
 		height: (root.height - root.popup-item-height-adjust) * ((root.item-count > 10) ? 10 : root.item-count);
-		close-on-click: false;//root.close-popup-on-click;
+		close-policy: close-on-click-outside;
 
 		Rectangle {
 			background: Palette.alternate-background;
