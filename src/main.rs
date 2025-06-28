@@ -3105,6 +3105,49 @@ fn output_mame_stdio(ui_weak: slint::Weak<MainWindow>, stdout: Option<ChildStdou
 	Ok(process_has_error.load(Relaxed))
 }
 
+fn spawn_mame_from_command(ui_weak: slint::Weak<MainWindow>, mut mame_command: Command) -> Result<(), Box<dyn std::error::Error>> {
+	let _ = std::thread::spawn(move || {
+		let mut full_mame_command_line: String;
+
+		full_mame_command_line = mame_command.get_program().to_str().unwrap_or("".into()).to_string() + " ";
+		full_mame_command_line += &mame_command.get_args().map(|arg_str| arg_str.to_str().unwrap_or("".into())).collect::<Vec<_>>().join(" ");
+
+		let _ = add_console_text(ui_weak.clone(), " \n \nStarting MAME: '".to_owned() + &full_mame_command_line + "'\n", MAMEConsoleScrollMode::ForceScroll);
+
+		mame_command.stderr(Stdio::piped());
+		mame_command.stdout(Stdio::piped());
+
+		let process_has_error = match mame_command.spawn() {
+			Ok(mame) => {
+				let _= set_mame_pid(ui_weak.clone(), mame.id());
+
+				output_mame_stdio(ui_weak.clone(), mame.stdout, mame.stderr).unwrap_or(false)
+			},
+			Err(_) => false
+		};
+
+		let _= set_mame_pid(ui_weak.clone(), 0);
+
+		let _ = add_console_text(ui_weak.clone(), " \nMAME Ended\n".into(), MAMEConsoleScrollMode::ForceScroll);
+
+		if !process_has_error {
+			let _ = ui_weak.clone().upgrade_in_event_loop(move |ui| {
+				let ui_mame = ui.global::<UIMAMEOptions>();
+
+				if !(ui_mame.get_verbose_mode().into() || ui_mame.get_console_input().into() || ui_mame.get_debug_mode().into()) {
+					let console_enabled = ui.get_mame_console_enabled();
+					if console_enabled {
+						ui.set_mame_console_enabled(false);
+						let _ = load_config(ui_weak.clone());
+					}
+				}
+			});
+		}
+	});
+
+	Ok(())
+}
+
 fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error::Error>> {
 	let ui = ui_weak.unwrap();
 
@@ -3218,44 +3261,7 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 			mame_command.arg("-hard").arg(selected_hdimg_path);
 		}
 
-		let _ = std::thread::spawn(move || {
-			let mut full_mame_command_line: String;
-
-			full_mame_command_line = mame_command.get_program().to_str().unwrap_or("".into()).to_string() + " ";
-			full_mame_command_line += &mame_command.get_args().map(|arg_str| arg_str.to_str().unwrap_or("".into())).collect::<Vec<_>>().join(" ");
-
-			let _ = add_console_text(ui_weak.clone(), " \n \nStarting MAME: '".to_owned() + &full_mame_command_line + "'\n", MAMEConsoleScrollMode::ForceScroll);
-
-			mame_command.stderr(Stdio::piped());
-			mame_command.stdout(Stdio::piped());
-
-			let process_has_error = match mame_command.spawn() {
-				Ok(mame) => {
-					let _= set_mame_pid(ui_weak.clone(), mame.id());
-
-					output_mame_stdio(ui_weak.clone(), mame.stdout, mame.stderr).unwrap_or(false)
-				},
-				Err(_) => false
-			};
-
-			let _= set_mame_pid(ui_weak.clone(), 0);
-
-			let _ = add_console_text(ui_weak.clone(), " \nMAME Ended\n".into(), MAMEConsoleScrollMode::ForceScroll);
-
-			if !process_has_error {
-				let _ = ui_weak.clone().upgrade_in_event_loop(move |ui| {
-					let ui_mame = ui.global::<UIMAMEOptions>();
-
-					if !(ui_mame.get_verbose_mode().into() || ui_mame.get_console_input().into() || ui_mame.get_debug_mode().into()) {
-						let console_enabled = ui.get_mame_console_enabled();
-						if console_enabled {
-							ui.set_mame_console_enabled(false);
-							let _ = load_config(ui_weak.clone());
-						}
-					}
-				});
-			}
-		});
+		let _ = spawn_mame_from_command(ui_weak, mame_command);
 	}
 
 	Ok(())
@@ -3626,10 +3632,7 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 
 		let _ = check_custom_ssid(ui_weak.clone());
 
-		let _ = match start_mame(ui_weak.clone()) {
-			Ok(_) => {},
-			_ => {},
-		};
+		let _ = start_mame(ui_weak.clone());
 
 		disable_loading(&ui_weak);
 	});
