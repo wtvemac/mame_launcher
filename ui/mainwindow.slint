@@ -25,6 +25,12 @@ export {
 	UIAbout
 }
 
+export enum MAMEConsoleScrollMode {
+	NoScrollCheck,
+	ConditionalScroll,
+	ForceScroll
+}
+
 export component MainWindow inherits Window {
 	title: @tr("WebTV MAME Launcher");
 	// might be a good idea to save window sizes in the config file.
@@ -46,39 +52,16 @@ export component MainWindow inherits Window {
 	in-out property<bool> mame-console-enabled: false;
 	in-out property<string> mame-console-text: "";
 
-	// These rectangles are hacks to capture change events so we can auto-scroll the MAME console.
-	// We update a value from Rust and this triggers a check.
-	// We only auto-scroll if the current scrolled position is at the bottom. 
-	// We assume that the user wants to continue to be at the bottom as new text is added if we're scrolled to the bottom at the start.
-	in-out property<int> check-value: 0;
-	in-out property<bool> force-scroll: false;
-	in-out property<bool> i-is-at-bottom: false;
-	property <int> i-check-value: 0;
-	if (root.mame-console-enabled && root.i-check-value != root.check-value): Rectangle {
-		init => {
-			// Only auto-scroll if we're scrolled to the bottom. This allows the user to scroll around and not be annoyed by it auto-scrolling as they're viewing things.
-			root.i-is-at-bottom = ((mame-console.viewport-y - (mame-console.visible-height + 900px)) <= (mame-console.visible-height - mame-console.viewport-height));
-
-			if(root.i-is-at-bottom || root.force-scroll) {
-				mame-console.set-selection-offsets(4294967295, 4294967295); // Scroll to end hack
-				root.force-scroll = false;
-			}
-
-			root.i-check-value = check-value;
+	in-out property<MAMEConsoleScrollMode> scroll-mode: MAMEConsoleScrollMode.ConditionalScroll;
+	in-out property<bool> can-scroll: false;
+	in-out property<length> autoscroll-allowed-drift: 138px;
+	changed mame-console-text => {
+		if(root.scroll-mode == MAMEConsoleScrollMode.ForceScroll || (root.scroll-mode == MAMEConsoleScrollMode.ConditionalScroll && root.can-scroll)) {
+			mame-console.set-selection-offsets(4294967295, 4294967295); // Scroll to end hack
 		}
-	}
-	// Also make sure we're at the bottom if the window height changes
-	// Width changes could be checked as well (word wrap) but that should be "okay" based on the +900px tolerance in the "am I at the bottom" code in the value check.
-	// Huge height changes (like maximize to minimize) may mess this but but in those cases the user can scroll to the bottom.
-	property <length> i-check-height: 0px;
-	if (root.mame-console-enabled && root.i-check-height != root.height): Rectangle {
-		init => {
-			root.i-is-at-bottom = ((mame-console.viewport-y - (mame-console.visible-height * 1.5)) <= (mame-console.visible-height - mame-console.viewport-height));
 
-			if(root.i-is-at-bottom) {
-				mame-console.viewport-y = mame-console.visible-height - mame-console.viewport-height;
-			}
-		}
+		// Make sure scroll state is updated. This usually gets updated by mousing around the application but sometimes we're not in focus.
+		root.can-scroll = (mame-console.viewport-y + mame-console.viewport-height) <= (mame-console.visible-height + root.autoscroll-allowed-drift);
 	}
 
 	callback send-key-to-mame(string, bool);
@@ -153,6 +136,12 @@ export component MainWindow inherits Window {
 		height: root.height;
 		enabled: root.mame-console-enabled;
 		padding: 0px;
+		pointer-event => {
+			// Routinely check if we're scrolled to the bottom. Using mouse movements so this value is fresh.
+			// The autoscroll event happens after text is added. If a large chunk of text is added, it scrolls beyond the drift and breaks autoscroll.
+			// This allows us to have an updated state before text is added.
+			root.can-scroll = (mame-console.viewport-y + mame-console.viewport-height) <= (mame-console.visible-height + root.autoscroll-allowed-drift);
+		}
 		// FocusScope is used to send keys back to MAME so we can handle crash events on bf0. Smart card serial out goes to console, hw keyboard (implemented in MAME) for input.
 		FocusScope {
 			x: 0px;

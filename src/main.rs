@@ -188,15 +188,6 @@ struct MachineSlotItem {
 	pub slot_type: SlotType
 }
 
-
-#[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq)]
-enum MAMEConsoleScrollMode {
-	NoScrollCheck,
-	ConditionalScroll,
-	ForceScroll
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 	if cfg!(target_os = "macos") {
 		let _ = start_in_main();
@@ -3040,16 +3031,6 @@ fn set_mame_pid(ui_weak: slint::Weak<MainWindow>, pid: u32) -> Result<(), Box<dy
 fn add_console_text(ui_weak: slint::Weak<MainWindow>, text: String, scroll_mode: MAMEConsoleScrollMode) -> Result<(), Box<dyn std::error::Error>> {
 	if text != "" {
 		let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-			if scroll_mode == MAMEConsoleScrollMode::ForceScroll {
-				ui.set_force_scroll(true);
-			}
-
-			let mut rng = rand::thread_rng();
-
-			if scroll_mode == MAMEConsoleScrollMode::ConditionalScroll || scroll_mode == MAMEConsoleScrollMode::ForceScroll {
-				ui.set_check_value(rng.gen::<i32>());
-			}
-
 			let previous_text = ui.get_mame_console_text().to_string();
 
 			let mut text_lines: Vec<_> = previous_text.split("\n").collect();
@@ -3057,12 +3038,9 @@ fn add_console_text(ui_weak: slint::Weak<MainWindow>, text: String, scroll_mode:
 				text_lines = text_lines[(text_lines.len() - CONSOLE_SCROLLBACK_LINES)..text_lines.len()].to_vec();
 			}
 
+			ui.set_scroll_mode(scroll_mode);
 			ui.set_mame_console_text((text_lines.join("\n") + &text).into());
 
-
-			if scroll_mode == MAMEConsoleScrollMode::ConditionalScroll || scroll_mode == MAMEConsoleScrollMode::ForceScroll {
-				ui.set_check_value(rng.gen::<i32>());
-			}
 		});
 	}
 
