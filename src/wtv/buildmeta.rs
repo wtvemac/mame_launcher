@@ -195,6 +195,21 @@ pub enum BuildMetaLayout {
 	UTVDiskLayout
 }
 
+#[allow(non_snake_case, dead_code)]
+pub mod BuildFlag {
+	#[allow(non_snake_case, non_upper_case_globals)]
+	pub const CompressedData: u32 = 0x01;
+	#[allow(non_snake_case, non_upper_case_globals)]
+	pub const Internal:       u32 = 0x02;
+	#[allow(non_snake_case, non_upper_case_globals)]
+	pub const Debug:          u32 = 0x04;
+	#[allow(non_snake_case, non_upper_case_globals)]
+	pub const WinCE:          u32 = 0x10;
+	#[allow(non_snake_case, non_upper_case_globals)]
+	pub const Satellite:      u32 = 0x20;
+}
+
+
 #[allow(dead_code)]
 pub struct BuildMeta {
 	pub file_path: String,

@@ -70,7 +70,8 @@ use wtv::{
 	buildmeta::{
 		BuildMeta,
 		BuildMetaLayout,
-		BuildInfo
+		BuildInfo,
+		BuildFlag
 	},
 	ssid::{SSIDInfo, SSIDBoxType, SSIDManufacture}
 };
@@ -318,7 +319,11 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 				match BuildMeta::open_rom(bootrom_path, None) {
 					Ok(build_meta) => {
 						bootrom.build_info = Some(build_meta.build_info[0].clone());
-						bootrom.hint = build_meta.build_info[0].build_header.build_version.clone().to_string().into();
+						if (build_meta.build_info[0].build_header.build_flags & BuildFlag::Debug) != 0x00 {
+							bootrom.hint = (build_meta.build_info[0].build_header.build_version.clone().to_string() + "d").into();
+						} else {
+							bootrom.hint = build_meta.build_info[0].build_header.build_version.clone().to_string().into();
+						}
 	
 						if build_meta.build_info[0].build_header.code_checksum != build_meta.build_info[0].calculated_code_checksum {
 							bootrom.build_storage_state = BuildStorageState::CodeChecksumMismatch;
@@ -373,7 +378,11 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 					match BuildMeta::open_rom(bootrom_path_prefix, Some(BuildIODataCollation::StrippedROMs)) {
 						Ok(build_meta) => {
 							bootrom.build_info = Some(build_meta.build_info[0].clone());
-							bootrom.hint = build_meta.build_info[0].build_header.build_version.clone().to_string().into();
+							if (build_meta.build_info[0].build_header.build_flags & BuildFlag::Debug) != 0x00 {
+								bootrom.hint = (build_meta.build_info[0].build_header.build_version.clone().to_string() + "d").into();
+							} else {
+								bootrom.hint = build_meta.build_info[0].build_header.build_version.clone().to_string().into();
+							}
 		
 							if build_meta.build_info[0].build_header.code_checksum != build_meta.build_info[0].calculated_code_checksum {
 								bootrom.build_storage_state = BuildStorageState::CodeChecksumMismatch;
@@ -500,7 +509,11 @@ fn get_flash_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode
 				match BuildMeta::open_rom(approm_path_prefix.clone(), Some(BuildIODataCollation::StrippedROMs)) {
 					Ok(build_meta) => {
 						approm.build_info = Some(build_meta.build_info[0].clone());
-						approm.hint = build_meta.build_info[0].build_header.build_version.clone().to_string().into();
+						if (build_meta.build_info[0].build_header.build_flags & BuildFlag::Debug) != 0x00 {
+							approm.hint = (build_meta.build_info[0].build_header.build_version.clone().to_string() + "d").into();
+						} else {
+							approm.hint = build_meta.build_info[0].build_header.build_version.clone().to_string().into();
+						}
 
 						if build_meta.build_info[0].build_header.code_checksum != build_meta.build_info[0].calculated_code_checksum {
 							approm.build_storage_state = BuildStorageState::CodeChecksumMismatch;
@@ -562,7 +575,11 @@ fn populate_approms_from_disk_file(approms: &mut Vec<VerifiableBuildItem>, file_
 				}
 
 				approm.build_info = Some(buildinfo.clone());
-				approm.hint = buildinfo.build_header.build_version.clone().to_string().into();
+				if (buildinfo.build_header.build_flags & BuildFlag::Debug) != 0x00 {
+					approm.hint = (buildinfo.build_header.build_version.clone().to_string() + "d").into();
+				} else {
+					approm.hint = buildinfo.build_header.build_version.clone().to_string().into();
+				}
 
 				if build_meta.build_count == 0 {
 					approm.build_storage_state = BuildStorageState::CantReadBuild;
@@ -699,7 +716,11 @@ fn get_flashdisk_approms(config: &LauncherConfig, selected_machine: &MAMEMachine
 						}
 
 						approm.build_info = Some(buildinfo.clone());
-						approm.hint = buildinfo.build_header.build_version.clone().to_string().into();
+						if (buildinfo.build_header.build_flags & BuildFlag::Debug) != 0x00 {
+							approm.hint = (buildinfo.build_header.build_version.clone().to_string() + "d").into();
+						} else {
+							approm.hint = buildinfo.build_header.build_version.clone().to_string().into();
+						}
 						approm.value = ("mdoc[".to_owned() + &build_index.to_string() + "]").into();
 
 						if build_meta.build_count == 0 {
