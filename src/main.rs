@@ -94,6 +94,7 @@ const APPROM_HDIMG_PREFIX: &'static str = "hdimg";
 const ALLOW_APPROM2_FILES: bool = false;
 const DEFAULT_FLASHDISK_SIZE: u64 = 8 * 1024 * 1024;
 const PUBLIC_TOUCHPP_ADDRESS: &'static str = "wtv.ooguy.com:1122";
+const DEFAULT_DEBUG_ENDPOINT: &'static str = "Launcher Console";
 const DEBUG_READ_BUFFER_SIZE: usize = 1024;
 const CONSOLE_READ_BUFFER_SIZE: usize = 1024;
 const CONSOLE_UPDATE_INTERVAL_USEC: u128 = 50000;
@@ -1659,9 +1660,46 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 			},
 			_ => { }
 		}
-		ui_mame.set_selectable_modem_bitb_endpoints(slint::ModelRc::new(slint::VecModel::from(selectable_modem_bitb_endpoints)));
-		// Defailting to the public server to lean toward MAME working vs defaulting to a local server that may not be there.
-		ui_mame.set_selected_modem_bitb_endpoint(config_persistent_mame.selected_modem_bitb_endpoint.unwrap_or(PUBLIC_TOUCHPP_ADDRESS.into()).into());
+
+		////
+		//
+		// Start->Selected Debug Endpoint
+		//
+		////
+
+		let mut selectable_debug_bitb_endpoints: Vec<HintedItem> = vec![
+			HintedItem {
+				hint: "".into(),
+				tooltip: "".into(),
+				value: DEFAULT_DEBUG_ENDPOINT.into()
+			},
+			HintedItem {
+				hint: "Local ser2net".into(),
+				tooltip: "".into(),
+				value: "127.0.0.1:2000".into()
+			}
+		];
+		match serialport::available_ports() {
+			Ok(ports) => {
+				for (index, port) in ports.iter().enumerate() {
+					let serial_port_type: String = match port.port_type {
+						serialport::SerialPortType::BluetoothPort => "Bluetooth".into(),
+						serialport::SerialPortType::PciPort => "PCI".into(),
+						serialport::SerialPortType::UsbPort(_) => "USB".into(),
+						_ => "Unknown".into()
+					};
+
+					selectable_debug_bitb_endpoints.push(
+						HintedItem {
+							hint: ("[".to_owned() + &serial_port_type + "] Serial Port " + &index.to_string()).into(),
+							tooltip: ("Serial Port Type: ".to_owned() + &serial_port_type).into(),
+							value: port.port_name.clone().into()
+						}
+					);
+				}
+			},
+			_ => { }
+		}
 
 		////
 		//
@@ -3359,27 +3397,40 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 			mame_command.args(custom_options.split(" "));
 		}
 
-		let debug_bitb_port= match ui_mame.get_console_input().into() {
+		let mut debug_bitb_port= 0;
+		match ui_mame.get_console_input().into() {
 			true => {
-				let selected_debug_bitb_startpoint = ui_mame.get_selected_debug_bitb_startpoint();
-				match Regex::new(r"^(?<slot_select>[^; ]+?)\; (?<bitb_select>.+?)$").unwrap().captures(selected_debug_bitb_startpoint.as_str()) {
-					Some(matches) => match portpicker::pick_unused_port() {
-						Some(found_port) => {
-							mame_command.arg("-".to_owned() + &matches["slot_select"]).arg("null_modem");
-							mame_command.arg("-".to_owned() + &matches["bitb_select"]).arg("socket.127.0.0.1:".to_owned() + &found_port.to_string());
+				match Regex::new(r"^(?<slot_select>[^; ]+?)\; (?<bitb_select>.+?)$").unwrap().captures(ui_mame.get_selected_debug_bitb_startpoint().as_str()) {
+					Some(matches) => {
+						mame_command.arg("-".to_owned() + &matches["slot_select"]).arg("null_modem");
 
-							found_port
-						},
-						None => {
-							let _ = add_console_text(ui_weak.clone(), "ERROR: Couldn't find an available port for debug console!\n".into(), MAMEConsoleScrollMode::ForceScroll, 0);
+						let selected_debug_bitb_endpoint = ui_mame.get_selected_debug_bitb_endpoint();
+						let usable_debug_bitb_endpoint = match selected_debug_bitb_endpoint.as_str() {
+							DEFAULT_DEBUG_ENDPOINT | "127.0.0.1" | "localhost" | "local" => match portpicker::pick_unused_port() {
+								Some(found_port) => {
+									debug_bitb_port = found_port;
 
-							0
+									&("127.0.0.1:".to_owned() + &debug_bitb_port.to_string())
+								},
+								None => {
+									let _ = add_console_text(ui_weak.clone(), "ERROR: Couldn't find an available port for debug console!\n".into(), MAMEConsoleScrollMode::ForceScroll, 0);
+
+									""
+								}
+							},
+							_ => selected_debug_bitb_endpoint.as_str()
+						};
+
+						if Regex::new(r"^[^\:]+\:\d+$").unwrap().is_match(usable_debug_bitb_endpoint) {
+							mame_command.arg("-".to_owned() + &matches["bitb_select"]).arg("socket.".to_owned() + &usable_debug_bitb_endpoint.to_string());
+						} else {
+							mame_command.arg("-".to_owned() + &matches["bitb_select"]).arg(usable_debug_bitb_endpoint);
 						}
-					},
-					None => 0
-				}
+					}
+					None => { }
+				};
 			},
-			_ => 0
+			_ => { }
 		};
 
 		let selected_modem_bitb_startpoint: String = ui_mame.get_selected_modem_bitb_startpoint().to_string();

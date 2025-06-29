@@ -74,6 +74,17 @@ export global UIMAMEOptions {
 	in-out property<string> selected_modem_bitb_startpoint: "";
 
 	// Debug Console
+	in-out property<[HintedItem]> selectable_debug_bitb_endpoints: [
+		{
+			hint: "",
+			value: "Launcher Console"
+		},
+		{
+			hint: "Local ser2net",
+			value: "127.0.0.1:2000"
+		},
+	];
+	in-out property<string> selected_debug_bitb_endpoint: "Launcher Console";
 	in-out property<[HintedItem]> selectable_debug_bitb_startpoints: [];
 	in-out property<string> selected_debug_bitb_startpoint: "";
 
@@ -311,12 +322,12 @@ export component StartPage inherits Page {
 						checked <=> UIMAMEOptions.console_input;
 					}
 					EditableComboBox {
-						visible: UIMAMEOptions.selectable_debug_bitb_startpoints.length > 1;
-						enabled: UIMAMEOptions.selectable_debug_bitb_startpoints.length > 1;
+						visible: UIMAMEOptions.console_input && UIMAMEOptions.selectable_debug_bitb_startpoints.length > 0;
+						enabled: UIMAMEOptions.console_input && UIMAMEOptions.selectable_debug_bitb_startpoints.length > 0;
 						height: 33px;
-						editable: false;
-						hintedmodel: UIMAMEOptions.selectable_debug_bitb_startpoints;
-						current-value <=> UIMAMEOptions.selected_debug_bitb_startpoint;
+						editable: true;
+						hintedmodel: UIMAMEOptions.selectable_debug_bitb_endpoints;
+						current-value <=> UIMAMEOptions.selected_debug_bitb_endpoint;
 						
 					}
 				}
@@ -328,6 +339,15 @@ export component StartPage inherits Page {
 						width: 180px;
 						height: 28px;
 						checked <=> UIMAMEOptions.debug_mode;
+					}
+					EditableComboBox {
+						visible: UIMAMEOptions.console_input && UIMAMEOptions.selectable_debug_bitb_startpoints.length > 1;
+						enabled: UIMAMEOptions.console_input && UIMAMEOptions.selectable_debug_bitb_startpoints.length > 1;
+						height: 33px;
+						editable: false;
+						hintedmodel: UIMAMEOptions.selectable_debug_bitb_startpoints;
+						current-value <=> UIMAMEOptions.selected_debug_bitb_startpoint;
+						
 					}
 				}
 				Switch {
