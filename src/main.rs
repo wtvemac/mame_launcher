@@ -988,7 +988,8 @@ fn populate_selected_box_bootroms(ui_weak: &slint::Weak<MainWindow>, config: &La
 				HintedItem {
 					hint: available_bootrom.hint.clone(),
 					tooltip: available_bootrom.description.clone(),
-					value: available_bootrom.value.clone()
+					value: available_bootrom.value.clone(),
+					icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
 				}
 			);
 		}
@@ -1223,7 +1224,8 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 				HintedItem {
 					hint: available_approm.hint.clone(),
 					tooltip: available_approm.description.clone(),
-					value: available_approm.value.clone()
+					value: available_approm.value.clone(),
+					icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
 				}
 			);
 		}
@@ -1371,7 +1373,8 @@ fn populate_selected_box_ssids(ui_weak: &slint::Weak<MainWindow>, config: &Launc
 				HintedItem {
 					hint: available_ssid.hint.clone(),
 					tooltip: available_ssid.description.clone(),
-					value: available_ssid.value.clone()
+					value: available_ssid.value.clone(),
+					icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
 				}
 			);
 			break;
@@ -1454,7 +1457,8 @@ fn populate_selected_box_ssids(ui_weak: &slint::Weak<MainWindow>, config: &Launc
 				HintedItem {
 					hint: available_ssid_manufacture.name.clone().into(),
 					tooltip: available_ssid_manufacture.description.clone().into(),
-					value: available_ssid_manufacture.hex_value.clone().into()
+					value: available_ssid_manufacture.hex_value.clone().into(),
+					icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
 				}
 			);
 		}
@@ -1535,7 +1539,8 @@ fn populate_selected_box_slots(ui_weak: &slint::Weak<MainWindow>, _config: &Laun
 					HintedItem {
 						hint: available_slot.hint.clone().into(),
 						tooltip: "".into(),
-						value: available_slot.value.clone().into()
+						value: available_slot.value.clone().into(),
+						icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
 					}
 				);
 			} else if available_slot.slot_type == SlotType::DebugSerial {
@@ -1547,7 +1552,8 @@ fn populate_selected_box_slots(ui_weak: &slint::Weak<MainWindow>, _config: &Laun
 					HintedItem {
 						hint: available_slot.hint.clone().into(),
 						tooltip: "".into(),
-						value: available_slot.value.clone().into()
+						value: available_slot.value.clone().into(),
+						icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
 					}
 				);
 			}
@@ -1687,12 +1693,14 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 			HintedItem {
 				hint: "Public TouchPPP Server".into(),
 				tooltip: "".into(),
-				value: PUBLIC_TOUCHPP_ADDRESS.into()
+				value: PUBLIC_TOUCHPP_ADDRESS.into(),
+				icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
 			},
 			HintedItem {
 				hint: "Local TouchPPP Server".into(),
 				tooltip: "".into(),
-				value: "127.0.0.1:1122".into()
+				value: "127.0.0.1:1122".into(),
+				icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
 			}
 		];
 		match serialport::available_ports() {
@@ -1709,7 +1717,8 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 						HintedItem {
 							hint: ("[".to_owned() + &serial_port_type + "] Serial Port " + &index.to_string()).into(),
 							tooltip: ("Serial Port Type: ".to_owned() + &serial_port_type).into(),
-							value: port.port_name.clone().into()
+							value: port.port_name.clone().into(),
+							icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
 						}
 					);
 				}
@@ -1728,12 +1737,14 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 			HintedItem {
 				hint: "".into(),
 				tooltip: "".into(),
-				value: DEFAULT_DEBUG_ENDPOINT.into()
+				value: DEFAULT_DEBUG_ENDPOINT.into(),
+				icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
 			},
 			HintedItem {
 				hint: "Local ser2net".into(),
 				tooltip: "".into(),
-				value: "127.0.0.1:2000".into()
+				value: "127.0.0.1:2000".into(),
+				icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
 			}
 		];
 		match serialport::available_ports() {
@@ -1750,7 +1761,8 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 						HintedItem {
 							hint: ("[".to_owned() + &serial_port_type + "] Serial Port " + &index.to_string()).into(),
 							tooltip: ("Serial Port Type: ".to_owned() + &serial_port_type).into(),
-							value: port.port_name.clone().into()
+							value: port.port_name.clone().into(),
+							icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
 						}
 					);
 				}
@@ -1787,6 +1799,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		pub hint: slint::SharedString,
 		pub tooltip: slint::SharedString,
 		pub value: slint::SharedString,
+		pub icon: String,
 		pub sort_value: String
 	}
 
@@ -1833,7 +1846,8 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 							hint: machine_description.clone().into(),
 							tooltip: "".into(),
 							value: machine_name.clone().into(),
-							sort_value: sort_value.clone().into()
+							icon: "".into(),
+							sort_value: sort_value.clone().into(),
 						}
 					);
 
@@ -1879,7 +1893,11 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 					HintedItem {
 						hint: selectable_box.hint.clone(),
 						tooltip: selectable_box.tooltip.clone(),
-						value: selectable_box.value.clone()
+						value: selectable_box.value.clone(),
+						icon: match selectable_box.icon.as_str() {
+							"" => slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0)),
+							icon_path => slint::Image::load_from_path(Path::new(&icon_path)).unwrap_or(slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0)))
+						}
 					}
 				);
 			}

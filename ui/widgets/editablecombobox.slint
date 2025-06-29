@@ -9,7 +9,8 @@ import {
 export struct HintedItem {
 	hint: string,
 	tooltip: string,
-	value: string
+	value: string,
+	icon: image
 }
 
 global TooltipState {
@@ -37,6 +38,7 @@ export component EditableComboBox inherits Rectangle {
 
 	out property <string> current-hint: (i-ishinted) ? hintedmodel[i-index].hint : "";
 	out property <string> current-tooltip: (hintedmodel.length > 0) ? hintedmodel[i-index].tooltip : "";
+	out property <image> current-icon: (i-ishinted) ? hintedmodel[i-index].icon : @image-url("");
 	out property <int> item-count: ((i-ishinted) ? hintedmodel.length : model.length);
 
 	property <length> popup-item-height-adjust: 6px;
@@ -55,9 +57,10 @@ export component EditableComboBox inherits Rectangle {
 						root.i-index = index;
 						root.i-value = value.value;
 						root.i-hint = value.hint;
-						
+
 						root.current-hint = value.hint;
 						root.current-tooltip = value.tooltip;
+						root.current-icon = value.icon;
 					}
 				}
 			}
@@ -72,6 +75,7 @@ export component EditableComboBox inherits Rectangle {
 
 						root.current-hint = "";
 						root.current-tooltip = "";
+						root.current-icon = @image-url("");
 					}
 				}
 			}
@@ -88,10 +92,16 @@ export component EditableComboBox inherits Rectangle {
 	close-popup-window => {
 		popup.close();
 	}
-
+	if root.current-icon.width != 0: icon := Image {
+		source: root.current-icon;
+		x: 5px;
+		width: 16px;
+		height: (!root.editable) ? (parent.height) : 0px;
+		image-fit: contain;
+	}
 	nonedit-label := Text {
 		text: (root.current-value == "") ? "" : ((root.hint-before) ? (((root.current-hint != "") ? current-hint + ": " : "") + root.current-value) : (root.current-value + ((root.current-hint != "") ? ": " + current-hint : "")));
-		x: 10px;
+		x: (root.current-icon.width == 0) ? 10px : 24px;
 		width: parent.width - self.x - 2px;
 		height: (!root.editable) ? (parent.height) : 0px;
 		vertical-alignment: center;
@@ -213,6 +223,13 @@ export component EditableComboBox inherits Rectangle {
 					border-color: (itemsel-area.has-hover) ? Palette.foreground : ((root.current-value == value.value) ? Palette.accent-background : Palette.alternate-background);
 					HorizontalLayout {
 						padding: 6px;
+						spacing: 3px;
+						if value.icon.width != 0: Image {
+							source: value.icon;
+							width: 16px;
+							height: 16px;
+							image-fit: contain;
+						}
 						Text {
 							text: (root.hint-before) ? (((value.hint!= "") ? value.hint + ": " : "") + value.value) : (value.value + ((value.hint!= "") ? ": " + value.hint : ""));
 							color: (itemsel-area.has-hover) ? Palette.alternate-background : Palette.foreground;
@@ -225,6 +242,7 @@ export component EditableComboBox inherits Rectangle {
 							root.current-value = value.value;
 							root.current-hint = value.hint;
 							root.current-tooltip = value.tooltip;
+							root.current-icon = value.icon;
 	
 							if(root.editable) {
 								editbox.focus();
@@ -260,7 +278,8 @@ export component EditableComboBox inherits Rectangle {
 							root.current-value = value;
 							root.current-hint = "";
 							root.current-tooltip = "";
-	
+							root.current-icon = @image-url("");
+
 							if(root.editable) {
 								editbox.focus();
 								editbox.clear-selection();
