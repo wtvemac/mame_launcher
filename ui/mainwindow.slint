@@ -46,7 +46,7 @@ export component MainWindow inherits Window {
 
 	function scroll-to-end() {
 		mame-console.set-selection-offsets(4294967295, 4294967295); // Cursor to end hack
-		mame-console-scroll.viewport-y = -1 * (mame-console.preferred-height - mame-console-scroll.visible-height);  // Scroll to end
+		mame-console-scroll.viewport-y = -1 * max((mame-console.preferred-height - mame-console-scroll.visible-height), 0);  // Scroll to end
 	}
 
 	in-out property<int> mame-pid: 0;
