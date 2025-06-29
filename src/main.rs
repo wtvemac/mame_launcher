@@ -3132,7 +3132,13 @@ fn output_mame_debug(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx
 
 									match drx.try_recv() {
 										Ok(received) => {
-											let _ = mame.write(&received.as_bytes());
+											let bytes = received.as_bytes();
+											if bytes.len() == 1 && bytes[0] == 0x0a {
+												// send 0x0d instead of 0x0a for enter because the WebTV OS responds to that better.
+												let _ = mame.write(&[0x0d; 1]);
+											} else {
+												let _ = mame.write(&bytes);
+											}
 										},
 										_ => { }
 									};
