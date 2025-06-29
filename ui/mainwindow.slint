@@ -6,8 +6,8 @@ import {
 	Palette,
 	TabWidget,
 	VerticalBox,
+	ScrollView,
 	Spinner,
-	TextEdit,
 	Button
 } from "std-widgets.slint";
 import {
@@ -44,11 +44,17 @@ export component MainWindow inherits Window {
 	default-font-weight: 400;
 	padding: 0px;
 
+	function scroll-to-end() {
+		mame-console.set-selection-offsets(4294967295, 4294967295); // Cursor to end hack
+		mame-console-scroll.viewport-y = -1 * (mame-console.preferred-height - mame-console-scroll.visible-height);  // Scroll to end
+	}
+
 	in-out property<int> mame-pid: 0;
 	in-out property<bool> mame-broken: false;
 	in-out property<int> loading-depth: 0;
 	in-out property<string> loading-message: "";
 	in-out property<string> launcher-state-message: "";
+	in-out property<length> mame-console-padding: 4px;
 	in-out property<bool> mame-console-enabled: false;
 	in-out property<string> mame-console-text: "";
 	in-out property<bool> using-mame-debug: false;
@@ -58,11 +64,11 @@ export component MainWindow inherits Window {
 	in-out property<length> autoscroll-allowed-drift: 138px;
 	changed mame-console-text => {
 		if(root.scroll-mode == MAMEConsoleScrollMode.ForceScroll || (root.scroll-mode == MAMEConsoleScrollMode.ConditionalScroll && root.can-scroll)) {
-			mame-console.set-selection-offsets(4294967295, 4294967295); // Scroll to end hack
+			root.scroll-to-end();
 		}
 
 		// Make sure scroll state is updated. This usually gets updated by mousing around the application but sometimes we're not in focus.
-		root.can-scroll = (mame-console.viewport-y + mame-console.viewport-height) <= (mame-console.visible-height + root.autoscroll-allowed-drift);
+		root.can-scroll = (mame-console-scroll.viewport-y + mame-console.preferred-height) <= (mame-console-scroll.visible-height + root.autoscroll-allowed-drift);
 	}
 
 	callback send-key-to-mame(string, bool);
@@ -141,94 +147,92 @@ export component MainWindow inherits Window {
 			// Routinely check if we're scrolled to the bottom. Using mouse movements so this value is fresh.
 			// The autoscroll event happens after text is added. If a large chunk of text is added, it scrolls beyond the drift and breaks autoscroll.
 			// This allows us to have an updated state before text is added.
-			root.can-scroll = (mame-console.viewport-y + mame-console.viewport-height) <= (mame-console.visible-height + root.autoscroll-allowed-drift);
+			root.can-scroll = (mame-console-scroll.viewport-y + mame-console.preferred-height) <= (mame-console-scroll.visible-height + root.autoscroll-allowed-drift);
 		}
-		// FocusScope is used to send keys back to MAME so we can handle crash events on bf0. Smart card serial out goes to console, hw keyboard (implemented in MAME) for input.
-		FocusScope {
+		Rectangle {
 			x: 0px;
 			y: 0px;
 			width: parent.width;
 			height: parent.height;
-			enabled: root.mame-console-enabled;
+			visible: root.mame-console-enabled;
 			padding: 0px;
-			key-pressed(event) => {
-				root.send-key-to-mame(event.text, event.modifiers.shift);
-
-				accept
-			}
-			Rectangle {
-				x: 0px;
-				y: 0px;
-				width: parent.width;
-				height: parent.height;
-				visible: root.mame-console-enabled;
-				padding: 0px;
-				background: Palette.alternate-background;
+			background: Palette.alternate-background;
+			mame-console-scroll := ScrollView {
+				x: root.mame-console-padding;
+				y: root.mame-console-padding;
+				width: parent.width - (2 * root.mame-console-padding);
+				height: parent.height - (2 * root.mame-console-padding);
+				viewport-width: self.visible-width;
+				viewport-height: max(self.visible-height, mame-console.preferred-height);
 				// Might do syntax highlighting if Slint ever has support (probably wont implement it myself)
 				// Seems like they're looking at cosmic-text
 				// https://github.com/slint-ui/slint/issues/2723
-				mame-console := TextEdit {
-					x: 0px;
-					y: 0px;
-					width: parent.width;
-					height: parent.height;
+				mame-console := TextInput {
+					page-height: mame-console-scroll.visible-height;
 					text: root.mame-console-text;
 					enabled: true;
-					padding: 0px;
-					read-only: true;
-					wrap: word-wrap;
+					read-only: false;
+					single-line: false;
+					wrap: char-wrap;
+					key-pressed(event) => {
+						root.scroll-to-end();
+
+						root.send-key-to-mame(event.text, event.modifiers.shift);
+
+						accept
+					}
 				}
-				console-scroll-to-end := Rectangle {
-					x: console-close.x - self.width - 12px;
-					y: 8px;
-					width: 24px;
-					height: 24px;
-					background: Palette.alternate-background;
-					border-width: 1px;
-					border-radius: 5px;
-					border-color: Palette.alternate-background;
-					Image {
+			}
+			console-scroll-to-end := Rectangle {
+				x: console-close.x - self.width - 12px;
+				y: 8px;
+				width: 24px;
+				height: 24px;
+				background: Palette.alternate-background;
+				border-width: 1px;
+				border-radius: 5px;
+				border-color: Palette.alternate-background;
+				Image {
+					x: 0px;
+					y: 0px;
+					height: parent.height;
+					width: parent.width;
+					source: @image-url("images/console-scroll-to-bottom.svg");
+					colorize: (console-scroll-to-end-ta.has-hover) ? #fff : #aaa;
+					console-scroll-to-end-ta := TouchArea {
 						x: 0px;
 						y: 0px;
 						height: parent.height;
 						width: parent.width;
-						source: @image-url("images/console-scroll-to-bottom.svg");
-						colorize: (console-scroll-to-end-ta.has-hover) ? #fff : #aaa;
-						console-scroll-to-end-ta := TouchArea {
-							x: 0px;
-							y: 0px;
-							height: parent.height;
-							width: parent.width;
-							clicked => {
-								mame-console.set-selection-offsets(4294967295, 4294967295); // Scroll to end hack
-							}
+						clicked => {
+							root.scroll-to-end();
 						}
 					}
 				}
-				console-close := Rectangle {
-					x: root.width - self.width - 35px;
-					y: 8px;
-					width: 24px;
-					height: 24px;
-					background: Palette.alternate-background;
-					border-width: 1px;
-					border-radius: 5px;
-					border-color: Palette.alternate-background;
-					Image {
+			}
+			console-close := Rectangle {
+				x: root.width - self.width - 35px;
+				y: 8px;
+				width: 24px;
+				height: 24px;
+				background: Palette.alternate-background;
+				border-width: 1px;
+				border-radius: 5px;
+				border-color: Palette.alternate-background;
+				Image {
+					x: 0px;
+					y: 0px;
+					height: parent.height;
+					width: parent.width;
+					source: @image-url("images/console-close.svg");
+					colorize: (console-close-ta.has-hover) ? #fff : #aaa;
+					console-close-ta := TouchArea {
 						x: 0px;
 						y: 0px;
 						height: parent.height;
 						width: parent.width;
-						source: @image-url("images/console-close.svg");
-						colorize: (console-close-ta.has-hover) ? #fff : #aaa;
-						console-close-ta := TouchArea {
-							x: 0px;
-							y: 0px;
-							height: parent.height;
-							width: parent.width;
-							clicked => {
-								root.close-mame();
-							}
+						clicked => {
+							root.close-mame();
 						}
 					}
 				}
