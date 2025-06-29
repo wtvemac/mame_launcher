@@ -95,7 +95,6 @@ const DEFAULT_FLASHDISK_SIZE: u64 = 8 * 1024 * 1024;
 const PUBLIC_TOUCHPP_ADDRESS: &'static str = "wtv.ooguy.com:1122";
 const DEBUG_READ_BUFFER_SIZE: usize = 1024;
 const CONSOLE_READ_BUFFER_SIZE: usize = 1024;
-const CONSOLE_SCROLLBACK_LINES: usize = 9000;
 #[cfg(target_os = "linux")]
 const CONSOLE_KEY_DELAY: u32 = 200 * 1000;
 #[cfg(target_os = "windows")]
@@ -3041,13 +3040,8 @@ fn add_console_text(ui_weak: slint::Weak<MainWindow>, text: String, scroll_mode:
 		let _ = ui_weak.upgrade_in_event_loop(move |ui| {
 			let previous_text = ui.get_mame_console_text().to_string();
 
-			let mut text_lines: Vec<_> = previous_text.split("\n").collect();
-			if text_lines.len() > CONSOLE_SCROLLBACK_LINES {
-				text_lines = text_lines[(text_lines.len() - CONSOLE_SCROLLBACK_LINES)..text_lines.len()].to_vec();
-			}
-
 			ui.set_scroll_mode(scroll_mode);
-			ui.set_mame_console_text((text_lines.join("\n") + &text).into());
+			ui.set_mame_console_text((previous_text + &text).into());
 		});
 	}
 
