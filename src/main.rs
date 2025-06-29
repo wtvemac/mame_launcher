@@ -1660,6 +1660,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 			},
 			_ => { }
 		}
+		ui_mame.set_selected_modem_bitb_endpoint(config_persistent_mame.selected_modem_bitb_endpoint.unwrap_or("".into()).into());
 
 		////
 		//
@@ -1700,6 +1701,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 			},
 			_ => { }
 		}
+		ui_mame.set_selected_debug_bitb_endpoint(config_persistent_mame.selected_debug_bitb_endpoint.unwrap_or("".into()).into());
 
 		////
 		//
