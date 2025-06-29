@@ -93,6 +93,27 @@ const APPROM2_FLASH_FILE_PREFIX: &'static str = "approm_flash";
 const APPROM3_FLASH_FILE_PREFIX: &'static str = "bank1_flash";
 const APPROM_HDIMG_PREFIX: &'static str = "hdimg";
 const ALLOW_APPROM2_FILES: bool = false;
+const DEFAULT_BOX_ORDER: [&'static str; 19] = [
+	"wtv1bf0",
+	"wtv1sony",
+	"wtv1phil",
+	"wtv2lc2",
+	"wtv2sony",
+	"wtv2phil",
+	"wtv2jpp",
+	"wtv2jpc",
+	"wtv2wld",
+	"wtv1bfe",
+	"wtv1pal",
+	"wtv1dev",
+	"wtv1dv2",
+	"wtv2drb",
+	"wtv2npl",
+	"wtv2ncl",
+	"wtv2esr",
+	"wtv2utv",
+	"wtv2uvd"
+];
 const DEFAULT_FLASHDISK_SIZE: u64 = 8 * 1024 * 1024;
 const PUBLIC_TOUCHPP_ADDRESS: &'static str = "wtv.ooguy.com:1122";
 const DEFAULT_DEBUG_ENDPOINT: &'static str = "Launcher Console";
@@ -1824,10 +1845,17 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		}
 		boxes.sort_by(
 			| cmp_a, cmp_b | {
-				if cmp_a.sort_value == cmp_b.sort_value {
-					cmp_a.hint.partial_cmp(&cmp_b.hint).unwrap()
+				let a_preset_order = DEFAULT_BOX_ORDER.iter().position(|&val| val == cmp_a.value.as_str()).unwrap_or(usize::MAX);
+				let b_preset_order = DEFAULT_BOX_ORDER.iter().position(|&val| val == cmp_b.value.as_str()).unwrap_or(usize::MAX);
+
+				if a_preset_order == b_preset_order {
+					if cmp_a.sort_value == cmp_b.sort_value {
+						cmp_a.hint.partial_cmp(&cmp_b.hint).unwrap()
+					} else {
+						cmp_a.sort_value.partial_cmp(&cmp_b.sort_value).unwrap()
+					}
 				} else {
-					cmp_a.sort_value.partial_cmp(&cmp_b.sort_value).unwrap()
+					a_preset_order.cmp(&b_preset_order)
 				}
 			}
 		);
