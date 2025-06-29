@@ -8,11 +8,13 @@ build = "build.rs"
 
 [dependencies]
 chd = "0.3.3"
+crossbeam-channel = "0.5.15"
 hex = "0.4.3"
 native-dialog = "0.7.0"
 once_cell = "1.19.0"
 open = "5.1.4"
 packbytes = "0.2.0"
+portpicker = "0.1.1"
 quick-xml = { version = "0.31.0", features = ["serialize"] }
 rand = "0.8.5"
 rand_core = "0.6.4"

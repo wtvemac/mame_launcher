@@ -12,12 +12,12 @@ use std::{
 	path::Path, process::{Command, Stdio},
 	env,
 	process::{ChildStdout, ChildStderr},
+	net::TcpListener,
 	sync::{
 		Arc,
 		atomic::{AtomicBool, Ordering::Relaxed}
 	}
 };
-
 use rand::{
 	Rng,
 	distributions::{Alphanumeric, DistString}
@@ -27,9 +27,14 @@ use native_dialog::FileDialog;
 use sysinfo::{Pid, System};
 use rodio;
 use serialport;
+use portpicker;
 use hex;
 use which::which;
 use open;
+use crossbeam_channel::{
+	bounded,
+	Receiver
+};
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
@@ -88,6 +93,7 @@ const APPROM_HDIMG_PREFIX: &'static str = "hdimg";
 const ALLOW_APPROM2_FILES: bool = false;
 const DEFAULT_FLASHDISK_SIZE: u64 = 8 * 1024 * 1024;
 const PUBLIC_TOUCHPP_ADDRESS: &'static str = "wtv.ooguy.com:1122";
+const DEBUG_READ_BUFFER_SIZE: usize = 1024;
 const CONSOLE_READ_BUFFER_SIZE: usize = 1024;
 const CONSOLE_SCROLLBACK_LINES: usize = 9000;
 #[cfg(target_os = "linux")]
@@ -3048,6 +3054,62 @@ fn add_console_text(ui_weak: slint::Weak<MainWindow>, text: String, scroll_mode:
 	Ok(())
 }
 
+fn output_mame_debug(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx: Receiver<String>) -> Result<(), Box<dyn std::error::Error>> {
+	match TcpListener::bind("127.0.0.1:".to_owned() + &debug_bitb_port.to_string()) {
+		Ok(listener) => {
+			let _ = std::thread::spawn(move || {
+				match listener.accept() {
+					Ok((mut mame, _)) => {
+						let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+							ui.set_using_mame_debug(true);
+						});
+
+						let _ = mame.set_nonblocking(true);
+
+						let mut buf = [0; DEBUG_READ_BUFFER_SIZE];
+						loop {
+							match mame.read(&mut buf) {
+								Ok(bytes_read) => {
+									if bytes_read > 0 {
+										let console_text = String::from_utf8_lossy(&buf[0..bytes_read]).to_string();
+
+										let _ = add_console_text(ui_weak.clone(), console_text, MAMEConsoleScrollMode::ConditionalScroll);
+									} else {
+										break;
+									}
+								},
+								Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+									match drx.try_recv() {
+										Ok(received) => {
+											let _ = mame.write(&received.as_bytes());
+										},
+										_ => { }
+									};
+								},
+								_ => {
+									break;
+								}
+							};
+						}
+
+						let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+							ui.set_using_mame_debug(false);
+						});
+					},
+					Err(e) => {
+						let _ = add_console_text(ui_weak.clone(), ("ERROR: Couldn't accept debug console client!\n".to_owned() + &e.to_string()).into(), MAMEConsoleScrollMode::ForceScroll);
+					}
+				};
+			});
+		},
+		Err(e) => {
+			let _ = add_console_text(ui_weak.clone(), ("ERROR: Couldn't start debug console server!\n".to_owned() + &e.to_string()).into(), MAMEConsoleScrollMode::ForceScroll);
+		}
+	};
+
+	Ok(())
+}
+
 fn output_mame_stdio(ui_weak: slint::Weak<MainWindow>, stdout: Option<ChildStdout>, stderr: Option<ChildStderr>) -> Result<bool, Box<dyn std::error::Error>> {
 	let process_has_error = Arc::new(AtomicBool::new(false));
 
@@ -3105,7 +3167,7 @@ fn output_mame_stdio(ui_weak: slint::Weak<MainWindow>, stdout: Option<ChildStdou
 	Ok(process_has_error.load(Relaxed))
 }
 
-fn spawn_mame_from_command(ui_weak: slint::Weak<MainWindow>, mut mame_command: Command) -> Result<(), Box<dyn std::error::Error>> {
+fn spawn_mame_from_command(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx: Receiver<String>, mut mame_command: Command) -> Result<(), Box<dyn std::error::Error>> {
 	let _ = std::thread::spawn(move || {
 		let mut full_mame_command_line: String;
 
@@ -3116,6 +3178,10 @@ fn spawn_mame_from_command(ui_weak: slint::Weak<MainWindow>, mut mame_command: C
 
 		mame_command.stderr(Stdio::piped());
 		mame_command.stdout(Stdio::piped());
+
+		if debug_bitb_port > 0 {
+			let _ = output_mame_debug(ui_weak.clone(), debug_bitb_port, drx);
+		}
 
 		let process_has_error = match mame_command.spawn() {
 			Ok(mame) => {
@@ -3148,7 +3214,7 @@ fn spawn_mame_from_command(ui_weak: slint::Weak<MainWindow>, mut mame_command: C
 	Ok(())
 }
 
-fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error::Error>> {
+fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result<(), Box<dyn std::error::Error>> {
 	let ui = ui_weak.unwrap();
 
 	let mame_executable_path: String = Paths::resolve_mame_path(Some(ui.global::<UIPaths>().get_mame_path().into()));
@@ -3236,6 +3302,28 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 			mame_command.args(custom_options.split(" "));
 		}
 
+		let debug_bitb_port= match ui_mame.get_console_input().into() {
+			true => {
+				let selected_debug_bitb_startpoint = ui_mame.get_selected_debug_bitb_startpoint();
+				match Regex::new(r"^(?<slot_select>[^; ]+?)\; (?<bitb_select>.+?)$").unwrap().captures(selected_debug_bitb_startpoint.as_str()) {
+					Some(matches) => match portpicker::pick_unused_port() {
+						Some(found_port) => {
+							mame_command.arg("-".to_owned() + &matches["slot_select"]).arg("null_modem");
+							mame_command.arg("-".to_owned() + &matches["bitb_select"]).arg("socket.127.0.0.1:".to_owned() + &found_port.to_string());
+
+							found_port
+						},
+						None => {
+							let _ = add_console_text(ui_weak.clone(), "ERROR: Couldn't find an available port for debug console!\n".into(), MAMEConsoleScrollMode::ForceScroll);
+
+							0
+						}
+					},
+					None => 0
+				}
+			},
+			_ => 0
+		};
 
 		let selected_modem_bitb_startpoint: String = ui_mame.get_selected_modem_bitb_startpoint().to_string();
 		let selected_modem_bitb_endpoint: String = ui_mame.get_selected_modem_bitb_endpoint().to_string();
@@ -3261,7 +3349,7 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error
 			mame_command.arg("-hard").arg(selected_hdimg_path);
 		}
 
-		let _ = spawn_mame_from_command(ui_weak, mame_command);
+		let _ = spawn_mame_from_command(ui_weak, debug_bitb_port, drx, mame_command);
 	}
 
 	Ok(())
@@ -3563,6 +3651,8 @@ fn send_keypess_macos(ui_weak: slint::Weak<MainWindow>, text: String, shiftmod: 
 fn start_ui() -> Result<(), slint::PlatformError> {
 	let ui = MainWindow::new().unwrap();
 
+	let (dtx, drx) = bounded(10);
+
 	let _ = load_config(ui.as_weak());
 
 	let mut ui_weak = ui.as_weak();
@@ -3632,7 +3722,7 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 
 		let _ = check_custom_ssid(ui_weak.clone());
 
-		let _ = start_mame(ui_weak.clone());
+		let _ = start_mame(ui_weak.clone(), drx.clone());
 
 		disable_loading(&ui_weak);
 	});
@@ -3720,16 +3810,23 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 
 	ui_weak = ui.as_weak();
 	ui.on_send_key_to_mame(move |text, shiftmod| {
-		// bf0 versions of WebTV use the hardware keyboard for serial input and smartcard bigbang for serial output.
-		// MAME printfs the smartcard data to the console, and this captures the keystrokes on the console to be sent to MAME.
-		// When MAME supports solo-based boxes this will be changed a bit but this works for now.
-		
-		#[cfg(target_os = "linux")]
-		send_keypess_linux(ui_weak.clone(), text.to_string(), shiftmod);
-		#[cfg(target_os = "windows")]
-		send_keypess_windows(ui_weak.clone(), text.to_string(), shiftmod);
-		#[cfg(target_os = "macos")]
-		send_keypess_macos(ui_weak.clone(), text.to_string(), shiftmod);
+		let ui = ui_weak.unwrap();
+		if ui.get_mame_console_enabled() {
+			if ui.get_using_mame_debug() {
+				let _ = dtx.send(text.to_string());
+			} else {
+				// bf0 versions of WebTV use the hardware keyboard for serial input and smartcard bigbang for serial output.
+				// MAME printfs the smartcard data to the console, and this captures the keystrokes on the console to be sent to MAME.
+				// When MAME supports solo-based boxes this will be changed a bit but this works for now.
+				
+				#[cfg(target_os = "linux")]
+				send_keypess_linux(ui_weak.clone(), text.to_string(), shiftmod);
+				#[cfg(target_os = "windows")]
+				send_keypess_windows(ui_weak.clone(), text.to_string(), shiftmod);
+				#[cfg(target_os = "macos")]
+				send_keypess_macos(ui_weak.clone(), text.to_string(), shiftmod);
+			}
+		}
 	});
 
 	ui_weak = ui.as_weak();
