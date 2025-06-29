@@ -2458,6 +2458,7 @@ fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool, new_bootroms: Opt
 				selected_box: Some(ui_mame.get_selected_box().into()),
 				selected_bootroms: selected_bootroms,
 				selected_modem_bitb_endpoint: Some(ui_mame.get_selected_modem_bitb_endpoint().into()),
+				selected_debug_bitb_endpoint: Some(ui_mame.get_selected_debug_bitb_endpoint().into()),
 				selected_hdimg_paths: selected_hdimg_paths,
 				selected_hdimg_enabled: selected_hdimg_enabled,
 				verbose_mode: Some(ui_mame.get_verbose_mode().into()),
