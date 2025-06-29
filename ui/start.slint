@@ -267,10 +267,10 @@ export component StartPage inherits Page {
 				width: 50%;
 				spacing: 5px;
 				Switch {
-					text: @tr("Verbose Mode");
+					text: @tr("Skip Info Screen");
 					width: 180px;
 					height: 28px;
-					checked <=> UIMAMEOptions.verbose_mode;
+					checked <=> UIMAMEOptions.skip_info_screen;
 				}
 				Switch {
 					text: @tr("Windowed Mode");
@@ -279,16 +279,16 @@ export component StartPage inherits Page {
 					checked <=> UIMAMEOptions.windowed_mode;
 				}
 				Switch {
-					text: @tr("Use Dynamic Recompiler");
+					text: @tr("Disable Mouse Input");
 					width: 180px;
 					height: 28px;
-					checked <=> UIMAMEOptions.use_drc;
+					checked <=> UIMAMEOptions.disable_mouse_input;
 				}
 				Switch {
-					text: @tr("Debug Mode");
+					text: @tr("Disable Sound");
 					width: 180px;
 					height: 28px;
-					checked <=> UIMAMEOptions.debug_mode;
+					checked <=> UIMAMEOptions.disable_sound;
 				}
 			}
 
@@ -296,16 +296,10 @@ export component StartPage inherits Page {
 				width: 50%;
 				spacing: 5px;
 				Switch {
-					text: @tr("Skip Info Screen");
+					text: @tr("Verbose Mode");
 					width: 180px;
 					height: 28px;
-					checked <=> UIMAMEOptions.skip_info_screen;
-				}
-				Switch {
-					text: @tr("Disable Mouse Input");
-					width: 180px;
-					height: 28px;
-					checked <=> UIMAMEOptions.disable_mouse_input;
+					checked <=> UIMAMEOptions.verbose_mode;
 				}
 				HorizontalLayout {
 					spacing: 0px;
@@ -326,11 +320,21 @@ export component StartPage inherits Page {
 						
 					}
 				}
+				HorizontalLayout {
+					spacing: 0px;
+					width: 100%;
+					Switch {
+						text: @tr("Debug Mode");
+						width: 180px;
+						height: 28px;
+						checked <=> UIMAMEOptions.debug_mode;
+					}
+				}
 				Switch {
-					text: @tr("Disable Sound");
+					text: @tr("Use Dynamic Recompiler");
 					width: 180px;
 					height: 28px;
-					checked <=> UIMAMEOptions.disable_sound;
+					checked <=> UIMAMEOptions.use_drc;
 				}
 			}
 		}
