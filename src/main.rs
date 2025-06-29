@@ -3035,13 +3035,22 @@ fn set_mame_pid(ui_weak: slint::Weak<MainWindow>, pid: u32) -> Result<(), Box<dy
 	Ok(())
 }
 
-fn add_console_text(ui_weak: slint::Weak<MainWindow>, text: String, scroll_mode: MAMEConsoleScrollMode) -> Result<(), Box<dyn std::error::Error>> {
-	if text != "" {
+fn add_console_text(ui_weak: slint::Weak<MainWindow>, text: String, scroll_mode: MAMEConsoleScrollMode, rshift: usize) -> Result<(), Box<dyn std::error::Error>> {
+	if text != "" || rshift > 0 {
 		let _ = ui_weak.upgrade_in_event_loop(move |ui| {
 			let previous_text = ui.get_mame_console_text().to_string();
 
 			ui.set_scroll_mode(scroll_mode);
-			ui.set_mame_console_text((previous_text + &text).into());
+
+			if rshift > 0 {
+				if rshift > previous_text.len() {
+					ui.set_mame_console_text("".into());
+				} else {
+					ui.set_mame_console_text((previous_text[0..(previous_text.len() - rshift)].to_string() + &text).into());
+				}
+			} else {
+				ui.set_mame_console_text((previous_text + &text).into());
+			}
 		});
 	}
 
@@ -3060,14 +3069,49 @@ fn output_mame_debug(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx
 
 						let _ = mame.set_nonblocking(true);
 
+						#[cfg(any(target_os = "windows", target_os = "macos"))]
+						let mut last_byte: u8 = 0x00;
 						let mut buf = [0; DEBUG_READ_BUFFER_SIZE];
 						loop {
 							match mame.read(&mut buf) {
 								Ok(bytes_read) => {
 									if bytes_read > 0 {
-										let console_text = String::from_utf8_lossy(&buf[0..bytes_read]).to_string();
+										let mut new_bytes: Vec<u8> = vec![];
+										let mut rshift  = 0;
 
-										let _ = add_console_text(ui_weak.clone(), console_text, MAMEConsoleScrollMode::ConditionalScroll);
+										buf[0..bytes_read].iter().for_each(|b| {
+											match b {
+												0x00..=0x07 | 0x0b..=0x0c | 0x0e..=0x1f => { // ignored control characters
+													//
+												},
+												0x08 => { // handle delete key
+													if new_bytes.len() > 0 {
+														new_bytes.pop();
+													} else {
+														rshift += 1;
+													}
+												},
+												0x0a | 0x0d => { // newline
+													#[cfg(any(target_os = "windows", target_os = "macos"))]
+													// Don't repeat newline chars.
+													if (last_byte == 0x0a || last_byte == 0x0d) && last_byte != *b {
+														return;
+													}
+
+													new_bytes.push(*b);
+												},
+												_ => { // all other characters
+													new_bytes.push(*b);
+												}
+											};
+
+											#[cfg(any(target_os = "windows", target_os = "macos"))]
+											{
+												last_byte = b.clone();
+											}
+										});
+
+										let _ = add_console_text(ui_weak.clone(), String::from_utf8_lossy(&new_bytes).to_string(), MAMEConsoleScrollMode::ConditionalScroll, rshift);
 									} else {
 										break;
 									}
@@ -3091,13 +3135,13 @@ fn output_mame_debug(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx
 						});
 					},
 					Err(e) => {
-						let _ = add_console_text(ui_weak.clone(), ("ERROR: Couldn't accept debug console client!\n".to_owned() + &e.to_string()).into(), MAMEConsoleScrollMode::ForceScroll);
+						let _ = add_console_text(ui_weak.clone(), ("ERROR: Couldn't accept debug console client!\n".to_owned() + &e.to_string()).into(), MAMEConsoleScrollMode::ForceScroll, 0);
 					}
 				};
 			});
 		},
 		Err(e) => {
-			let _ = add_console_text(ui_weak.clone(), ("ERROR: Couldn't start debug console server!\n".to_owned() + &e.to_string()).into(), MAMEConsoleScrollMode::ForceScroll);
+			let _ = add_console_text(ui_weak.clone(), ("ERROR: Couldn't start debug console server!\n".to_owned() + &e.to_string()).into(), MAMEConsoleScrollMode::ForceScroll, 0);
 		}
 	};
 
@@ -3123,7 +3167,7 @@ fn output_mame_stdio(ui_weak: slint::Weak<MainWindow>, stdout: Option<ChildStdou
 								let console_text = String::from_utf8_lossy(&stderr_buf[0..bytes_read]).to_string();
 
 								// EMAC: stdout and stderr can get jumbled with this implementation...
-								let _ = add_console_text(ui_weak_cpy.clone(), console_text, MAMEConsoleScrollMode::ForceScroll);
+								let _ = add_console_text(ui_weak_cpy.clone(), console_text, MAMEConsoleScrollMode::ForceScroll, 0);
 
 								process_has_error.store(true, Relaxed);
 							}
@@ -3146,7 +3190,7 @@ fn output_mame_stdio(ui_weak: slint::Weak<MainWindow>, stdout: Option<ChildStdou
 						} else {
 							let console_text = String::from_utf8_lossy(&stdout_buf[0..bytes_read]).to_string();
 
-							let _ = add_console_text(ui_weak.clone(), console_text, MAMEConsoleScrollMode::ConditionalScroll);
+							let _ = add_console_text(ui_weak.clone(), console_text, MAMEConsoleScrollMode::ConditionalScroll, 0);
 						}
 					},
 					_ => {
@@ -3168,7 +3212,7 @@ fn spawn_mame_from_command(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u1
 		full_mame_command_line = mame_command.get_program().to_str().unwrap_or("".into()).to_string() + " ";
 		full_mame_command_line += &mame_command.get_args().map(|arg_str| arg_str.to_str().unwrap_or("".into())).collect::<Vec<_>>().join(" ");
 
-		let _ = add_console_text(ui_weak.clone(), " \n \nStarting MAME: '".to_owned() + &full_mame_command_line + "'\n", MAMEConsoleScrollMode::ForceScroll);
+		let _ = add_console_text(ui_weak.clone(), " \n \nStarting MAME: '".to_owned() + &full_mame_command_line + "'\n", MAMEConsoleScrollMode::ForceScroll, 0);
 
 		mame_command.stderr(Stdio::piped());
 		mame_command.stdout(Stdio::piped());
@@ -3188,7 +3232,7 @@ fn spawn_mame_from_command(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u1
 
 		let _= set_mame_pid(ui_weak.clone(), 0);
 
-		let _ = add_console_text(ui_weak.clone(), " \nMAME Ended\n".into(), MAMEConsoleScrollMode::ForceScroll);
+		let _ = add_console_text(ui_weak.clone(), " \nMAME Ended\n".into(), MAMEConsoleScrollMode::ForceScroll, 0);
 
 		if !process_has_error {
 			let _ = ui_weak.clone().upgrade_in_event_loop(move |ui| {
@@ -3272,7 +3316,7 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 				if !options.is_null() {
 					CFDictionaryAddValue(options, kAXTrustedCheckOptionPrompt.as_void_ptr(), kCFBooleanTrue.as_void_ptr());
 					if !AXIsProcessTrustedWithOptions(options) {
-						let _ = add_console_text(ui_weak.clone(), " \n \nAccessibility permission not available. Console input wont be available because there's no permission to communicate with the MAME window. Please go into your settings, then select 'Privacy & Security', then select 'Accessibility', then give permission to this application.\n".to_string(), MAMEConsoleScrollMode::ForceScroll);
+						let _ = add_console_text(ui_weak.clone(), " \n \nAccessibility permission not available. Console input wont be available because there's no permission to communicate with the MAME window. Please go into your settings, then select 'Privacy & Security', then select 'Accessibility', then give permission to this application.\n".to_string(), MAMEConsoleScrollMode::ForceScroll, 0);
 					}
 					CFRelease(options as *const _);
 				}
@@ -3308,7 +3352,7 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 							found_port
 						},
 						None => {
-							let _ = add_console_text(ui_weak.clone(), "ERROR: Couldn't find an available port for debug console!\n".into(), MAMEConsoleScrollMode::ForceScroll);
+							let _ = add_console_text(ui_weak.clone(), "ERROR: Couldn't find an available port for debug console!\n".into(), MAMEConsoleScrollMode::ForceScroll, 0);
 
 							0
 						}
