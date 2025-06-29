@@ -16,7 +16,8 @@ use std::{
 	sync::{
 		Arc,
 		atomic::{AtomicBool, Ordering::Relaxed}
-	}
+	},
+	time::SystemTime
 };
 use rand::{
 	Rng,
@@ -95,6 +96,7 @@ const DEFAULT_FLASHDISK_SIZE: u64 = 8 * 1024 * 1024;
 const PUBLIC_TOUCHPP_ADDRESS: &'static str = "wtv.ooguy.com:1122";
 const DEBUG_READ_BUFFER_SIZE: usize = 1024;
 const CONSOLE_READ_BUFFER_SIZE: usize = 1024;
+const CONSOLE_UPDATE_INTERVAL_USEC: u128 = 50000;
 #[cfg(target_os = "linux")]
 const CONSOLE_KEY_DELAY: u32 = 200 * 1000;
 #[cfg(target_os = "windows")]
@@ -3071,15 +3073,26 @@ fn output_mame_debug(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx
 
 						#[cfg(any(target_os = "windows", target_os = "macos"))]
 						let mut last_byte: u8 = 0x00;
-						let mut buf = [0; DEBUG_READ_BUFFER_SIZE];
+						let mut active_buf = [0; DEBUG_READ_BUFFER_SIZE];
+						let mut waiting_buf: Vec<u8> = vec![];
+						let now = SystemTime::now();
+						let mut last_console_push = 0;
 						loop {
-							match mame.read(&mut buf) {
+							match mame.read(&mut active_buf) {
 								Ok(bytes_read) => {
 									if bytes_read > 0 {
+										waiting_buf.extend(&active_buf[0..bytes_read]);
+									} else {
+										break;
+									}
+								},
+								Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+									let time_now = now.elapsed().unwrap_or_default().as_micros();
+									if (time_now - last_console_push) > CONSOLE_UPDATE_INTERVAL_USEC {
 										let mut new_bytes: Vec<u8> = vec![];
 										let mut rshift  = 0;
 
-										buf[0..bytes_read].iter().for_each(|b| {
+										waiting_buf.iter().for_each(|b| {
 											match b {
 												0x00..=0x07 | 0x0b..=0x0c | 0x0e..=0x1f => { // ignored control characters
 													//
@@ -3110,13 +3123,13 @@ fn output_mame_debug(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx
 												last_byte = b.clone();
 											}
 										});
+										waiting_buf.clear();
 
+										last_console_push = time_now.clone();
 										let _ = add_console_text(ui_weak.clone(), String::from_utf8_lossy(&new_bytes).to_string(), MAMEConsoleScrollMode::ConditionalScroll, rshift);
-									} else {
-										break;
+
 									}
-								},
-								Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+
 									match drx.try_recv() {
 										Ok(received) => {
 											let _ = mame.write(&received.as_bytes());
