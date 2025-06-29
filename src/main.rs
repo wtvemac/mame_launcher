@@ -3348,6 +3348,14 @@ fn spawn_mame_from_command(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u1
 			Ok(mame) => {
 				let _= set_mame_pid(ui_weak.clone(), mame.id());
 
+				let ui_weak_cpy = ui_weak.clone();
+				let _ = ui_weak.clone().upgrade_in_event_loop(move |ui| {
+					let ui_mame = ui.global::<UIMAMEOptions>();
+					if !(ui_mame.get_verbose_mode().into() || ui_mame.get_console_input().into() || ui_mame.get_debug_mode().into()) {
+						let _ = add_console_text(ui_weak_cpy.clone(), "\n\nMAME is now running...\n\n".into(), MAMEConsoleScrollMode::ForceScroll, 0);
+					}
+				});
+
 				output_mame_stdio(ui_weak.clone(), mame.stdout, mame.stderr).unwrap_or(false)
 			},
 			Err(_) => false
