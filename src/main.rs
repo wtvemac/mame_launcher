@@ -3428,24 +3428,6 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 			mame_command.arg("-nomouse");
 		}
 
-		if ui_mame.get_console_input().into() {
-			#[cfg(target_os = "windows")]
-			mame_command.arg("-keyboardprovider").arg("win32");
-			mame_command.arg("-background_input");
-
-			#[cfg(target_os = "macos")]
-			unsafe {
-				let options = CFDictionaryCreateMutable(std::ptr::null_mut(), 0, std::ptr::null(), std::ptr::null());
-				if !options.is_null() {
-					CFDictionaryAddValue(options, kAXTrustedCheckOptionPrompt.as_void_ptr(), kCFBooleanTrue.as_void_ptr());
-					if !AXIsProcessTrustedWithOptions(options) {
-						let _ = add_console_text(ui_weak.clone(), " \n \nAccessibility permission not available. Console input wont be available because there's no permission to communicate with the MAME window. Please go into your settings, then select 'Privacy & Security', then select 'Accessibility', then give permission to this application.\n".to_string(), MAMEConsoleScrollMode::ForceScroll, 0);
-					}
-					CFRelease(options as *const _);
-				}
-			}
-		}
-
 		if ui_mame.get_disable_sound().into() {
 			mame_command.arg("-sound").arg("none");
 		}
@@ -3464,40 +3446,57 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 		}
 
 		let mut debug_bitb_port= 0;
-		match ui_mame.get_console_input().into() {
-			true => {
-				match Regex::new(r"^(?<slot_select>[^; ]+?)\; (?<bitb_select>.+?)$").unwrap().captures(ui_mame.get_selected_debug_bitb_startpoint().as_str()) {
-					Some(matches) => {
-						mame_command.arg("-".to_owned() + &matches["slot_select"]).arg("null_modem");
+		if ui_mame.get_console_input().into() {
+			let found_debug_bitb = match Regex::new(r"^(?<slot_select>[^; ]+?)\; (?<bitb_select>.+?)$").unwrap().captures(ui_mame.get_selected_debug_bitb_startpoint().as_str()) {
+				Some(matches) => {
+					mame_command.arg("-".to_owned() + &matches["slot_select"]).arg("null_modem");
 
-						let selected_debug_bitb_endpoint = ui_mame.get_selected_debug_bitb_endpoint();
-						let usable_debug_bitb_endpoint = match selected_debug_bitb_endpoint.as_str() {
-							DEFAULT_DEBUG_ENDPOINT | "127.0.0.1" | "localhost" | "local" => match portpicker::pick_unused_port() {
-								Some(found_port) => {
-									debug_bitb_port = found_port;
+					let selected_debug_bitb_endpoint = ui_mame.get_selected_debug_bitb_endpoint();
+					let usable_debug_bitb_endpoint = match selected_debug_bitb_endpoint.as_str() {
+						DEFAULT_DEBUG_ENDPOINT | "127.0.0.1" | "localhost" | "local" => match portpicker::pick_unused_port() {
+							Some(found_port) => {
+								debug_bitb_port = found_port;
 
-									&("127.0.0.1:".to_owned() + &debug_bitb_port.to_string())
-								},
-								None => {
-									let _ = add_console_text(ui_weak.clone(), "ERROR: Couldn't find an available port for debug console!\n".into(), MAMEConsoleScrollMode::ForceScroll, 0);
-
-									""
-								}
+								&("127.0.0.1:".to_owned() + &debug_bitb_port.to_string())
 							},
-							_ => selected_debug_bitb_endpoint.as_str()
-						};
+							None => {
+								let _ = add_console_text(ui_weak.clone(), "ERROR: Couldn't find an available port for debug console!\n".into(), MAMEConsoleScrollMode::ForceScroll, 0);
 
-						if Regex::new(r"^[^\:]+\:\d+$").unwrap().is_match(usable_debug_bitb_endpoint) {
-							mame_command.arg("-".to_owned() + &matches["bitb_select"]).arg("socket.".to_owned() + &usable_debug_bitb_endpoint.to_string());
-						} else {
-							mame_command.arg("-".to_owned() + &matches["bitb_select"]).arg(usable_debug_bitb_endpoint);
-						}
+								""
+							}
+						},
+						_ => selected_debug_bitb_endpoint.as_str()
+					};
+
+					if Regex::new(r"^[^\:]+\:\d+$").unwrap().is_match(usable_debug_bitb_endpoint) {
+						mame_command.arg("-".to_owned() + &matches["bitb_select"]).arg("socket.".to_owned() + &usable_debug_bitb_endpoint.to_string());
+					} else {
+						mame_command.arg("-".to_owned() + &matches["bitb_select"]).arg(usable_debug_bitb_endpoint);
 					}
-					None => { }
-				};
-			},
-			_ => { }
-		};
+
+					true
+				}
+				None => false
+			};
+
+			if !found_debug_bitb {
+				#[cfg(target_os = "windows")]
+				mame_command.arg("-keyboardprovider").arg("win32");
+				mame_command.arg("-background_input");
+
+				#[cfg(target_os = "macos")]
+				unsafe {
+					let options = CFDictionaryCreateMutable(std::ptr::null_mut(), 0, std::ptr::null(), std::ptr::null());
+					if !options.is_null() {
+						CFDictionaryAddValue(options, kAXTrustedCheckOptionPrompt.as_void_ptr(), kCFBooleanTrue.as_void_ptr());
+						if !AXIsProcessTrustedWithOptions(options) {
+							let _ = add_console_text(ui_weak.clone(), " \n \nAccessibility permission not available. Console input wont be available because there's no permission to communicate with the MAME window. Please go into your settings, then select 'Privacy & Security', then select 'Accessibility', then give permission to this application.\n".to_string(), MAMEConsoleScrollMode::ForceScroll, 0);
+						}
+						CFRelease(options as *const _);
+					}
+				}
+			}
+		}
 
 		let selected_modem_bitb_startpoint: String = ui_mame.get_selected_modem_bitb_startpoint().to_string();
 		let selected_modem_bitb_endpoint: String = ui_mame.get_selected_modem_bitb_endpoint().to_string();
@@ -3998,7 +3997,7 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 				// bf0 versions of WebTV use the hardware keyboard for serial input and smartcard bigbang for serial output.
 				// MAME printfs the smartcard data to the console, and this captures the keystrokes on the console to be sent to MAME.
 				// When MAME supports solo-based boxes this will be changed a bit but this works for now.
-				
+
 				#[cfg(target_os = "linux")]
 				send_keypess_linux(ui_weak.clone(), text.to_string(), shiftmod);
 				#[cfg(target_os = "windows")]
