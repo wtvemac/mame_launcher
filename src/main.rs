@@ -1475,10 +1475,19 @@ fn populate_selected_box_slots(ui_weak: &slint::Weak<MainWindow>, _config: &Laun
 	let _ = ui_weak.upgrade_in_event_loop(move |ui| {
 		let ui_mame = ui.global::<UIMAMEOptions>();
 
+		let selected_modem_bitb_startpoint = ui_mame.get_selected_modem_bitb_startpoint().to_string();
+		let mut selected_modem_bitb_startpoint_valid = false;
+		let selected_debug_bitb_startpoint = ui_mame.get_selected_debug_bitb_startpoint().to_string();
+		let mut selected_debug_bitb_startpoint_valid = false;
+
 		let mut selectable_modem_bitb_startpoints: Vec<HintedItem> = vec![];
 		let mut selectable_debug_bitb_startpoints: Vec<HintedItem> = vec![];
 		for available_slot in available_slots.iter() {
 			if available_slot.slot_type == SlotType::ModemSerial {
+				if available_slot.value == selected_modem_bitb_startpoint {
+					selected_modem_bitb_startpoint_valid = true;
+				}
+
 				found_modem_slot = true;
 				selectable_modem_bitb_startpoints.push(
 					HintedItem {
@@ -1488,6 +1497,10 @@ fn populate_selected_box_slots(ui_weak: &slint::Weak<MainWindow>, _config: &Laun
 					}
 				);
 			} else if available_slot.slot_type == SlotType::DebugSerial {
+				if available_slot.value == selected_debug_bitb_startpoint {
+					selected_debug_bitb_startpoint_valid = true;
+				}
+
 				selectable_debug_bitb_startpoints.push(
 					HintedItem {
 						hint: available_slot.hint.clone().into(),
@@ -1497,12 +1510,13 @@ fn populate_selected_box_slots(ui_weak: &slint::Weak<MainWindow>, _config: &Laun
 				);
 			}
 		}
+
 		ui_mame.set_selectable_modem_bitb_startpoints(slint::ModelRc::new(slint::VecModel::from(selectable_modem_bitb_startpoints)));
-		if selected_modem_startpoint.slot_type == SlotType::ModemSerial {
+		if selected_modem_startpoint.slot_type == SlotType::ModemSerial && !selected_modem_bitb_startpoint_valid {
 			ui_mame.set_selected_modem_bitb_startpoint(selected_modem_startpoint.value.clone().into());
 		}
 		ui_mame.set_selectable_debug_bitb_startpoints(slint::ModelRc::new(slint::VecModel::from(selectable_debug_bitb_startpoints)));
-		if selected_debug_startpoint.slot_type == SlotType::DebugSerial {
+		if selected_debug_startpoint.slot_type == SlotType::DebugSerial && !selected_debug_bitb_startpoint_valid {
 			ui_mame.set_selected_debug_bitb_startpoint(selected_debug_startpoint.value.clone().into());
 		}
 		if !supress_warnings {
@@ -3768,6 +3782,12 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 
 	let mut ui_weak = ui.as_weak();
 	ui.global::<UIMAMEOptions>().on_select_box(move || {
+		let ui = ui_weak.unwrap();
+		let ui_mame = ui.global::<UIMAMEOptions>();
+
+		ui_mame.set_selected_modem_bitb_startpoint("".into());
+		ui_mame.set_selected_debug_bitb_startpoint("".into());
+
 		let _ = save_config(ui_weak.clone(), true, None, None, None);
 	});
 
