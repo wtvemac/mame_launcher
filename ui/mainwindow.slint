@@ -167,21 +167,40 @@ export component MainWindow inherits Window {
 				// Might do syntax highlighting if Slint ever has support (probably wont implement it myself)
 				// Seems like they're looking at cosmic-text
 				// https://github.com/slint-ui/slint/issues/2723
-				mame-console := TextInput {
-					page-height: mame-console-scroll.visible-height;
-					text: root.mame-console-text;
-					enabled: true;
-					read-only: false;
-					single-line: false;
-					wrap: char-wrap;
-					color: #53df68;
-					text-cursor-width: 3px;
-					key-pressed(event) => {
-						root.scroll-to-end();
 
-						root.send-key-to-mame(event.text, event.modifiers.shift);
+				ContextMenuArea {
+					Menu {
+						MenuItem {
+							title: @tr("Copy");
+							activated => {
+								mame-console.copy();
+							}
+						}
 
-						accept
+						MenuItem {
+							title: @tr("Select All");
+							activated => {
+								mame-console.select-all();
+							}
+						}
+					}
+
+					mame-console := TextInput {
+						page-height: mame-console-scroll.visible-height;
+						text: root.mame-console-text;
+						enabled: true;
+						read-only: false;
+						single-line: false;
+						wrap: char-wrap;
+						color: #53df68;
+						text-cursor-width: 3px;
+						key-pressed(event) => {
+							root.scroll-to-end();
+
+							root.send-key-to-mame(event.text, event.modifiers.shift);
+
+							accept
+						}
 					}
 				}
 			}
