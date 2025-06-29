@@ -3258,7 +3258,7 @@ fn output_mame_debug(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx
 											if bytes.len() == 1 && bytes[0] == 0x0a {
 												// send 0x0d instead of 0x0a for enter because the WebTV OS responds to that better.
 												let _ = mame.write(&[0x0d; 1]);
-											} else {
+											} else if bytes.len() > 1 || bytes[0] != 0x10 { // don't send shift key press
 												let _ = mame.write(&bytes);
 											}
 										},
