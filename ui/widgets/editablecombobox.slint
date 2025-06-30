@@ -94,14 +94,15 @@ export component EditableComboBox inherits Rectangle {
 	}
 	if root.current-icon.width != 0: icon := Image {
 		source: root.current-icon;
+		y: ((parent.height - self.height) / 2);
 		x: 5px;
-		width: 16px;
-		height: (!root.editable) ? (parent.height) : 0px;
+		width: 24px;
+		height: (!root.editable) ? 24px : 0px;
 		image-fit: contain;
 	}
 	nonedit-label := Text {
 		text: (root.current-value == "") ? "" : ((root.hint-before) ? (((root.current-hint != "") ? current-hint + ": " : "") + root.current-value) : (root.current-value + ((root.current-hint != "") ? ": " + current-hint : "")));
-		x: (root.current-icon.width == 0) ? 10px : 24px;
+		x: (root.current-icon.width == 0) ? 10px : 35px;
 		width: parent.width - self.x - 2px;
 		height: (!root.editable) ? (parent.height) : 0px;
 		vertical-alignment: center;
@@ -223,17 +224,19 @@ export component EditableComboBox inherits Rectangle {
 					border-color: (itemsel-area.has-hover) ? Palette.foreground : ((root.current-value == value.value) ? Palette.accent-background : Palette.alternate-background);
 					HorizontalLayout {
 						padding: 6px;
-						spacing: 3px;
+						spacing: 5px;
 						if value.icon.width != 0: Image {
 							source: value.icon;
-							width: 16px;
-							height: 16px;
+							y: ((parent.height - self.height) / 2);
+							width: 24px;
+							height: 24px;
 							image-fit: contain;
 						}
 						Text {
 							text: (root.hint-before) ? (((value.hint!= "") ? value.hint + ": " : "") + value.value) : (value.value + ((value.hint!= "") ? ": " + value.hint : ""));
 							color: (itemsel-area.has-hover) ? Palette.alternate-background : Palette.foreground;
 							font-size: nonedit-label.font-size;
+							vertical-alignment: center;
 						}
 					}
 					itemsel-area := TouchArea {
@@ -265,11 +268,11 @@ export component EditableComboBox inherits Rectangle {
 					border-width: 2px;
 					border-color: (itemsel-area-hinted.has-hover) ? Palette.foreground : ((root.current-value == value) ? Palette.accent-background : Palette.alternate-background);
 					HorizontalLayout {
-						padding: 6px;
 						Text {
 							text: value;
 							color: (itemsel-area-hinted.has-hover) ? Palette.alternate-background : Palette.foreground;
 							font-size: nonedit-label.font-size;
+							vertical-alignment: center;
 						}
 					}
 					itemsel-area-hinted := TouchArea {
