@@ -2,6 +2,9 @@
 
 #![windows_subsystem = "windows"]
 
+// NOTE: windows no longer has software renderer fallback: https://github.com/slint-ui/slint/issues/8708
+// You need to run this launcher with the SLINT_BACKEND=winit-software env to force the software renderer.
+
 mod config;
 mod wtv;
 
