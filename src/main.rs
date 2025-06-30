@@ -1817,6 +1817,14 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 					.clone()
 					.unwrap_or("".into());
 
+				let mut can_connect = true;
+				for feature in machine.clone().feature.unwrap_or(vec![]).iter() {
+					if feature.ftype.clone().unwrap_or("".into()) == "lan" && feature.status.clone().unwrap_or("".into()) == "unemulated" {
+						can_connect = false;
+						break;
+					}
+				}
+
 				if Regex::new(r"^wtv\d+").unwrap().is_match(machine_name.as_str()) {
 					let sort_re: Regex = Regex::new(r"^wtv(?<box_iteration>\d+)(?<box_name>.+)").unwrap();
 					let mut sort_value: String = String::new();

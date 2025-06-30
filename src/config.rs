@@ -50,7 +50,8 @@ pub struct MAMEMachineNode {
 	pub chip: Option<Vec<MAMEMachineChipNode>>,
 	pub slot: Option<Vec<MAMEMachineSlotNode>>,
 	pub device: Option<Vec<MAMEMachineDeviceNode>>,
-	pub disk: Option<Vec<MAMEMachineDiskNode>>
+	pub disk: Option<Vec<MAMEMachineDiskNode>>,
+	pub feature: Option<Vec<MAMEMachineFeatureNode>>
 }
 
 #[allow(dead_code)]
@@ -103,6 +104,15 @@ pub struct MAMEMachineDiskNode {
     pub writable: Option<String>,
 	#[serde(rename = "@modifiable")]
     pub modifiable: Option<String>
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Deserialize, Clone)]
+pub struct MAMEMachineFeatureNode {
+	#[serde(rename = "@type")]
+    pub ftype: Option<String>,
+	#[serde(rename = "@status")]
+    pub status: Option<String>
 }
 
 #[allow(dead_code)]
