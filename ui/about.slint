@@ -24,7 +24,7 @@ export component AboutPage inherits Page {
 	}
 
 	Text {
-		text: @tr("This was built so people don't need to use the command line to launch and play with the WebTV MAME build. This tool is optimized for original classic boxes that use flash to store its approm.");
+		text: @tr("This was built so people don't need to use the command line to launch and play with the WebTV MAME build. This tool should recognize all known WebTV boxes.");
 		padding: 10px;
 		wrap: word-wrap;
 	}
@@ -46,33 +46,52 @@ export component AboutPage inherits Page {
 		wrap: word-wrap;
 	}
 	Text {
-		text: @tr("- Most approms don't support PAL mode properly. Some approms boot but have memory allocation issues. Other approms fail with \"CACHE ERROR\" (i.e. an access violation) when trying to access PAL assets like the options bar from the ROMFS.");
-		padding: 10px;
+		text: @tr("- Most classic (bf0/bfe) approms don't support PAL mode properly. Some approms boot but have memory allocation issues. Other approms fail with \"CACHE ERROR\" (i.e., an access violation) when trying to access PAL assets like the options bar from the ROMFS.");
+		padding: 2px;
 		wrap: word-wrap;
 	}
 	Text {
-		text: @tr("- Older builds (pre-7000s) have unreliable modem support. Don't be suprised if you can't connect or have a slow connection with older builds.");
-		padding: 10px;
+		text: @tr("- Older classic (bf0/bfe) builds (pre-7000s) have unreliable modem support. Don't be surprised if you can't connect or have a slow connection with older builds.");
+		padding: 2px;
 		wrap: word-wrap;
 	}
 	Text {
-		text: @tr("- Most debug builds require the 4MB dev box configuration. The retail config only has 2MB flash which truncates 4MB debug builds.");
-		padding: 10px;
+		text: @tr("- Most classic (bf0/bfe) debug builds require the 4MB dev box configuration. The retail config only has 2MB flash which truncates 4MB debug builds.");
+		padding: 2px;
 		wrap: word-wrap;
 	}
 	Text {
-		text: @tr("- Debug builds will crash into the debugger. You can see this if you if you have verbose mode enabled and see \"app>\" the log output. You can interact with the debugger by typing into the launcher window if you have 'Console Input' enabled.");
-		padding: 10px;
+		text: @tr("- Debug builds will crash into the debugger. You can see this if you have console input enabled and see \"app>\" the log output. You can interact with the debugger by typing into the launcher window.");
+		padding: 2px;
+		wrap: word-wrap;
+	}
+	Text {
+		text: @tr("- MAME currently doesn't support softmodems, so you can only play around with softmodem boxes without connecting.");
+		padding: 2px;
+		wrap: word-wrap;
+	}
+	Text {
+		text: @tr("- Some builds (especially ones with Flash support) use dynamic code execution and can crash.");
+		padding: 2px;
+		wrap: word-wrap;
+	}
+	Text {
+		text: @tr("- There are some gfxUnit differences compared to real hardware. Expect some color, alpha blending or alignment issues.");
+		padding: 2px;
+		wrap: word-wrap;
+	}
+	Text {
+		text: @tr("- Windows CE builds hammer the CPU trying to context switch between threads. Expect some speed differences compared to real hardware.");
+		padding: 2px;
+		wrap: word-wrap;
+	}
+	Text {
+		text: @tr("- DOOM and other games can hammer RAM and freeze up at times.");
+		padding: 2px;
 		wrap: word-wrap;
 	}
 
 	Rectangle { }
-
-	AboutSlint {
-		height: 150px;
-		vertical-stretch: 0;
-		horizontal-stretch: 0;
-	}
 
 	Button {
 		text: (UIAbout.fart-enabled) ? "Thank You, Come Again!" : @tr("PULL MY FINGER");
