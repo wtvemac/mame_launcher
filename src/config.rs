@@ -206,7 +206,7 @@ impl Paths {
 		let mut mame_path = mame_path.unwrap_or("".into());
 
 		#[cfg(target_os = "macos")]
-		if &mame_path[0..1] == "." {
+		if mame_path.len() > 0 && &mame_path[0..1] == "." {
 			let executable_dir = 
 			LauncherConfig::get_parent_from_pathbuf(env::current_exe().unwrap_or("".into()))
 			.unwrap_or("".into());
