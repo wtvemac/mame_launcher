@@ -61,15 +61,15 @@ export global UIMAMEOptions {
 	// Selected Modem
 	in-out property<[HintedItem]> selectable_modem_bitb_endpoints: [
 		{
-			hint: "Local TouchPPP Server",
-			value: "127.0.0.1:1122"
-		},
-		{
 			hint: "eMac's Public TouchPPP Server",
 			value: "wtv.ooguy.com:1122"
+		},
+		{
+			hint: "Local TouchPPP Server",
+			value: "127.0.0.1:1122"
 		}
 	];
-	in-out property<string> selected_modem_bitb_endpoint: "127.0.0.1:1122";
+	in-out property<string> selected_modem_bitb_endpoint: "wtv.ooguy.com:1122";
 	in-out property<[HintedItem]> selectable_modem_bitb_startpoints: [];
 	in-out property<string> selected_modem_bitb_startpoint: "";
 

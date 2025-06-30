@@ -1725,7 +1725,13 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 			},
 			_ => { }
 		}
-		ui_mame.set_selected_modem_bitb_endpoint(config_persistent_mame.selected_modem_bitb_endpoint.unwrap_or("".into()).into());
+		ui_mame.set_selectable_modem_bitb_endpoints(slint::ModelRc::new(slint::VecModel::from(selectable_modem_bitb_endpoints.clone())));
+		let selected_modem_bitb_endpoint = config_persistent_mame.selected_modem_bitb_endpoint.unwrap_or("".into());
+		for selectable_debug_bitb_endpoint in selectable_modem_bitb_endpoints.iter() {
+			if selected_modem_bitb_endpoint == *selectable_debug_bitb_endpoint.value {
+				ui_mame.set_selected_modem_bitb_endpoint(selected_modem_bitb_endpoint.clone().into());
+			}
+		}
 
 		////
 		//
@@ -1769,7 +1775,13 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 			},
 			_ => { }
 		}
-		ui_mame.set_selected_debug_bitb_endpoint(config_persistent_mame.selected_debug_bitb_endpoint.unwrap_or("".into()).into());
+		ui_mame.set_selectable_debug_bitb_endpoints(slint::ModelRc::new(slint::VecModel::from(selectable_debug_bitb_endpoints.clone())));
+		let selected_debug_bitb_endpoint = config_persistent_mame.selected_debug_bitb_endpoint.unwrap_or("".into());
+		for selectable_debug_bitb_endpoint in selectable_debug_bitb_endpoints.iter() {
+			if selected_debug_bitb_endpoint == *selectable_debug_bitb_endpoint.value {
+				ui_mame.set_selected_debug_bitb_endpoint(selected_debug_bitb_endpoint.clone().into());
+			}
+		}
 
 		////
 		//
