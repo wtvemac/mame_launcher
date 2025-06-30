@@ -1620,7 +1620,26 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 			//
 			// Only show warnings if the BootROM, AppROM and SSID states are good.
 			let supress_slot_warnings = supress_ssid_warnings || selected_ssid_state != SSIDStorageState::SSIDLooksGood;
-			let _ = populate_selected_box_slots(ui_weak, config, machine, supress_slot_warnings);
+			let found_modem_slot = match populate_selected_box_slots(ui_weak, config, machine, supress_slot_warnings) {
+				Ok(_) => true,
+				Err(_e) => false
+			};
+
+			if !supress_ssid_warnings && found_modem_slot {
+				let mut can_connect = true;
+				for feature in machine.clone().feature.unwrap_or(vec![]).iter() {
+					if feature.ftype.clone().unwrap_or("".into()) == "lan" && feature.status.clone().unwrap_or("".into()) == "unemulated" {
+						can_connect = false;
+						break;
+					}
+				}
+
+				if !can_connect {
+					let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+						ui.set_launcher_state_message("The modem in the box isn't emulated. You can't connect to any remote service.".into());
+					});
+				}
+			}
 		}
 	}
 
