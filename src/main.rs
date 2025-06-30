@@ -1829,12 +1829,34 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 					let sort_re: Regex = Regex::new(r"^wtv(?<box_iteration>\d+)(?<box_name>.+)").unwrap();
 					let mut sort_value: String = String::new();
 
+					let mut icon_path = "".to_string();
+
 					match sort_re.captures(machine_name.as_str()) {
 						Some(matches) => {
 							// This sets up sorting so the wtv1 boxes are first, wtv2 boxes are second and sony and phillips boxes come before any other box type.
 
 							sort_value.push_str("0");
 							sort_value.push_str(&matches["box_iteration"]);
+
+							if matches["box_name"] == *"utv" || matches["box_name"] == *"uvd" {
+								icon_path = "ui/images/box-icons/utv".to_string();
+							} else if matches["box_name"] == *"wld" {
+								icon_path = "ui/images/box-icons/wld".to_string();
+							} else if matches["box_name"] == *"bfe" {
+								icon_path = "ui/images/box-icons/bfe".to_string();
+							} else if matches["box_iteration"] == *"1" {
+								icon_path = "ui/images/box-icons/wtv1".to_string();
+							} else if matches["box_iteration"] == *"2" {
+								icon_path = "ui/images/box-icons/wtv2".to_string();
+							}
+
+							if icon_path != "" {
+								if !can_connect {
+									icon_path += "-nc.svg";
+								} else {
+									icon_path += ".svg";
+								}
+							}
 
 							if matches["box_name"] == *"sony" {
 								sort_value.push_str("0");
@@ -1854,7 +1876,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 							hint: machine_description.clone().into(),
 							tooltip: "".into(),
 							value: machine_name.clone().into(),
-							icon: "".into(),
+							icon: icon_path.into(),
 							sort_value: sort_value.clone().into(),
 						}
 					);
