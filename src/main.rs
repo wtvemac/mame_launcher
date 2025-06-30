@@ -3258,7 +3258,7 @@ fn output_mame_debug(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx
 
 										waiting_buf.iter().for_each(|b| {
 											match b {
-												0x00..=0x07 | 0x0b..=0x0c | 0x0e..=0x1f => { // ignored control characters
+												0x00..=0x07 | 0x0b..=0x0c | 0x0e..=0x1f | 0x7f..=0xff => { // ignored control characters
 													//
 												},
 												0x08 => { // handle delete key
