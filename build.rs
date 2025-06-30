@@ -8,7 +8,9 @@ fn main() {
 		.compile()
 			.expect("Failed to run the Windows resource compiler (rc.exe)");
 
-	let config= slint_build::CompilerConfiguration::new().with_style("fluent-dark".into());
+	let config= slint_build::CompilerConfiguration::new()
+		.with_style("fluent-dark".into())
+		.embed_resources(slint_build::EmbedResourcesKind::EmbedFiles);
 
 	slint_build::compile_with_config("ui/mainwindow.slint", config).unwrap();
 }
