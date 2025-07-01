@@ -3466,7 +3466,8 @@ fn spawn_mame_from_command(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u1
 					let console_enabled = ui.get_mame_console_enabled();
 					if console_enabled {
 						ui.set_mame_console_enabled(false);
-						let _ = load_config(ui_weak.clone());
+
+						let _ = save_config(ui_weak.clone(), true, None, None, None);
 					}
 				}
 			});
@@ -3645,7 +3646,7 @@ fn end_mame(ui_weak: slint::Weak<MainWindow>) {
 				process.kill();
 			}
 
-			let _ = load_config(ui_weak.clone());
+			let _ = save_config(ui_weak.clone(), true, None, None, None);
 
 			disable_loading(&ui_weak);
 
@@ -3997,8 +3998,6 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 	ui_weak = ui.as_weak();
 	ui.global::<UIMAMEOptions>().on_start_mame(move || {
 		enable_loading(&ui_weak, "Starting MAME".into());
-
-		let _ = save_config(ui_weak.clone(), true, None, None, None);
 
 		let _ = check_custom_ssid(ui_weak.clone());
 
