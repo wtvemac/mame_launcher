@@ -1892,6 +1892,17 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 								}
 							}
 
+							#[cfg(target_os = "macos")]
+							{
+								let executable_dir = 
+									LauncherConfig::get_parent_from_pathbuf(env::current_exe()
+										.unwrap_or("".into()))
+										.unwrap_or("".into());
+
+								icon_path = executable_dir + "/" + icon_path;
+							}
+
+
 							if matches["box_name"] == *"sony" {
 								sort_value.push_str("0");
 							} else if matches["box_name"] == *"phil" {
