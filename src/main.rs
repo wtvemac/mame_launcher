@@ -3257,6 +3257,8 @@ fn output_mame_debug(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx
 
 						let _ = mame.set_nonblocking(true);
 
+						#[cfg(any(target_os = "macos"))]
+						let mut last_byte: u8 = 0x00;
 						let mut active_buf = [0; DEBUG_READ_BUFFER_SIZE];
 						let mut waiting_buf: Vec<u8> = vec![];
 						let now = SystemTime::now();
@@ -3288,10 +3290,24 @@ fn output_mame_debug(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx
 														rshift += 1;
 													}
 												},
+												0x0a | 0x0d => { // newline
+													#[cfg(any(target_os = "macos"))]
+													// Don't repeat newline chars.
+													if (last_byte == 0x0a || last_byte == 0x0d) && last_byte != *b {
+														return;
+													}
+
+													new_bytes.push(*b);
+												},
 												_ => { // all other characters
 													new_bytes.push(*b);
 												}
 											};
+
+											#[cfg(any(target_os = "macos"))]
+											{
+												last_byte = b.clone();
+											}
 										});
 										waiting_buf.clear();
 
