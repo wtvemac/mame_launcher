@@ -1909,7 +1909,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 										.unwrap_or("".into()))
 										.unwrap_or("".into());
 
-								icon_path = executable_dir + "/" + icon_path;
+								icon_path = executable_dir + "/" + &icon_path;
 							}
 
 
