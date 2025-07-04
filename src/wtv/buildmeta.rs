@@ -266,10 +266,10 @@ pub struct ROMFSHeader {
 }
 
 impl BuildMeta {
-	pub fn open_rom(file_path: String, collation: Option<BuildIODataCollation>) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
+	pub fn open_rom(file_path: String, collation: Option<BuildIODataCollation>, calculate_checksums: bool) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
 		match ROMIO::open(file_path.clone(), collation) {
 			Ok(srcf) => {
-				BuildMeta::new(srcf, None)
+				BuildMeta::new(srcf, None, calculate_checksums)
 			},
 			Err(e) => {
 				Err(e)
@@ -277,10 +277,10 @@ impl BuildMeta {
 		}
 	}
 
-	pub fn open_disk(file_path: String, collation: Option<BuildIODataCollation>) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
+	pub fn open_disk(file_path: String, collation: Option<BuildIODataCollation>, calculate_checksums: bool) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
 		match DiskIO::open(file_path.clone(), collation) {
 			Ok(srcf) => {
-				BuildMeta::new(srcf, None)
+				BuildMeta::new(srcf, None, calculate_checksums)
 			},
 			Err(e) => {
 				Err(e)
@@ -288,10 +288,10 @@ impl BuildMeta {
 		}
 	}
 
-	pub fn open_flashdisk(file_path: String, collation: Option<BuildIODataCollation>) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
+	pub fn open_flashdisk(file_path: String, collation: Option<BuildIODataCollation>, calculate_checksums: bool) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
 		match FlashdiskIO::open(file_path.clone(), collation) {
 			Ok(srcf) => {
-				BuildMeta::new(srcf, Some(BuildMetaLayout::FlashdiskLayout))
+				BuildMeta::new(srcf, Some(BuildMetaLayout::FlashdiskLayout), calculate_checksums)
 			},
 			Err(e) => {
 				Err(e)
@@ -299,7 +299,7 @@ impl BuildMeta {
 		}
 	}
 
-	pub fn new(build_io: Box<dyn BuildIO>, layout: Option<BuildMetaLayout>) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
+	pub fn new(build_io: Box<dyn BuildIO>, layout: Option<BuildMetaLayout>, calculate_checksums: bool) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
 		let mut wtv_buildmeta = BuildMeta::default_buildmeta(build_io);
 
 		wtv_buildmeta.file_path = wtv_buildmeta.io.file_path().unwrap_or("".into()).clone();
@@ -316,7 +316,7 @@ impl BuildMeta {
 			_ => wtv_buildmeta.get_layout().unwrap_or(BuildMetaLayout::UnknownLayout)
 		};
 
-		let _ = wtv_buildmeta.load_buildinfo();
+		let _ = wtv_buildmeta.load_buildinfo(calculate_checksums);
 
 		Ok(wtv_buildmeta)
 	}
@@ -472,35 +472,35 @@ impl BuildMeta {
 		Ok(BuildMetaLayout::UnknownLayout)
 	}
 
-	fn load_buildinfo(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+	fn load_buildinfo(&mut self, calculate_checksums: bool) -> Result<(), Box<dyn std::error::Error>> {
 		if self.layout == BuildMetaLayout::LC2DiskLayout {
 			self.build_count = 2;
 			self.selected_build_index = self.get_selected_build_index().unwrap_or(1);
-			self.build_info[0] = self.get_buildinfo(LC2_BUILD_OFFSET0).unwrap_or(BuildMeta::default_buildinfo());
-			self.build_info[1] = self.get_buildinfo(LC2_BUILD_OFFSET1).unwrap_or(BuildMeta::default_buildinfo());
+			self.build_info[0] = self.get_buildinfo(LC2_BUILD_OFFSET0, calculate_checksums).unwrap_or(BuildMeta::default_buildinfo());
+			self.build_info[1] = self.get_buildinfo(LC2_BUILD_OFFSET1, calculate_checksums).unwrap_or(BuildMeta::default_buildinfo());
 		} else if self.layout == BuildMetaLayout::WebstarDiskLayout {
 			self.build_count = 1;
 			self.selected_build_index = 0;
-			self.build_info[0] = self.get_buildinfo(WEBSTAR_BUILD_OFFSET0).unwrap_or(BuildMeta::default_buildinfo());
+			self.build_info[0] = self.get_buildinfo(WEBSTAR_BUILD_OFFSET0, calculate_checksums).unwrap_or(BuildMeta::default_buildinfo());
 		} else if self.layout == BuildMetaLayout::UTVDiskLayout {
 			self.build_count = 2;
 			self.selected_build_index = self.get_selected_build_index().unwrap_or(1);
-			self.build_info[0] = self.get_buildinfo(UTV_BUILD_OFFSET0).unwrap_or(BuildMeta::default_buildinfo());
-			self.build_info[1] = self.get_buildinfo(UTV_BUILD_OFFSET1).unwrap_or(BuildMeta::default_buildinfo());
+			self.build_info[0] = self.get_buildinfo(UTV_BUILD_OFFSET0, calculate_checksums).unwrap_or(BuildMeta::default_buildinfo());
+			self.build_info[1] = self.get_buildinfo(UTV_BUILD_OFFSET1, calculate_checksums).unwrap_or(BuildMeta::default_buildinfo());
 		} else if self.layout == BuildMetaLayout::FlashdiskLayout {
 			if self.admin_info.browser_alloc_bytes > 0 && self.admin_info.browser_size > 0 && self.admin_info.browser_alloc_bytes < self.io.len().unwrap_or(0) as u32 {
 				let build0_offset = (self.admin_info.browser0_block as u64 * WEBTV_BLOCK_SIZE) + FLASHDISK_BUILD_HEADER_OFFSET;
 
 				self.build_count = 1;
 				self.selected_build_index = 0;
-				self.build_info[0] = self.get_buildinfo(build0_offset).unwrap_or(BuildMeta::default_buildinfo());
+				self.build_info[0] = self.get_buildinfo(build0_offset, calculate_checksums).unwrap_or(BuildMeta::default_buildinfo());
 			} else {
 				self.build_count = 0;
 			}
 		} else {
 			self.build_count = 1;
 			self.selected_build_index = 0;
-			self.build_info[0] = self.get_buildinfo(RAW_BUILD_OFFSET0).unwrap_or(BuildMeta::default_buildinfo());
+			self.build_info[0] = self.get_buildinfo(RAW_BUILD_OFFSET0, calculate_checksums).unwrap_or(BuildMeta::default_buildinfo());
 		}
 
 		Ok(())
@@ -541,7 +541,7 @@ impl BuildMeta {
 		}
 	}
 
-	fn get_buildinfo(&mut self, build_offset: u64) -> Result<BuildInfo, Box<dyn std::error::Error>> {
+	fn get_buildinfo(&mut self, build_offset: u64, calculate_checksums: bool) -> Result<BuildInfo, Box<dyn std::error::Error>> {
 		let mut buildinfo = BuildMeta::default_buildinfo();
 
 		buildinfo.build_offset = build_offset;
@@ -549,7 +549,7 @@ impl BuildMeta {
 		buildinfo.build_header = self.get_build_header(buildinfo.build_offset).unwrap_or(BuildMeta::default_build_header());
 
 		// Can't check code checksum on flashdisk builds without decompressing
-		if self.layout != BuildMetaLayout::FlashdiskLayout {
+		if calculate_checksums && self.layout != BuildMetaLayout::FlashdiskLayout {
 			buildinfo.calculated_code_checksum = self.calculate_dword_checksum(buildinfo.build_offset, buildinfo.build_header.code_dword_length, Some(0x02)).unwrap_or(0);
 		}
 
@@ -588,7 +588,7 @@ impl BuildMeta {
 				_ => 0
 			};
 
-			if romfs_dword_length > 0 && romfs_end_offset.wrapping_add(buildinfo.build_offset) <= data_length {
+			if calculate_checksums && romfs_dword_length > 0 && romfs_end_offset.wrapping_add(buildinfo.build_offset) <= data_length {
 				buildinfo.calculated_romfs_checksum = self.calculate_dword_checksum(buildinfo.build_offset + romfs_end_offset, buildinfo.romfs_header.romfs_dword_length, None).unwrap_or(0);
 			}
 		}

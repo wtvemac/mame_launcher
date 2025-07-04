@@ -295,6 +295,8 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 		biossets.insert(biosset_name + ".o", biosset_description);
 	}
 
+	let validate_checksums = config.persistent.mame_options.validate_checksums.unwrap_or(true);
+
 	for rom in selected_machine.clone().rom.unwrap_or(vec![]).iter() {
 		let rom_name = 
 			rom.name
@@ -340,7 +342,7 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 			let bootrom_path = mame_directory_path.clone() + "/roms/" + &selected_box + "/" + &rom_name.clone().to_string();
 
 			if Path::new(&bootrom_path).exists() {
-				match BuildMeta::open_rom(bootrom_path, None) {
+				match BuildMeta::open_rom(bootrom_path, None, validate_checksums) {
 					Ok(build_meta) => {
 						bootrom.build_info = Some(build_meta.build_info[0].clone());
 						if (build_meta.build_info[0].build_header.build_flags & BuildFlag::Debug) != 0x00 {
@@ -349,9 +351,9 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 							bootrom.hint = build_meta.build_info[0].build_header.build_version.clone().to_string().into();
 						}
 	
-						if build_meta.build_info[0].build_header.code_checksum != build_meta.build_info[0].calculated_code_checksum {
+						if validate_checksums && build_meta.build_info[0].build_header.code_checksum != build_meta.build_info[0].calculated_code_checksum {
 							bootrom.build_storage_state = BuildStorageState::CodeChecksumMismatch;
-						} else if build_meta.build_info[0].romfs_header.romfs_checksum != build_meta.build_info[0].calculated_romfs_checksum {
+						} else if validate_checksums && build_meta.build_info[0].romfs_header.romfs_checksum != build_meta.build_info[0].calculated_romfs_checksum {
 							bootrom.build_storage_state = BuildStorageState::RomfsChecksumMismatch;
 						} else if build_meta.build_info[0].build_header.build_base_address != BOOTROM_BASE_ADDRESS {
 							bootrom.build_storage_state = BuildStorageState::BadBaseAddress;
@@ -399,7 +401,7 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 
 			if bootrom_path0_exists || bootrom_path1_exists {
 				if bootrom_path0_exists && bootrom_path1_exists {
-					match BuildMeta::open_rom(bootrom_path_prefix, Some(BuildIODataCollation::StrippedROMs)) {
+					match BuildMeta::open_rom(bootrom_path_prefix, Some(BuildIODataCollation::StrippedROMs), validate_checksums) {
 						Ok(build_meta) => {
 							bootrom.build_info = Some(build_meta.build_info[0].clone());
 							if (build_meta.build_info[0].build_header.build_flags & BuildFlag::Debug) != 0x00 {
@@ -408,9 +410,9 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 								bootrom.hint = build_meta.build_info[0].build_header.build_version.clone().to_string().into();
 							}
 		
-							if build_meta.build_info[0].build_header.code_checksum != build_meta.build_info[0].calculated_code_checksum {
+							if validate_checksums && build_meta.build_info[0].build_header.code_checksum != build_meta.build_info[0].calculated_code_checksum {
 								bootrom.build_storage_state = BuildStorageState::CodeChecksumMismatch;
-							} else if build_meta.build_info[0].romfs_header.romfs_checksum != build_meta.build_info[0].calculated_romfs_checksum {
+							} else if validate_checksums && build_meta.build_info[0].romfs_header.romfs_checksum != build_meta.build_info[0].calculated_romfs_checksum {
 								bootrom.build_storage_state = BuildStorageState::RomfsChecksumMismatch;
 							} else if build_meta.build_info[0].build_header.build_base_address != BOOTROM_BASE_ADDRESS {
 								bootrom.build_storage_state = BuildStorageState::BadBaseAddress;
@@ -503,6 +505,8 @@ fn get_flash_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode
 	let approm_path0_exists = Path::new(&approm_path0).exists();
 	let approm_path1_exists = Path::new(&approm_path1).exists();
 
+	let validate_checksums = config.persistent.mame_options.validate_checksums.unwrap_or(true);
+
 	if approm_path0_exists || approm_path1_exists {
 		if approm_path0_exists && approm_path1_exists {
 			if Regex::new(r"^wtv\d+wld$").unwrap().is_match(selected_box.as_str()) {
@@ -530,7 +534,7 @@ fn get_flash_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode
 					approm.build_storage_state = BuildStorageState::StrippedFlashMissing;
 				}
 			} else {
-				match BuildMeta::open_rom(approm_path_prefix.clone(), Some(BuildIODataCollation::StrippedROMs)) {
+				match BuildMeta::open_rom(approm_path_prefix.clone(), Some(BuildIODataCollation::StrippedROMs), validate_checksums) {
 					Ok(build_meta) => {
 						approm.build_info = Some(build_meta.build_info[0].clone());
 						if (build_meta.build_info[0].build_header.build_flags & BuildFlag::Debug) != 0x00 {
@@ -539,9 +543,9 @@ fn get_flash_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode
 							approm.hint = build_meta.build_info[0].build_header.build_version.clone().to_string().into();
 						}
 
-						if build_meta.build_info[0].build_header.code_checksum != build_meta.build_info[0].calculated_code_checksum {
+						if validate_checksums && build_meta.build_info[0].build_header.code_checksum != build_meta.build_info[0].calculated_code_checksum {
 							approm.build_storage_state = BuildStorageState::CodeChecksumMismatch;
-						} else if build_meta.build_info[0].romfs_header.romfs_checksum != build_meta.build_info[0].calculated_romfs_checksum {
+						} else if validate_checksums && build_meta.build_info[0].romfs_header.romfs_checksum != build_meta.build_info[0].calculated_romfs_checksum {
 							approm.build_storage_state = BuildStorageState::RomfsChecksumMismatch;
 						} else if build_meta.build_info[0].build_header.build_base_address != APPROM1_FLASH_BASE_ADDRESS && build_meta.build_info[0].build_header.build_base_address != APPROM2_FLASH_BASE_ADDRESS {
 							approm.build_storage_state = BuildStorageState::BadBaseAddress;
@@ -568,7 +572,7 @@ fn get_flash_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode
 	Ok(approms)
 }
 
-fn populate_approms_from_disk_file(approms: &mut Vec<VerifiableBuildItem>, file_path: String, collation: Option<BuildIODataCollation>, prefix: String, discription: String, is_preset_disk: bool)  -> Result<(), Box<dyn std::error::Error>> {
+fn populate_approms_from_disk_file(approms: &mut Vec<VerifiableBuildItem>, file_path: String, collation: Option<BuildIODataCollation>, prefix: String, discription: String, is_preset_disk: bool, validate_checksums: bool)  -> Result<(), Box<dyn std::error::Error>> {
 	let can_revert = match is_preset_disk {
 		true => {
 			let diff_file_path = CompressedHunkDiskIO::find_diff_file(file_path.clone()).unwrap_or("".into());
@@ -578,7 +582,7 @@ fn populate_approms_from_disk_file(approms: &mut Vec<VerifiableBuildItem>, file_
 		_ => false
 	};
 
-	match BuildMeta::open_disk(file_path.clone(), collation) {
+	match BuildMeta::open_disk(file_path.clone(), collation, validate_checksums) {
 		Ok(build_meta) => {
 			let mut build_index = 0;
 			for buildinfo in build_meta.build_info.iter() {
@@ -607,9 +611,9 @@ fn populate_approms_from_disk_file(approms: &mut Vec<VerifiableBuildItem>, file_
 
 				if build_meta.build_count == 0 {
 					approm.build_storage_state = BuildStorageState::CantReadBuild;
-				} else if buildinfo.build_header.code_checksum != buildinfo.calculated_code_checksum {
+				} else if validate_checksums && buildinfo.build_header.code_checksum != buildinfo.calculated_code_checksum {
 					approm.build_storage_state = BuildStorageState::CodeChecksumMismatch;
-				} else if buildinfo.romfs_header.romfs_checksum != buildinfo.calculated_romfs_checksum {
+				} else if validate_checksums && buildinfo.romfs_header.romfs_checksum != buildinfo.calculated_romfs_checksum {
 					approm.build_storage_state = BuildStorageState::RomfsChecksumMismatch;
 				} else if buildinfo.build_header.build_base_address < APPROM3_DISK_BASE_ADDRESS_MIN || buildinfo.build_header.build_base_address > APPROM3_DISK_BASE_ADDRESS_MAX {
 					approm.build_storage_state = BuildStorageState::BadBaseAddress;
@@ -651,6 +655,8 @@ fn get_disk_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode,
 		false => BuildIODataCollation::ByteSwapped16,
 	};
 
+	let validate_checksums = config.persistent.mame_options.validate_checksums.unwrap_or(true);
+
 	if selected_machine.disk.iter().count() > 0 {
 		match selected_machine.disk.clone() {
 			Some(disks) => {
@@ -665,7 +671,8 @@ fn get_disk_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode,
 					Some(disk_collation), 
 					disk_name.clone(), 
 					"From preset ".to_owned() + &disk_file.clone() + " file",
-					true
+					true,
+					validate_checksums
 				);
 			},
 			_ => {
@@ -681,7 +688,8 @@ fn get_disk_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode,
 			Some(disk_collation), 
 			APPROM_HDIMG_PREFIX.to_string(), 
 			"From your HDD image file.".into(),
-			false
+			false,
+			validate_checksums
 		);
 	}
 
@@ -724,13 +732,15 @@ fn get_flashdisk_approms(config: &LauncherConfig, selected_machine: &MAMEMachine
 		_ => DEFAULT_FLASHDISK_SIZE
 	};
 
+	let validate_checksums = config.persistent.mame_options.validate_checksums.unwrap_or(true);
+
 	if Path::new(&file_path).exists() {
 		if flashdisk_size > Path::new(&file_path).metadata().unwrap().len() {
 			// The file is borked so remove it. There are some cases where this isn't intended but most times this will correct some issues.
 			let _ = std::fs::remove_file(&file_path);
 			approm.build_storage_state = BuildStorageState::FileNotFound;
 		} else {
-			match BuildMeta::open_flashdisk(file_path, Some(BuildIODataCollation::Raw)) {
+			match BuildMeta::open_flashdisk(file_path, Some(BuildIODataCollation::Raw), validate_checksums) {
 				Ok(build_meta) => {
 					let mut build_index = 0;
 					for buildinfo in build_meta.build_info.iter() {
@@ -1816,7 +1826,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		ui_mame.set_use_drc(config_persistent_mame.use_drc.unwrap_or(true).into());
 		ui_mame.set_debug_mode(config_persistent_mame.debug_mode.unwrap_or(false).into());
 		ui_mame.set_skip_info_screen(config_persistent_mame.skip_info_screen.unwrap_or(true).into());
-		ui_mame.set_disable_mouse_input(config_persistent_mame.disable_mouse_input.unwrap_or(true).into());
+		ui_mame.set_validate_checksums(config_persistent_mame.validate_checksums.unwrap_or(true).into());
 		ui_mame.set_console_input(config_persistent_mame.console_input.unwrap_or(false).into());
 		ui_mame.set_disable_sound(config_persistent_mame.disable_sound.unwrap_or(false).into());
 
@@ -2263,13 +2273,13 @@ fn import_bootrom(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_
 	Ok(())
 }
 
-fn set_disk_selected_approm(selected_box: &String, file_path: &String, selected_index: u8) -> Result<(), Box<dyn std::error::Error>> {
+fn set_disk_selected_approm(selected_box: &String, file_path: &String, selected_index: u8, validate_checksums: bool) -> Result<(), Box<dyn std::error::Error>> {
 	let disk_collation = match Regex::new(r"^wtv\d+utv").unwrap().is_match(selected_box.as_str()) {
 		true => BuildIODataCollation::ByteSwapped1632,
 		false => BuildIODataCollation::ByteSwapped16,
 	};
 
-	match BuildMeta::open_disk(file_path.to_string(), Some(disk_collation)) {
+	match BuildMeta::open_disk(file_path.to_string(), Some(disk_collation), validate_checksums) {
 		Ok(mut buildmeta) => {
 			if buildmeta.selected_build_index != selected_index {
 				let _ = buildmeta.set_selected_build_index(selected_index);
@@ -2330,13 +2340,13 @@ fn import_flash_approm(config: &LauncherConfig, selected_box: &String, selected_
 	Ok(())
 }
 
-fn import_disk_approm(selected_box: &String, file_path: &String, source_data: &mut Vec<u8>) -> Result<(), Box<dyn std::error::Error>> {
+fn import_disk_approm(selected_box: &String, file_path: &String, source_data: &mut Vec<u8>, validate_checksums: bool) -> Result<(), Box<dyn std::error::Error>> {
 	let disk_collation = match Regex::new(r"^wtv\d+utv").unwrap().is_match(selected_box.as_str()) {
 		true => BuildIODataCollation::ByteSwapped1632,
 		false => BuildIODataCollation::ByteSwapped16,
 	};
 
-	match BuildMeta::open_disk(file_path.to_string(), Some(disk_collation)) {
+	match BuildMeta::open_disk(file_path.to_string(), Some(disk_collation), validate_checksums) {
 		Ok(mut buildmeta) => {
 			let _ = buildmeta.write_build(source_data);
 		},
@@ -2362,8 +2372,10 @@ fn import_flashdisk_approm(config: &LauncherConfig, selected_box: &String, selec
 
 	let disk_file_path = disk_directory_path.clone() + "/mdoc_flash0";
 
+	let validate_checksums = config.persistent.mame_options.validate_checksums.unwrap_or(true);
+
 	if Path::new(&disk_file_path).exists() {
-		match BuildMeta::open_flashdisk(disk_file_path, Some(BuildIODataCollation::Raw)) {
+		match BuildMeta::open_flashdisk(disk_file_path, Some(BuildIODataCollation::Raw), validate_checksums) {
 			Ok(mut buildmeta) => {
 				let _ = buildmeta.write_build(source_data);
 			},
@@ -2376,7 +2388,7 @@ fn import_flashdisk_approm(config: &LauncherConfig, selected_box: &String, selec
 			Ok(_) => {
 				match FlashdiskIO::create(disk_file_path, Some(BuildIODataCollation::Raw), size) {
 					Ok(io) => {
-						match BuildMeta::new(io, Some(BuildMetaLayout::FlashdiskLayout)) {
+						match BuildMeta::new(io, Some(BuildMetaLayout::FlashdiskLayout), validate_checksums) {
 							Ok(mut buildmeta) => {
 								let _ = buildmeta.write_build(source_data);
 							},
@@ -2450,7 +2462,7 @@ fn import_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_s
 
 						// This serves as a convience like it does in my WebTV Disk Editor.
 						if correct_checksums {
-							match BuildMeta::open_rom(source_path.clone(), None) {
+							match BuildMeta::open_rom(source_path.clone(), None, correct_checksums) {
 								Ok(build_meta) => {
 									let correct_code_checksum = build_meta.build_info[0].calculated_code_checksum;
 									let correct_romfs_checksum = build_meta.build_info[0].calculated_romfs_checksum;
@@ -2476,7 +2488,7 @@ fn import_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_s
 
 						if uses_disk_approms {
 							if selected_hdimg_enabled && selected_hdimg_path != "" {
-								let _ = import_disk_approm(&selected_box, &selected_hdimg_path, &mut source_data);
+								let _ = import_disk_approm(&selected_box, &selected_hdimg_path, &mut source_data, correct_checksums);
 							} else {
 								for machine in config.mame.machine.unwrap_or(vec![]).iter() {
 									let machine_name = 
@@ -2497,7 +2509,7 @@ fn import_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_s
 									
 													let preset_img_path = mame_directory_path.clone() + "/roms/" + &selected_box + "/" + &disk_file;
 
-													let _ = import_disk_approm(&selected_box, &preset_img_path, &mut source_data);
+													let _ = import_disk_approm(&selected_box, &preset_img_path, &mut source_data, correct_checksums);
 												},
 												_ => {
 													//
@@ -2624,7 +2636,7 @@ fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool, new_bootroms: Opt
 				use_drc: Some(ui_mame.get_use_drc().into()),
 				debug_mode: Some(ui_mame.get_debug_mode().into()),
 				skip_info_screen: Some(ui_mame.get_skip_info_screen().into()),
-				disable_mouse_input: Some(ui_mame.get_disable_mouse_input().into()),
+				validate_checksums: Some(ui_mame.get_validate_checksums().into()),
 				console_input: Some(ui_mame.get_console_input().into()),
 				disable_sound: Some(ui_mame.get_disable_sound().into()),
 				custom_options: Some(ui_mame.get_custom_options().into())
@@ -2806,6 +2818,8 @@ fn start_approm_select(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn s
 				};
 				selected_hdimg_enabled.insert(selected_box.clone(), hdimg_enabled);
 
+				let validate_checksums = config.persistent.mame_options.validate_checksums.unwrap_or(true);
+
 				if hdimg_enabled {
 					let selected_hdimg_path = match config.persistent.mame_options.selected_hdimg_paths {
 						Some(hdimg_paths) => hdimg_paths[&selected_box].clone(),
@@ -2813,7 +2827,7 @@ fn start_approm_select(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn s
 					};
 
 					if selected_hdimg_path != "" {
-						let _ = set_disk_selected_approm(&selected_box.clone(), &selected_hdimg_path, selected_index);
+						let _ = set_disk_selected_approm(&selected_box.clone(), &selected_hdimg_path, selected_index, validate_checksums);
 					}
 				} else {
 					for machine in config.mame.machine.unwrap_or(vec![]).iter() {
@@ -2835,7 +2849,7 @@ fn start_approm_select(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn s
 
 										let preset_img_path = mame_directory_path.clone() + "/roms/" + &selected_box + "/" + &disk_file;
 
-										let _ = set_disk_selected_approm(&selected_box.clone(), &preset_img_path, selected_index);
+										let _ = set_disk_selected_approm(&selected_box.clone(), &preset_img_path, selected_index, validate_checksums);
 									},
 									_ => {
 										//
@@ -2866,12 +2880,14 @@ fn start_approm_import(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn s
 					let ui_weak: slint::Weak<MainWindow> = ui.as_weak();
 
 					let ui_paths = ui.global::<UIPaths>();
+					let ui_mame = ui.global::<UIMAMEOptions>();
 
 					let rommy_enabled = ui_paths.get_rommy_enabled();
 					let python_path: String = ui_paths.get_python_path().into();
 					let rommy_path: String = ui_paths.get_rommy_path().into();
 
 					if rommy_enabled && !Regex::new(r"\.(o|bin|img)$").unwrap().is_match(&selected_file_path) {
+						let validate_checksums = ui_mame.get_validate_checksums();
 						let ui_weak_cpy = ui_weak.clone();
 						let _ = std::thread::spawn(move || {
 							enable_loading(&ui_weak, "Running Rommy".into());
@@ -2879,7 +2895,7 @@ fn start_approm_import(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn s
 							match get_rommy_file(selected_file_path, python_path, rommy_path) {
 								Ok(rommy_file_path) => {
 									if rommy_file_path != "" {
-										let _ = import_approm(rommy_file_path.clone(), ui_weak_cpy, true, true);
+										let _ = import_approm(rommy_file_path.clone(), ui_weak_cpy, true, validate_checksums);
 									} else {
 										
 									}
@@ -2894,7 +2910,7 @@ fn start_approm_import(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn s
 					} else {
 						// There's a case where someone might want to choose a flash_bank0 file since people are distributing them around.
 						// I'm not going to handle that case. Have the user choose an actual .o file.
-						let _ = import_approm(selected_file_path.clone(), ui_weak, false, true);
+						let _ = import_approm(selected_file_path.clone(), ui_weak, false, ui_mame.get_validate_checksums());
 					}
 				});
 			}
@@ -3499,6 +3515,8 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 
 		mame_command.arg(ui_mame.get_selected_box().to_string());
 
+		mame_command.arg("-nomouse");
+
 		if ui_mame.get_verbose_mode().into() {
 			mame_command.arg("-verbose");
 		}
@@ -3524,10 +3542,6 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 
 		if ui_mame.get_skip_info_screen().into() {
 			mame_command.arg("-skip_gameinfo");
-		}
-
-		if ui_mame.get_disable_mouse_input().into() {
-			mame_command.arg("-nomouse");
 		}
 
 		if ui_mame.get_disable_sound().into() {

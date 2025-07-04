@@ -94,7 +94,7 @@ export global UIMAMEOptions {
 	in-out property<bool> use_drc: true;
 	in-out property<bool> debug_mode: false;
 	in-out property<bool> skip_info_screen: true;
-	in-out property<bool> disable_mouse_input: true;
+	in-out property<bool> validate_checksums: true;
 	in-out property<bool> console_input: false;
 	in-out property<bool> disable_sound: false;
 
@@ -290,10 +290,10 @@ export component StartPage inherits Page {
 					checked <=> UIMAMEOptions.windowed_mode;
 				}
 				Switch {
-					text: @tr("Disable Mouse Input");
+					text: @tr("Validate Checksums");
 					width: 180px;
 					height: 28px;
-					checked <=> UIMAMEOptions.disable_mouse_input;
+					checked <=> UIMAMEOptions.validate_checksums;
 				}
 				Switch {
 					text: @tr("Disable Sound");
