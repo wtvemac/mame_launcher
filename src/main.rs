@@ -1424,7 +1424,7 @@ fn populate_selected_box_ssids(ui_weak: &slint::Weak<MainWindow>, config: &Launc
 						}
 					},
 					SSIDStorageState::BoxTypeMismatch => {
-						ui.set_launcher_state_message("SSID not a MAME SSID. You can generate a new one below!".into());
+						//ui.set_launcher_state_message("SSID not a MAME SSID. You can generate a new one below!".into());
 					},
 					SSIDStorageState::CantReadSSID => {
 						ui.set_launcher_state_message("Error parsing SSID? You can generate a new one below!".into());
