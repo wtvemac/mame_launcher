@@ -6,7 +6,7 @@ import {
 	Palette,
 	TabWidget,
 	VerticalBox,
-	ScrollView,
+	ListView,
 	Spinner,
 	Button
 } from "std-widgets.slint";
@@ -23,6 +23,17 @@ export {
 	UIMAMEOptions,
 	UIPaths,
 	UIAbout
+}
+
+// Level: 0 = normal text, 1 = warning and 2 = error
+export struct ConsoleLine {
+	text: string,
+	level: int
+}
+
+export struct ConsoleWordSpan {
+	start: int,
+	end: int
 }
 
 export enum MAMEConsoleScrollMode {
@@ -44,8 +55,65 @@ export component MainWindow inherits Window {
 	default-font-weight: 400;
 
 	function scroll-to-end() {
-		mame-console.set-selection-offsets(4294967295, 4294967295); // Cursor to end hack
-		mame-console-scroll.content-y = -1 * max((mame-console.preferred-height - mame-console-scroll.visible-height), 0);  // Scroll to end
+		root.console-following = true;
+		root.console-user-scrolling = false;
+		console-scroll-settle.stop();
+		mame-console.content-y = min(0px, mame-console.visible-height - mame-console.content-height);
+	}
+
+	public function console-updated(scroll-mode: MAMEConsoleScrollMode) {
+		if(scroll-mode == MAMEConsoleScrollMode.ForceScroll || (scroll-mode == MAMEConsoleScrollMode.ConditionalScroll && root.console-following)) {
+			root.scroll-to-end();
+		}
+	}
+
+	function console-at-bottom() -> bool {
+		return mame-console.content-y <= (mame-console.visible-height - mame-console.content-height + 2px);
+	}
+
+	function collapse-console-selection() {
+		root.console-sel-anchor-row = root.console-sel-focus-row;
+		root.console-sel-anchor-col = root.console-sel-focus-col;
+	}
+
+	function copy-console-selection() {
+		if(!root.console-sel-empty) {
+			root.copy-console-range(root.console-sel-start-row, root.console-sel-start-col, root.console-sel-end-row, root.console-sel-end-col);
+		}
+	}
+
+	function select-all-console() {
+		root.console-following = false;
+		root.console-sel-anchor-row = 0;
+		root.console-sel-anchor-col = 0;
+		root.console-sel-focus-row = root.mame-console-lines.length - 1;
+		root.console-sel-focus-col = 2147483647;
+	}
+
+	public function console-clear-selection() {
+		root.console-sel-anchor-row = 0;
+		root.console-sel-anchor-col = 0;
+		root.console-sel-focus-row = 0;
+		root.console-sel-focus-col = 0;
+	}
+
+	public function console-lines-trimmed(count: int) {
+		root.console-sel-anchor-row -= count;
+		root.console-sel-focus-row -= count;
+		if(root.console-sel-end-row < 0) {
+			root.console-clear-selection();
+		} else if(root.console-sel-anchor-row < 0) {
+			root.console-sel-anchor-row = 0;
+			root.console-sel-anchor-col = 0;
+		} else if(root.console-sel-focus-row < 0) {
+			root.console-sel-focus-row = 0;
+			root.console-sel-focus-col = 0;
+		}
+	}
+
+	public function copy-console-text() {
+		mame-console-copy.select-all();
+		mame-console-copy.copy();
 	}
 
 	in-out property<int> mame-pid: 0;
@@ -55,22 +123,77 @@ export component MainWindow inherits Window {
 	in-out property<string> launcher-state-message: "";
 	in-out property<length> mame-console-padding: 4px;
 	in-out property<bool> mame-console-enabled: false;
-	in-out property<string> mame-console-text: "";
+	in-out property<[ConsoleLine]> mame-console-lines: [];
+	in-out property<string> mame-console-copy-text: "";
 	in-out property<bool> using-mame-debug: false;
 
-	in-out property<MAMEConsoleScrollMode> scroll-mode: MAMEConsoleScrollMode.ConditionalScroll;
-	in-out property<bool> can-scroll: false;
-	in-out property<length> autoscroll-allowed-drift: 138px;
-	changed mame-console-text => {
-		if(root.scroll-mode == MAMEConsoleScrollMode.ForceScroll || (root.scroll-mode == MAMEConsoleScrollMode.ConditionalScroll && root.can-scroll)) {
+	in-out property<bool> console-following: true;
+
+	in-out property<int> console-sel-anchor-row: 0;
+	in-out property<int> console-sel-anchor-col: 0;
+	in-out property<int> console-sel-focus-row: 0;
+	in-out property<int> console-sel-focus-col: 0;
+	property<int> console-sel-focus-char: 0;
+	property<bool> console-sel-empty: root.console-sel-anchor-row == root.console-sel-focus-row && root.console-sel-anchor-col == root.console-sel-focus-col;
+	property<bool> console-sel-anchor-first: root.console-sel-anchor-row < root.console-sel-focus-row || (root.console-sel-anchor-row == root.console-sel-focus-row && root.console-sel-anchor-col <= root.console-sel-focus-col);
+	property<int> console-sel-start-row: root.console-sel-anchor-first ? root.console-sel-anchor-row : root.console-sel-focus-row;
+	property<int> console-sel-start-col: root.console-sel-anchor-first ? root.console-sel-anchor-col : root.console-sel-focus-col;
+	property<int> console-sel-end-row: root.console-sel-anchor-first ? root.console-sel-focus-row : root.console-sel-anchor-row;
+	property<int> console-sel-end-col: root.console-sel-anchor-first ? root.console-sel-focus-col : root.console-sel-anchor-col;
+	property<bool> console-sel-set-anchor: false;
+	property<bool> console-sel-dragging: console-sel-area.pressed;
+	property<length> console-sel-drag-x: console-sel-area.mouse-x;
+	property<length> console-sel-drag-y: max(0px, min(console-sel-area.height - 1px, console-sel-area.mouse-y)) - mame-console.content-y;
+	console-sel-autoscroll := Timer {
+		interval: 30ms;
+		running: console-sel-area.pressed && (console-sel-area.mouse-y < 0px || console-sel-area.mouse-y > console-sel-area.height);
+		triggered => {
+			mame-console.content-y = max(mame-console.visible-height - mame-console.content-height, min(0px, mame-console.content-y + ((console-sel-area.mouse-y < 0px) ? max(8px, -console-sel-area.mouse-y / 2) : min(-8px, (console-sel-area.height - console-sel-area.mouse-y) / 2))));
+		}
+	}
+
+	property<bool> console-user-scrolling: false;
+	property<length> console-scroll-start-y;
+	property<length> console-scroll-content-height;
+	in-out property<bool> console-cursor-on: true;
+	in-out property<color> console-selection-color: #264f78;
+	in-out property<color> console-text-color: #53df68;
+	in-out property<color> console-warning-color: #e5c07b;
+	in-out property<color> console-error-color: #f44747;
+	console-cursor-blink := Timer {
+		interval: 500ms;
+		running: root.mame-console-enabled;
+		triggered => {
+			root.console-cursor-on = !root.console-cursor-on;
+		}
+	}
+	console-scroll-settle := Timer {
+		interval: 300ms;
+		running: false;
+		triggered => {
+			self.stop();
+			root.console-user-scrolling = false;
+
+			if(mame-console.content-y <= root.console-scroll-start-y && mame-console.content-y <= (mame-console.visible-height - root.console-scroll-content-height + 2px)) {
+				root.scroll-to-end();
+			}
+		}
+	}
+	property<length> console-content-height: mame-console.content-height;
+	changed console-content-height => {
+		if(root.console-following) {
 			root.scroll-to-end();
 		}
-
-		// Make sure scroll state is updated. This usually gets updated by mousing around the application but sometimes we're not in focus.
-		root.can-scroll = (mame-console-scroll.content-y + mame-console.preferred-height) <= (mame-console-scroll.visible-height + root.autoscroll-allowed-drift);
+	}
+	changed mame-console-enabled => {
+		if(root.mame-console-enabled) {
+			mame-console-focus.focus();
+		}
 	}
 
 	callback send-key-to-mame(string, bool);
+	callback copy-console-range(int, int, int, int);
+	pure callback console-word-span(int, int) -> ConsoleWordSpan;
 	callback close-mame();
 	callback do-fart();
 
@@ -140,12 +263,6 @@ export component MainWindow inherits Window {
 		width: root.width;
 		height: root.height;
 		enabled: root.mame-console-enabled;
-		pointer-event => {
-			// Routinely check if we're scrolled to the bottom. Using mouse movements so this value is fresh.
-			// The autoscroll event happens after text is added. If a large chunk of text is added, it scrolls beyond the drift and breaks autoscroll.
-			// This allows us to have an updated state before text is added.
-			root.can-scroll = (mame-console-scroll.content-y + mame-console.preferred-height) <= (mame-console-scroll.visible-height + root.autoscroll-allowed-drift);
-		}
 		Rectangle {
 			x: 0px;
 			y: 0px;
@@ -153,53 +270,206 @@ export component MainWindow inherits Window {
 			height: parent.height;
 			visible: root.mame-console-enabled;
 			background: #111111;
-			mame-console-scroll := ScrollView {
+			mame-console-focus := FocusScope {
 				x: root.mame-console-padding;
 				y: root.mame-console-padding;
 				width: parent.width - (2 * root.mame-console-padding);
 				height: parent.height - (2 * root.mame-console-padding);
-				content-width: self.visible-width;
-				content-height: max(self.visible-height, mame-console.preferred-height);
-				// Might do syntax highlighting if Slint ever has support (probably wont implement it myself)
-				// Seems like they're looking at cosmic-text
-				// https://github.com/slint-ui/slint/issues/2723
+				key-pressed(event) => {
+					if(event.modifiers.control && (event.text == "c" || event.text == "C") && !root.console-sel-empty) {
+						root.copy-console-selection();
+						return accept;
+					}
 
-				ContextMenuArea {
+					if(event.text == Key.Control || event.text == Key.ControlR || event.text == Key.Alt || event.text == Key.AltGr || event.text == Key.Meta || event.text == Key.MetaR) {
+						return accept;
+					}
+					if(event.text != Key.Shift && event.text != Key.ShiftR) {
+						root.scroll-to-end();
+						root.collapse-console-selection();
+
+						root.console-cursor-on = true;
+						console-cursor-blink.restart();
+					}
+
+					root.send-key-to-mame(event.text, event.modifiers.shift);
+
+					accept
+				}
+
+				console-menu-area := ContextMenuArea {
+					width: parent.width;
+					height: parent.height;
+
 					Menu {
 						MenuItem {
 							title: @tr("Copy");
+							enabled: !root.console-sel-empty;
 							activated => {
-								mame-console.copy();
+								root.copy-console-selection();
+							}
+						}
+
+						MenuItem {
+							title: @tr("Copy All");
+							activated => {
+								root.copy-console-range(0, 0, root.mame-console-lines.length - 1, 2147483647);
 							}
 						}
 
 						MenuItem {
 							title: @tr("Select All");
 							activated => {
-								mame-console.select-all();
+								root.select-all-console();
 							}
 						}
 					}
 
-					mame-console := TextInput {
-						page-height: mame-console-scroll.visible-height;
-						text: root.mame-console-text;
-						enabled: true;
-						read-only: false;
-						single-line: false;
-						wrap: char-wrap;
-						color: #53df68;
-						text-cursor-width: 3px;
-						key-pressed(event) => {
-							root.scroll-to-end();
+					mame-console := ListView {
+						width: parent.width;
+						height: parent.height;
+						scrolled => {
+							if(!root.console-user-scrolling) {
+								root.console-scroll-start-y = self.content-y;
+							}
+							root.console-user-scrolling = true;
+							root.console-following = false;
+							root.console-scroll-content-height = self.content-height;
+							console-scroll-settle.start();
+							console-scroll-settle.restart();
+						}
 
-							root.send-key-to-mame(event.text, event.modifiers.shift);
+						for line[index] in root.mame-console-lines: console-line := Rectangle {
+							property<bool> is-last: index == root.mame-console-lines.length - 1;
+							property<int> columns: max(1, floor(self.width / console-char-measure.char-width));
+							property<int> cursor-row: floor(line.text.character-count / self.columns);
+							property<int> cursor-column: mod(line.text.character-count, self.columns);
 
-							accept
+							property<bool> sel-in-row: !root.console-sel-empty && index >= root.console-sel-start-row && index <= root.console-sel-end-row;
+							property<int> sel-start: index == root.console-sel-start-row ? min(root.console-sel-start-col, line.text.character-count) : 0;
+							property<int> sel-end: index == root.console-sel-end-row ? min(root.console-sel-end-col, line.text.character-count) : line.text.character-count;
+							property<bool> sel-start-wrapped: self.sel-start > 0 && self.sel-start == line.text.character-count && mod(self.sel-start, self.columns) == 0;
+							property<bool> sel-end-wrapped: self.sel-end > 0 && mod(self.sel-end, self.columns) == 0;
+							property<int> sel-start-line: self.sel-start-wrapped ? floor(self.sel-start / self.columns) - 1 : floor(self.sel-start / self.columns);
+							property<int> sel-start-column: self.sel-start-wrapped ? self.columns : mod(self.sel-start, self.columns);
+							property<int> sel-end-line: self.sel-end-wrapped ? floor(self.sel-end / self.columns) - 1 : floor(self.sel-end / self.columns);
+							property<int> sel-end-column: self.sel-end-wrapped ? self.columns : mod(self.sel-end, self.columns);
+							property<bool> sel-to-edge: index < root.console-sel-end-row;
+
+							property<int> hit-line: max(0, floor((root.console-sel-drag-y - self.y) / console-char-measure.preferred-height));
+							// The character under the mouse rather than the nearest gap between characters, used for word selection.
+							property<int> hit-char: max(0, min(line.text.character-count, self.hit-line * self.columns + max(0, min(self.columns - 1, floor(root.console-sel-drag-x / console-char-measure.char-width)))));
+							property<int> hit: (root.console-sel-dragging && (root.console-sel-drag-y >= self.y || index == 0) && (root.console-sel-drag-y < self.y + self.height || self.is-last)) ? max(0, min(line.text.character-count, self.hit-line * self.columns + max(0, min(self.columns, round(root.console-sel-drag-x / console-char-measure.char-width))))) : -1;
+							function report-hit() {
+								if(self.hit >= 0) {
+									if(root.console-sel-set-anchor) {
+										root.console-sel-set-anchor = false;
+										root.console-sel-anchor-row = index;
+										root.console-sel-anchor-col = self.hit;
+									}
+									root.console-sel-focus-row = index;
+									root.console-sel-focus-col = self.hit;
+									root.console-sel-focus-char = self.hit-char;
+								}
+							}
+							changed hit => {
+								self.report-hit();
+							}
+
+							init => {
+								self.report-hit();
+							}
+
+							height: max(line-text.preferred-height, self.is-last ? (self.cursor-row + 1) * console-char-measure.preferred-height : 0px);
+
+							Rectangle {
+								visible: console-line.sel-in-row && (console-line.sel-start-line != console-line.sel-end-line || console-line.sel-end-column > console-line.sel-start-column || console-line.sel-to-edge);
+								x: console-line.sel-start-column * console-char-measure.char-width;
+								y: console-line.sel-start-line * console-char-measure.preferred-height;
+								width: (console-line.sel-start-line == console-line.sel-end-line && !console-line.sel-to-edge) ? (console-line.sel-end-column - console-line.sel-start-column) * console-char-measure.char-width : console-line.width - self.x;
+								height: console-char-measure.preferred-height;
+								background: root.console-selection-color;
+							}
+
+							Rectangle {
+								visible: console-line.sel-in-row && (console-line.sel-end-line - console-line.sel-start-line) >= 2;
+								x: 0px;
+								y: (console-line.sel-start-line + 1) * console-char-measure.preferred-height;
+								width: console-line.width;
+								height: (console-line.sel-end-line - console-line.sel-start-line - 1) * console-char-measure.preferred-height;
+								background: root.console-selection-color;
+							}
+
+							Rectangle {
+								visible: console-line.sel-in-row && console-line.sel-end-line > console-line.sel-start-line && (console-line.sel-end-column > 0 || console-line.sel-to-edge);
+								x: 0px;
+								y: console-line.sel-end-line * console-char-measure.preferred-height;
+								width: console-line.sel-to-edge ? console-line.width : console-line.sel-end-column * console-char-measure.char-width;
+								height: console-char-measure.preferred-height;
+								background: root.console-selection-color;
+							}
+
+							line-text := Text {
+								x: 0px;
+								y: 0px;
+								width: parent.width;
+								text: line.text;
+								wrap: char-wrap;
+								color: line.level == 2 ? root.console-error-color : line.level == 1 ? root.console-warning-color : root.console-text-color;
+							}
+
+							if console-line.is-last: Rectangle {
+								x: console-line.cursor-column * console-char-measure.char-width;
+								y: console-line.cursor-row * console-char-measure.preferred-height;
+								width: 3px;
+								height: console-char-measure.preferred-height;
+								background: root.console-text-color;
+								visible: root.console-cursor-on || !mame-console-focus.has-focus;
+							}
+						}
+					}
+
+					console-sel-area := TouchArea {
+						x: 0px;
+						y: 0px;
+						width: mame-console.visible-width - 14px;
+						height: mame-console.visible-height;
+						mouse-cursor: text;
+						pointer-event(event) => {
+							if(event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+								console-menu-area.show({x: self.mouse-x, y: self.mouse-y});
+							} else if(event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+								mame-console-focus.focus();
+								root.console-following = false;
+								root.console-user-scrolling = false;
+								console-scroll-settle.stop();
+								root.console-sel-set-anchor = !event.modifiers.shift;
+							} else if(event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+								if(root.console-sel-empty && root.console-at-bottom()) {
+									root.scroll-to-end();
+								}
+							}
+						}
+						double-clicked => {
+							root.console-sel-anchor-row = root.console-sel-focus-row;
+							root.console-sel-anchor-col = root.console-word-span(root.console-sel-focus-row, root.console-sel-focus-char).start;
+							root.console-sel-focus-col = root.console-word-span(root.console-sel-focus-row, root.console-sel-focus-char).end;
 						}
 					}
 				}
 			}
+
+			console-char-measure := Text {
+				property<length> char-width: self.preferred-width / 100;
+				visible: false;
+				text: "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM";
+			}
+
+			mame-console-copy := TextInput {
+				visible: false;
+				text: root.mame-console-copy-text;
+			}
+
 			console-scroll-to-end := Rectangle {
 				x: console-close.x - self.width - 12px;
 				y: 8px;

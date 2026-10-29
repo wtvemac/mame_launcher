@@ -18,9 +18,10 @@ use std::{
 	net::TcpListener,
 	sync::{
 		Arc,
+		Mutex,
 		atomic::{AtomicBool, Ordering::Relaxed}
 	},
-	time::SystemTime
+	time::{Duration, Instant}
 };
 use rand::{
 	Rng,
@@ -35,6 +36,7 @@ use portpicker;
 use hex;
 use which::which;
 use open;
+use slint::Model;
 use crossbeam_channel::{
 	bounded,
 	Receiver
@@ -122,13 +124,33 @@ const PUBLIC_TOUCHPP_ADDRESS: &'static str = "wtv.ooguy.com:1122";
 const DEFAULT_DEBUG_ENDPOINT: &'static str = "Launcher Console";
 const DEBUG_READ_BUFFER_SIZE: usize = 1024;
 const CONSOLE_READ_BUFFER_SIZE: usize = 1024;
-const CONSOLE_UPDATE_INTERVAL_USEC: u128 = 50000;
+const CONSOLE_UPDATE_INTERVAL_USEC: u128 = 10000;
+const CONSOLE_MAX_LINES: usize = 5000;
+const CONSOLE_MAX_LINE_LENGTH: usize = 2048;
+const CONSOLE_MAX_PENDING_SIZE: usize = 1024 * 1024;
 #[cfg(target_os = "linux")]
-const CONSOLE_KEY_DELAY: u32 = 200 * 1000;
+const CONSOLE_KEY_DELAY: u32 = 100 * 1000;
 #[cfg(target_os = "windows")]
 const CONSOLE_KEY_DELAY: u64 = 25 * 1000;
 #[cfg(target_os = "macos")]
 const CONSOLE_KEY_DELAY: u64 = 55 * 1000;
+const CONSOLE_ERROR_PATTERNS: &[&str] = &[
+	"TellyScript: Couldn't get",
+	"TellyScript: TIMEOUT",
+	"TellyScript: PAP authentification failure",
+	"error",
+	"Exception:",
+	r"TellyScript: ParseResult -- \d+ unknown"
+];
+const CONSOLE_WARNING_PATTERNS: &[&str] = &[
+	"warning",
+	"not found",
+	"not available",
+	"NOT_AVAILABLE",
+	"NOT_FOUND",
+	"Timed out"
+];
+
 
 // These files are packaged into the executable so you only need to distribute one file.
 const FART_INTRO1: &'static [u8] = include_bytes!("../sounds/fart-intro1.mp3");
@@ -221,6 +243,172 @@ struct MachineSlotItem {
 	pub bitbanger_name: String,
 	pub slot_name: String,
 	pub slot_type: SlotType
+}
+
+struct PendingConsoleText {
+	// (if this is from stderr (true/false), "line text")
+	segments: Vec<(bool, String)>,
+	rshift: usize,
+	scroll_mode: MAMEConsoleScrollMode,
+	flush_scheduled: bool,
+	last_flush: Option<Instant>,
+	last_char_cr: bool
+}
+
+static PENDING_CONSOLE_TEXT: Mutex<PendingConsoleText> = Mutex::new(PendingConsoleText {
+	segments: Vec::new(),
+	rshift: 0,
+	scroll_mode: MAMEConsoleScrollMode::NoScrollCheck,
+	flush_scheduled: false,
+	last_flush: None,
+	last_char_cr: false
+});
+
+static CONSOLE_ERROR_REGEX: once_cell::sync::Lazy<Regex> = once_cell::sync::Lazy::new(|| {
+	Regex::new(&format!("(?i){}", CONSOLE_ERROR_PATTERNS.join("|"))).unwrap()
+});
+static CONSOLE_WARNING_REGEX: once_cell::sync::Lazy<Regex> = once_cell::sync::Lazy::new(|| {
+	Regex::new(&format!("(?i){}", CONSOLE_WARNING_PATTERNS.join("|"))).unwrap()
+});
+
+struct ConsoleRow {
+	line: ConsoleLine,
+	from_stderr: bool
+}
+
+#[derive(Default)]
+struct ConsoleLines {
+	lines: std::cell::RefCell<std::collections::VecDeque<ConsoleRow>>,
+	notify: slint::ModelNotify
+}
+
+impl slint::Model for ConsoleLines {
+	type Data = ConsoleLine;
+
+	fn row_count(&self) -> usize {
+		self.lines.borrow().len()
+	}
+
+	fn row_data(&self, row: usize) -> Option<Self::Data> {
+		self.lines.borrow().get(row).map(|row| row.line.clone())
+	}
+
+	fn model_tracker(&self) -> &dyn slint::ModelTracker {
+		&self.notify
+	}
+
+	fn as_any(&self) -> &dyn std::any::Any {
+		self
+	}
+}
+
+impl ConsoleLines {
+	fn add_text(&self, text: &String, rshift: usize, from_stderr: bool) -> usize {
+		let (changed_row, removed_count, added_count, trimmed_count, shifted_count) = {
+			let mut lines = self.lines.borrow_mut();
+			let old_count = lines.len();
+
+			let skip_to = console_last_lines_start(text, CONSOLE_MAX_LINES);
+			if skip_to > 0 {
+				lines.clear();
+			}
+			let text = &text[skip_to..];
+
+			let (mut current_line, mut current_stderr) = lines.pop_back().map(|row| (row.line.text.to_string(), row.from_stderr)).unwrap_or_default();
+
+			for _ in 0..rshift {
+				if current_line.pop().is_none() {
+					match lines.pop_back() {
+						Some(row) => (current_line, current_stderr) = (row.line.text.to_string(), row.from_stderr),
+						None => break
+					}
+				}
+			}
+
+			let changed_row = lines.len();
+
+			// An empty line keeps nothing from where its (deleted) text came from.
+			current_stderr = current_stderr && !current_line.is_empty();
+
+			let mut text_lines = text.split('\n');
+			let first_text_line = text_lines.next().unwrap_or("");
+			current_line += first_text_line;
+			current_stderr = current_stderr || (from_stderr && !first_text_line.is_empty());
+			for text_line in text_lines {
+				ConsoleLines::push_line(&mut lines, &current_line, current_stderr);
+				current_line = text_line.to_string();
+				current_stderr = from_stderr && !text_line.is_empty();
+			}
+			ConsoleLines::push_line(&mut lines, &current_line, current_stderr);
+
+			let removed_count = old_count - changed_row;
+			let added_count = lines.len() - changed_row;
+
+			let trimmed_count = lines.len().saturating_sub(CONSOLE_MAX_LINES);
+			lines.drain(..trimmed_count);
+
+			let shifted_count = if skip_to > 0 { old_count + trimmed_count } else { trimmed_count };
+
+			(changed_row, removed_count, added_count, trimmed_count, shifted_count)
+		};
+
+		if removed_count > 0 {
+			self.notify.row_removed(changed_row, removed_count);
+		}
+		self.notify.row_added(changed_row, added_count);
+		if trimmed_count > 0 {
+			self.notify.row_removed(0, trimmed_count);
+		}
+
+		shifted_count
+	}
+
+	fn push_line(lines: &mut std::collections::VecDeque<ConsoleRow>, line: &str, from_stderr: bool) {
+		let expanded_line;
+		let mut line = if line.contains('\t') {
+			let mut column = 0;
+			expanded_line = line.chars().fold(String::new(), |mut expanded, c| {
+				if c == '\t' {
+					let spaces = 8 - (column % 8);
+					expanded.extend(std::iter::repeat(' ').take(spaces));
+					column += spaces;
+				} else {
+					expanded.push(c);
+					column += 1;
+				}
+				expanded
+			});
+			expanded_line.as_str()
+		} else {
+			line
+		};
+
+		while line.len() > CONSOLE_MAX_LINE_LENGTH {
+			let mut split_at = CONSOLE_MAX_LINE_LENGTH;
+			while !line.is_char_boundary(split_at) {
+				split_at -= 1;
+			}
+			lines.push_back(ConsoleLines::make_row(&line[..split_at], from_stderr));
+			line = &line[split_at..];
+		}
+		lines.push_back(ConsoleLines::make_row(line, from_stderr));
+	}
+
+	// Level: 0 = normal text, 1 =warning and 2 = error.
+	fn make_row(text: &str, from_stderr: bool) -> ConsoleRow {
+		let level = if from_stderr || CONSOLE_ERROR_REGEX.is_match(text) {
+			2
+		} else if CONSOLE_WARNING_REGEX.is_match(text) {
+			1
+		} else {
+			0
+		};
+
+		ConsoleRow {
+			line: ConsoleLine { text: text.into(), level },
+			from_stderr
+		}
+	}
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -3251,25 +3439,140 @@ fn set_mame_pid(ui_weak: slint::Weak<MainWindow>, pid: u32) -> Result<(), Box<dy
 }
 
 fn add_console_text(ui_weak: slint::Weak<MainWindow>, text: String, scroll_mode: MAMEConsoleScrollMode, rshift: usize) -> Result<(), Box<dyn std::error::Error>> {
+	add_console_text_from(ui_weak, text, scroll_mode, rshift, false)
+}
+
+fn add_console_text_from(ui_weak: slint::Weak<MainWindow>, text: String, scroll_mode: MAMEConsoleScrollMode, rshift: usize, from_stderr: bool) -> Result<(), Box<dyn std::error::Error>> {
 	if text != "" || rshift > 0 {
-		let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-			let previous_text = ui.get_mame_console_text().to_string();
+		let mut pending = PENDING_CONSOLE_TEXT.lock().unwrap_or_else(|e| e.into_inner());
 
-			ui.set_scroll_mode(scroll_mode);
-
-			if rshift > 0 {
-				if rshift > previous_text.len() {
-					ui.set_mame_console_text("".into());
-				} else {
-					ui.set_mame_console_text((previous_text[0..(previous_text.len() - rshift)].to_string() + &text).into());
+		for _ in 0..rshift {
+			loop {
+				match pending.segments.last_mut() {
+					Some((_, segment_text)) => {
+						if segment_text.pop().is_some() {
+							break;
+						}
+						pending.segments.pop();
+					},
+					None => {
+						pending.rshift += 1;
+						break;
+					}
 				}
-			} else {
-				ui.set_mame_console_text((previous_text + &text).into());
 			}
-		});
+		}
+
+		let mut text = text.as_str();
+		if pending.last_char_cr && text.starts_with('\n') {
+			text = &text[1..];
+		}
+		pending.last_char_cr = text.ends_with('\r');
+		let text: std::borrow::Cow<str> = if text.contains('\r') {
+			text.replace("\r\n", "\n").replace('\r', "\n").into()
+		} else {
+			text.into()
+		};
+		match pending.segments.last_mut() {
+			Some((segment_stderr, segment_text)) if *segment_stderr == from_stderr => *segment_text += &text,
+			_ => if !text.is_empty() {
+				pending.segments.push((from_stderr, text.into_owned()));
+			}
+		}
+
+		if pending.segments.iter().map(|(_, segment_text)| segment_text.len()).sum::<usize>() > CONSOLE_MAX_PENDING_SIZE {
+			let mut remaining_lines = CONSOLE_MAX_LINES;
+			for i in (0..pending.segments.len()).rev() {
+				let newline_count = pending.segments[i].1.matches('\n').count();
+				if newline_count >= remaining_lines {
+					let start = console_last_lines_start(&pending.segments[i].1, remaining_lines);
+					pending.segments[i].1.drain(..(start - 1));
+					pending.segments.drain(..i);
+					pending.rshift = 0;
+					break;
+				}
+				remaining_lines -= newline_count;
+			}
+		}
+
+		if scroll_mode == MAMEConsoleScrollMode::ForceScroll || pending.scroll_mode == MAMEConsoleScrollMode::NoScrollCheck {
+			pending.scroll_mode = scroll_mode;
+		}
+
+		if !pending.flush_scheduled {
+			pending.flush_scheduled = true;
+
+			let interval = Duration::from_micros(CONSOLE_UPDATE_INTERVAL_USEC as u64);
+			let delay = match pending.last_flush {
+				Some(last_flush) => interval.saturating_sub(last_flush.elapsed()),
+				None => Duration::ZERO
+			};
+
+			let _ = ui_weak.clone().upgrade_in_event_loop(move |ui| {
+				if delay.is_zero() {
+					flush_console_text(&ui);
+				} else {
+					slint::Timer::single_shot(delay, move || {
+						if let Some(ui) = ui_weak.upgrade() {
+							flush_console_text(&ui);
+						}
+					});
+				}
+			});
+		}
 	}
 
 	Ok(())
+}
+
+fn console_last_lines_start(text: &str, max_lines: usize) -> usize {
+	text.rmatch_indices('\n').nth(max_lines - 1).map(|(i, _)| i + 1).unwrap_or(0)
+}
+
+fn flush_console_text(ui: &MainWindow) {
+	let (segments, rshift, scroll_mode) = {
+		let mut pending = PENDING_CONSOLE_TEXT.lock().unwrap_or_else(|e| e.into_inner());
+
+		let scroll_mode = pending.scroll_mode;
+		pending.scroll_mode = MAMEConsoleScrollMode::NoScrollCheck;
+		pending.flush_scheduled = false;
+		pending.last_flush = Some(Instant::now());
+
+		(std::mem::take(&mut pending.segments), std::mem::take(&mut pending.rshift), scroll_mode)
+	};
+
+	if segments.is_empty() && rshift == 0 {
+		return;
+	}
+
+	let lines_model = ui.get_mame_console_lines();
+	if let Some(lines) = lines_model.as_any().downcast_ref::<ConsoleLines>() {
+		let mut shifted_count = 0;
+		if segments.is_empty() {
+			shifted_count += lines.add_text(&String::new(), rshift, false);
+		}
+		for (i, (from_stderr, text)) in segments.iter().enumerate() {
+			shifted_count += lines.add_text(text, if i == 0 { rshift } else { 0 }, *from_stderr);
+		}
+		if shifted_count > 0 {
+			ui.invoke_console_lines_trimmed(shifted_count.min(i32::MAX as usize) as i32);
+		}
+	}
+
+	ui.invoke_console_updated(scroll_mode);
+}
+
+fn clear_console_text(ui: &MainWindow) {
+	{
+		let mut pending = PENDING_CONSOLE_TEXT.lock().unwrap_or_else(|e| e.into_inner());
+
+		pending.segments.clear();
+		pending.rshift = 0;
+		pending.last_char_cr = false;
+	}
+
+	ui.set_mame_console_lines(slint::ModelRc::new(ConsoleLines::default()));
+	ui.invoke_console_clear_selection();
 }
 
 fn output_mame_debug(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx: Receiver<String>) -> Result<(), Box<dyn std::error::Error>> {
@@ -3284,12 +3587,9 @@ fn output_mame_debug(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx
 
 						let _ = mame.set_nonblocking(true);
 
-						#[cfg(any(target_os = "macos"))]
 						let mut last_byte: u8 = 0x00;
 						let mut active_buf = [0; DEBUG_READ_BUFFER_SIZE];
 						let mut waiting_buf: Vec<u8> = vec![];
-						let now = SystemTime::now();
-						let mut last_console_push = 0;
 						loop {
 							match mame.read(&mut active_buf) {
 								Ok(bytes_read) => {
@@ -3300,65 +3600,60 @@ fn output_mame_debug(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx
 									}
 								},
 								Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-									let time_now = now.elapsed().unwrap_or_default().as_micros();
-									if (time_now - last_console_push) > CONSOLE_UPDATE_INTERVAL_USEC {
-										let mut new_bytes: Vec<u8> = vec![];
-										let mut rshift  = 0;
-
-										waiting_buf.iter().for_each(|b| {
-											match b {
-												0x00..=0x07 | 0x0b..=0x0c | 0x0e..=0x1f | 0x7f..=0xff => { // ignored control characters
-													//
-												},
-												0x08 => { // handle delete key
-													if new_bytes.len() > 0 {
-														new_bytes.pop();
-													} else {
-														rshift += 1;
-													}
-												},
-												0x0a | 0x0d => { // newline
-													#[cfg(any(target_os = "macos"))]
-													// Don't repeat newline chars.
-													if (last_byte == 0x0a || last_byte == 0x0d) && last_byte != *b {
-														return;
-													}
-
-													new_bytes.push(*b);
-												},
-												_ => { // all other characters
-													new_bytes.push(*b);
-												}
-											};
-
-											#[cfg(any(target_os = "macos"))]
-											{
-												last_byte = b.clone();
-											}
-										});
-										waiting_buf.clear();
-
-										last_console_push = time_now.clone();
-										let _ = add_console_text(ui_weak.clone(), String::from_utf8_lossy(&new_bytes).to_string(), MAMEConsoleScrollMode::ConditionalScroll, rshift);
-
-									}
-
-									match drx.try_recv() {
-										Ok(received) => {
-											let bytes = received.as_bytes();
-											if bytes.len() == 1 && bytes[0] == 0x0a {
-												// send 0x0d instead of 0x0a for enter because the WebTV OS responds to that better.
-												let _ = mame.write(&[0x0d; 1]);
-											} else if bytes.len() > 1 || bytes[0] != 0x10 { // don't send shift key press
-												let _ = mame.write(&bytes);
-											}
-										},
-										_ => { }
-									};
+									std::thread::sleep(Duration::from_millis(1));
 								},
 								_ => {
 									break;
 								}
+							};
+
+							if waiting_buf.len() > 0 {
+								let mut new_bytes: Vec<u8> = vec![];
+								let mut rshift  = 0;
+
+								waiting_buf.iter().for_each(|b| {
+									match b {
+										0x00..=0x07 | 0x0b..=0x0c | 0x0e..=0x1f | 0x7f..=0xff => { // ignored control characters
+											//
+										},
+										0x08 => { // handle delete key
+											if new_bytes.len() > 0 {
+												new_bytes.pop();
+											} else {
+												rshift += 1;
+											}
+										},
+										0x0a | 0x0d => { // newline
+											// Don't repeat newline chars.
+											if (last_byte == 0x0a || last_byte == 0x0d) && last_byte != *b {
+												return;
+											}
+
+											new_bytes.push(*b);
+										},
+										_ => { // all other characters
+											new_bytes.push(*b);
+										}
+									};
+
+									last_byte = b.clone();
+								});
+								waiting_buf.clear();
+
+								let _ = add_console_text(ui_weak.clone(), String::from_utf8_lossy(&new_bytes).to_string(), MAMEConsoleScrollMode::ConditionalScroll, rshift);
+							}
+
+							match drx.try_recv() {
+								Ok(received) => {
+									let bytes = received.as_bytes();
+									if bytes.len() == 1 && bytes[0] == 0x0a {
+										// send 0x0d instead of 0x0a for enter because the WebTV OS responds to that better.
+										let _ = mame.write(&[0x0d; 1]);
+									} else if bytes.len() > 1 || bytes[0] != 0x10 { // don't send shift key press
+										let _ = mame.write(&bytes);
+									}
+								},
+								_ => { }
 							};
 						}
 
@@ -3399,7 +3694,7 @@ fn output_mame_stdio(ui_weak: slint::Weak<MainWindow>, stdout: Option<ChildStdou
 								let console_text = String::from_utf8_lossy(&stderr_buf[0..bytes_read]).to_string();
 
 								// EMAC: stdout and stderr can get jumbled with this implementation...
-								let _ = add_console_text(ui_weak_cpy.clone(), console_text, MAMEConsoleScrollMode::ForceScroll, 0);
+								let _ = add_console_text_from(ui_weak_cpy.clone(), console_text, MAMEConsoleScrollMode::ConditionalScroll, 0, true);
 
 								process_has_error.store(true, Relaxed);
 							}
@@ -3502,7 +3797,7 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 		let mame_directory_path = LauncherConfig::get_parent(mame_executable_path.clone()).unwrap_or("".into());
 
 		ui.set_mame_console_enabled(true);
-		ui.set_mame_console_text("".into());
+		clear_console_text(&ui);
 
 		let ui_mame = ui.global::<UIMAMEOptions>();
 
@@ -3665,7 +3960,7 @@ fn end_mame(ui_weak: slint::Weak<MainWindow>) {
 			disable_loading(&ui_weak);
 
 			let _ = ui_weak.clone().upgrade_in_event_loop(move |ui| {
-				ui.set_mame_console_text("".into());
+				clear_console_text(&ui);
 				let _= set_mame_pid(ui_weak.clone(), 0);
 			});
 
@@ -4120,6 +4415,54 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 				send_keypess_macos(ui_weak.clone(), text.to_string(), shiftmod);
 			}
 		}
+	});
+
+	ui.set_mame_console_lines(slint::ModelRc::new(ConsoleLines::default()));
+
+	ui_weak = ui.as_weak();
+	ui.on_copy_console_range(move |start_row, start_col, end_row, end_col| {
+		let ui = ui_weak.unwrap();
+		let lines = ui.get_mame_console_lines();
+		let end_row = (end_row.max(0) as usize).min(lines.row_count().saturating_sub(1));
+
+		let console_text = (start_row.max(0) as usize..=end_row)
+			.filter_map(|row| lines.row_data(row).map(|line| (row, line)))
+			.map(|(row, line)| {
+				let line = line.text;
+				let start = if row == start_row as usize { start_col.max(0) as usize } else { 0 };
+				let end = if row == end_row { end_col.max(0) as usize } else { usize::MAX };
+				line.chars().skip(start).take(end.saturating_sub(start)).collect::<String>()
+			})
+			.collect::<Vec<_>>()
+			.join("\n");
+
+		ui.set_mame_console_copy_text(console_text.into());
+		ui.invoke_copy_console_text();
+		ui.set_mame_console_copy_text("".into());
+	});
+
+	ui_weak = ui.as_weak();
+	ui.on_console_word_span(move |row, col| {
+		let ui = ui_weak.unwrap();
+		let line: Vec<char> = ui.get_mame_console_lines().row_data(row.max(0) as usize).unwrap_or_default().text.chars().collect();
+		let col = (col.max(0) as usize).min(line.len());
+
+		let class = |c: char| if c.is_alphanumeric() || c == '_' { 0 } else if c.is_whitespace() { 1 } else { 2 };
+		let clicked = if col < line.len() { col } else if col > 0 { col - 1 } else { return ConsoleWordSpan { start: 0, end: 0 } };
+		let clicked_class = class(line[clicked]);
+
+		let mut start = clicked;
+		let mut end = clicked + 1;
+		if clicked_class != 2 {
+			while start > 0 && class(line[start - 1]) == clicked_class {
+				start -= 1;
+			}
+			while end < line.len() && class(line[end]) == clicked_class {
+				end += 1;
+			}
+		}
+
+		ConsoleWordSpan { start: start as i32, end: end as i32 }
 	});
 
 	ui_weak = ui.as_weak();
