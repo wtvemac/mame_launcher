@@ -105,6 +105,7 @@ export component EditableComboBox inherits Rectangle {
 		x: (root.current-icon.width == 0) ? 10px : 35px;
 		width: parent.width - self.x - 2px;
 		height: (!root.editable) ? (parent.height) : 0px;
+		visible: !root.editable;
 		vertical-alignment: center;
 		horizontal-alignment: left;
 		font-size: 14px;
@@ -118,7 +119,7 @@ export component EditableComboBox inherits Rectangle {
 		y: ((parent.height - self.height) / 2);
 		width: (parent.width - down-arrow.width - self.x) + ((down-arrow.width > 0) ? -8px : -1px);
 		height: (root.editable) ? (parent.height - 2px) : 0px;
-		padding: 0px;
+		visible: root.editable;
 		enabled: (root.enabled);
 		horizontal-alignment: left;
 		font-size: nonedit-label.font-size;
@@ -212,8 +213,8 @@ export component EditableComboBox inherits Rectangle {
 		scroll-box := ScrollView {
 			width: parent.width;
 			height: parent.height;
-			viewport-width: parent.width;
-			viewport-height: (root.height - root.popup-item-height-adjust) * root.item-count;
+			content-width: parent.width;
+			content-height: (root.height - root.popup-item-height-adjust) * root.item-count;
 
 			if i-ishinted: VerticalLayout {
 				spacing: 0px;

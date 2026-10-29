@@ -170,7 +170,6 @@ export component StartPage inherits Page {
 				IconButton {
 					width: (UIMAMEOptions.can_choose_hdimg) ? 32px : 0px;
 					height: 34px;
-					padding: 3px;
 					z: 3;
 					icon: (UIMAMEOptions.selected_hdimg_path == "") ? @image-url("images/hd-img-inactive.svg") : @image-url("images/hd-img-active.svg");
 					tooltip: (UIMAMEOptions.selected_hdimg_path == "") ? "Choose Disk Image" : "\{UIMAMEOptions.selected_hdimg_path}\nRight click to remove";
@@ -195,7 +194,6 @@ export component StartPage inherits Page {
 				IconButton {
 					width: (UIMAMEOptions.can_revert_approm) ? 32px : 0px;
 					height: 34px;
-					padding: 3px;
 					icon: @image-url("images/revert-approm.svg");
 					tooltip: "Revert Preset Image";
 					clicked => {
@@ -238,7 +236,6 @@ export component StartPage inherits Page {
 					text: @tr("Generate");
 					width: (parent.width * 0.4) - 4px;
 					height: 34px;
-					padding: 0px;
 					clicked => {
 						UIMAMEOptions.generate-ssid();
 					}

@@ -42,11 +42,10 @@ export component MainWindow inherits Window {
 	default-font-family: (mame-console-enabled) ? "MLMonaco" : "MLHelvetica";
 	default-font-size: 13px;
 	default-font-weight: 400;
-	padding: 0px;
 
 	function scroll-to-end() {
 		mame-console.set-selection-offsets(4294967295, 4294967295); // Cursor to end hack
-		mame-console-scroll.viewport-y = -1 * max((mame-console.preferred-height - mame-console-scroll.visible-height), 0);  // Scroll to end
+		mame-console-scroll.content-y = -1 * max((mame-console.preferred-height - mame-console-scroll.visible-height), 0);  // Scroll to end
 	}
 
 	in-out property<int> mame-pid: 0;
@@ -68,7 +67,7 @@ export component MainWindow inherits Window {
 		}
 
 		// Make sure scroll state is updated. This usually gets updated by mousing around the application but sometimes we're not in focus.
-		root.can-scroll = (mame-console-scroll.viewport-y + mame-console.preferred-height) <= (mame-console-scroll.visible-height + root.autoscroll-allowed-drift);
+		root.can-scroll = (mame-console-scroll.content-y + mame-console.preferred-height) <= (mame-console-scroll.visible-height + root.autoscroll-allowed-drift);
 	}
 
 	callback send-key-to-mame(string, bool);
@@ -102,7 +101,6 @@ export component MainWindow inherits Window {
 		y: (root.launcher-state-message != "") ? status-message.height + 3px : 3px;
 		width: 100%;
 		height: ((root.launcher-state-message != "") ? (root.height - status-message.height) : root.height);
-		padding: 10px;
 		current-index: (root.mame-broken) ? 1 : 0;
 
 		Tab {
@@ -142,12 +140,11 @@ export component MainWindow inherits Window {
 		width: root.width;
 		height: root.height;
 		enabled: root.mame-console-enabled;
-		padding: 0px;
 		pointer-event => {
 			// Routinely check if we're scrolled to the bottom. Using mouse movements so this value is fresh.
 			// The autoscroll event happens after text is added. If a large chunk of text is added, it scrolls beyond the drift and breaks autoscroll.
 			// This allows us to have an updated state before text is added.
-			root.can-scroll = (mame-console-scroll.viewport-y + mame-console.preferred-height) <= (mame-console-scroll.visible-height + root.autoscroll-allowed-drift);
+			root.can-scroll = (mame-console-scroll.content-y + mame-console.preferred-height) <= (mame-console-scroll.visible-height + root.autoscroll-allowed-drift);
 		}
 		Rectangle {
 			x: 0px;
@@ -155,15 +152,14 @@ export component MainWindow inherits Window {
 			width: parent.width;
 			height: parent.height;
 			visible: root.mame-console-enabled;
-			padding: 0px;
 			background: #111111;
 			mame-console-scroll := ScrollView {
 				x: root.mame-console-padding;
 				y: root.mame-console-padding;
 				width: parent.width - (2 * root.mame-console-padding);
 				height: parent.height - (2 * root.mame-console-padding);
-				viewport-width: self.visible-width;
-				viewport-height: max(self.visible-height, mame-console.preferred-height);
+				content-width: self.visible-width;
+				content-height: max(self.visible-height, mame-console.preferred-height);
 				// Might do syntax highlighting if Slint ever has support (probably wont implement it myself)
 				// Seems like they're looking at cosmic-text
 				// https://github.com/slint-ui/slint/issues/2723

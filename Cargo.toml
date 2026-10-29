@@ -22,7 +22,7 @@ regex = "1.10.4"
 rodio = "0.18.1"
 serde = { version = "1.0.203", features = ["derive"] }
 serialport = "4.3.0"
-slint = "1.12.0"
+slint = "1.18.1"
 strum = "0.26.2"
 strum_macros = "0.26.4"
 sysinfo = "0.30.12"
@@ -50,7 +50,7 @@ icon = ["ui/images/icon.png"]
 copyright = "Unlicensed"
 
 [build-dependencies]
-slint-build = "1.8.0"
+slint-build = "1.18.1"
 
 [target.'cfg(target_os = "windows")'.build-dependencies]
 winresource = "0.1"
