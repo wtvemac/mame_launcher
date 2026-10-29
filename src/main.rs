@@ -98,7 +98,7 @@ const APPROM2_FLASH_FILE_PREFIX: &'static str = "approm_flash";
 const APPROM3_FLASH_FILE_PREFIX: &'static str = "bank1_flash";
 const APPROM_HDIMG_PREFIX: &'static str = "hdimg";
 const ALLOW_APPROM2_FILES: bool = false;
-const DEFAULT_BOX_ORDER: [&'static str; 19] = [
+const DEFAULT_BOX_ORDER: [&'static str; 20] = [
 	"wtv1bf0",
 	"wtv1sony",
 	"wtv1phil",
@@ -117,7 +117,8 @@ const DEFAULT_BOX_ORDER: [&'static str; 19] = [
 	"wtv2ncl",
 	"wtv2esr",
 	"wtv2utv",
-	"wtv2uvd"
+	"wtv2uvd",
+	"msntv2"
 ];
 const DEFAULT_FLASHDISK_SIZE: u64 = 8 * 1024 * 1024;
 const PUBLIC_TOUCHPP_ADDRESS: &'static str = "wtv.ooguy.com:1122";
@@ -270,6 +271,12 @@ static CONSOLE_ERROR_REGEX: once_cell::sync::Lazy<Regex> = once_cell::sync::Lazy
 static CONSOLE_WARNING_REGEX: once_cell::sync::Lazy<Regex> = once_cell::sync::Lazy::new(|| {
 	Regex::new(&format!("(?i){}", CONSOLE_WARNING_PATTERNS.join("|"))).unwrap()
 });
+
+#[derive(Debug)]
+pub struct MachineID {
+    pub box_iteration: String,
+    pub box_name: String,
+}
 
 struct ConsoleRow {
 	line: ConsoleLine,
@@ -1847,6 +1854,24 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 	Ok(())
 }
 
+pub fn get_machine_id(machine_name: &str) -> Option<MachineID> {
+	let wtv_re: Regex = Regex::new(r"^wtv(?<box_iteration>\d+)(?<box_name>.+)").unwrap();
+
+	if let Some(caps) = wtv_re.captures(machine_name) {
+        Some(MachineID {
+            box_iteration: caps.name("box_iteration")?.as_str().to_string(),
+            box_name: caps.name("box_name")?.as_str().to_string(),
+        })
+    } else if let Some(box_name) = machine_name.strip_prefix("msn") {
+        Some(MachineID {
+            box_iteration: "3".to_string(),
+            box_name: box_name.to_string(),
+        })
+    } else {
+        None
+    }
+}
+
 fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error::Error>> {
 	enable_loading(&ui_weak, "Loading...".into());
 	
@@ -2057,28 +2082,29 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 					}
 				}
 
-				if Regex::new(r"^wtv\d+").unwrap().is_match(machine_name.as_str()) {
-					let sort_re: Regex = Regex::new(r"^wtv(?<box_iteration>\d+)(?<box_name>.+)").unwrap();
+				if Regex::new(r"^(wtv\d+[a-zA-Z0-9]+|msn[a-zA-Z0-9]{3})$").unwrap().is_match(machine_name.as_str()) {
 					let mut sort_value: String = String::new();
 
 					let mut icon_path = "".to_string();
 
-					match sort_re.captures(machine_name.as_str()) {
-						Some(matches) => {
+					match get_machine_id(machine_name.as_str()) {
+						Some(machine_id) => {
 							// This sets up sorting so the wtv1 boxes are first, wtv2 boxes are second and sony and phillips boxes come before any other box type.
 
 							sort_value.push_str("0");
-							sort_value.push_str(&matches["box_iteration"]);
+							sort_value.push_str(&machine_id.box_iteration);
 
-							if matches["box_name"] == *"utv" || matches["box_name"] == *"uvd" {
+							if machine_id.box_name == *"tv2" {
+								icon_path = "ui/images/box-icons/msntv2".to_string();
+							} else if machine_id.box_name == *"utv" || machine_id.box_name == *"uvd" {
 								icon_path = "ui/images/box-icons/utv".to_string();
-							} else if matches["box_name"] == *"wld" {
+							} else if machine_id.box_name == *"wld" {
 								icon_path = "ui/images/box-icons/wld".to_string();
-							} else if matches["box_name"] == *"bfe" {
+							} else if machine_id.box_name == *"bfe" {
 								icon_path = "ui/images/box-icons/bfe".to_string();
-							} else if matches["box_iteration"] == *"1" {
+							} else if machine_id.box_iteration == *"1" {
 								icon_path = "ui/images/box-icons/wtv1".to_string();
-							} else if matches["box_iteration"] == *"2" {
+							} else if machine_id.box_iteration == *"2" {
 								icon_path = "ui/images/box-icons/wtv2".to_string();
 							}
 
@@ -2101,13 +2127,13 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 							}
 
 
-							if matches["box_name"] == *"sony" {
+							if machine_id.box_name == *"sony" {
 								sort_value.push_str("0");
-							} else if matches["box_name"] == *"phil" {
+							} else if machine_id.box_name == *"phil" {
 								sort_value.push_str("1");
 							} else {
 								sort_value.push_str("2");
-								sort_value.push_str(&matches["box_name"]);
+								sort_value.push_str(&machine_id.box_name);
 							}
 						}
 						None => {
