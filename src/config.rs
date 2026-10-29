@@ -8,10 +8,16 @@ use quick_xml;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::UNIX_EPOCH;
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
 
 const CONFIG_FILE_NAME: &'static str = "mame_launcher.toml";
+
+static MAME_CONFIG_CACHE: once_cell::sync::Lazy<Mutex<Option<(String, MAMEDocument)>>> = once_cell::sync::Lazy::new(|| {
+	Mutex::new(None)
+});
 
 ////
 //
@@ -297,6 +303,14 @@ impl LauncherConfig {
 		LauncherConfig::get_parent_from_pathbuf(PathBuf::from(path))
 	}
 
+	fn get_file_cache_key(path: &String) -> Result<String, Box<dyn std::error::Error>> {
+		let canonical_path = fs::canonicalize(path)?;
+		let metadata = fs::metadata(&canonical_path)?;
+		let mtime_ns = metadata.modified()?.duration_since(UNIX_EPOCH)?.as_nanos();
+
+		Ok(format!("{}|{}|{}", metadata.len(), mtime_ns, canonical_path.to_string_lossy()))
+	}
+
 	fn default_mame_config() -> MAMEDocument {
 		MAMEDocument {
 			build: Some("".into()),
@@ -306,7 +320,7 @@ impl LauncherConfig {
 		}
 	}
 
-	pub fn get_mame_config(mame_path: &String) -> Result<MAMEDocument, Box<dyn std::error::Error>> {
+	fn run_mame_listxml(mame_path: &String) -> Result<String, Box<dyn std::error::Error>> {
 		let mut command = Command::new(mame_path);
 
 		command.arg("-listxml");
@@ -316,11 +330,32 @@ impl LauncherConfig {
 
 		let mame_xml = command.output()?;
 
-		let xml_string =
-			std::str::from_utf8(&mame_xml.stdout)?;
+		if !mame_xml.status.success() {
+			return Err(format!("MAME -listxml exited with {}", mame_xml.status).into());
+		}
+
+		Ok(String::from_utf8(mame_xml.stdout)?)
+	}
+
+	pub fn get_mame_config(mame_path: &String) -> Result<MAMEDocument, Box<dyn std::error::Error>> {
+		let cache_key = LauncherConfig::get_file_cache_key(mame_path)?;
+
+		if let Ok(memory_cache) = MAME_CONFIG_CACHE.lock() {
+			if let Some((memory_cache_key, mame_config)) = memory_cache.as_ref() {
+				if *memory_cache_key == cache_key {
+					return Ok(mame_config.clone());
+				}
+			}
+		}
+
+		let xml_string = LauncherConfig::run_mame_listxml(mame_path)?;
 
 		let mame_config: MAMEDocument =
-			quick_xml::de::from_str(xml_string)?;
+			quick_xml::de::from_str(&xml_string)?;
+
+		if let Ok(mut memory_cache) = MAME_CONFIG_CACHE.lock() {
+			*memory_cache = Some((cache_key, mame_config.clone()));
+		}
 
 		Ok(mame_config)
 	}
