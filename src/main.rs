@@ -768,7 +768,7 @@ fn get_flash_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode
 	Ok(approms)
 }
 
-fn populate_approms_from_disk_file(approms: &mut Vec<VerifiableBuildItem>, file_path: String, collation: Option<BuildIODataCollation>, prefix: String, discription: String, is_preset_disk: bool, validate_checksums: bool)  -> Result<(), Box<dyn std::error::Error>> {
+fn populate_approms_from_disk_file(approms: &mut Vec<VerifiableBuildItem>, file_path: String, collation: Option<BuildIODataCollation>, prefix: String, discription: String, is_preset_disk: bool, validate_checksums: bool, validate_signatures: bool)  -> Result<(), Box<dyn std::error::Error>> {
 	let can_revert = match is_preset_disk {
 		true => {
 			let diff_file_path = CompressedHunkDiskIO::find_diff_file(file_path.clone()).unwrap_or("".into());
@@ -778,7 +778,7 @@ fn populate_approms_from_disk_file(approms: &mut Vec<VerifiableBuildItem>, file_
 		_ => false
 	};
 
-	match BuildMeta::open_disk(file_path.clone(), collation, validate_checksums) {
+	match BuildMeta::open_disk(file_path.clone(), collation, validate_checksums, validate_signatures) {
 		Ok(build_meta) => {
 			let mut build_index = 0;
 			for buildinfo in build_meta.build_info.iter() {
@@ -846,9 +846,10 @@ fn get_disk_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode,
 	let mame_executable_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
 	let mame_directory_path = LauncherConfig::get_parent(mame_executable_path).unwrap_or("".into());
 
-	let disk_collation = match Regex::new(r"^wtv\d+utv").unwrap().is_match(selected_box.as_str()) {
-		true => BuildIODataCollation::ByteSwapped1632,
-		false => BuildIODataCollation::ByteSwapped16,
+	let disk_collation = match selected_box.as_str() {
+		"msntv2" => BuildIODataCollation::Raw,
+		"wtv2utv" | "wtv2uvd" => BuildIODataCollation::ByteSwapped1632,
+		 _ => BuildIODataCollation::ByteSwapped16
 	};
 
 	let validate_checksums = config.persistent.mame_options.validate_checksums.unwrap_or(true);
@@ -868,7 +869,8 @@ fn get_disk_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode,
 					disk_name.clone(), 
 					"From preset ".to_owned() + &disk_file.clone() + " file",
 					true,
-					validate_checksums
+					validate_checksums,
+					selected_box == "msntv2"
 				);
 			},
 			_ => {
@@ -885,7 +887,8 @@ fn get_disk_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode,
 			APPROM_HDIMG_PREFIX.to_string(), 
 			"From your HDD image file.".into(),
 			false,
-			validate_checksums
+			validate_checksums,
+			selected_box == "msntv2"
 		);
 	}
 
@@ -2489,12 +2492,13 @@ fn import_bootrom(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_
 }
 
 fn set_disk_selected_approm(selected_box: &String, file_path: &String, selected_index: u8, validate_checksums: bool) -> Result<(), Box<dyn std::error::Error>> {
-	let disk_collation = match Regex::new(r"^wtv\d+utv").unwrap().is_match(selected_box.as_str()) {
-		true => BuildIODataCollation::ByteSwapped1632,
-		false => BuildIODataCollation::ByteSwapped16,
+	let disk_collation = match selected_box.as_str() {
+		"msntv2" => BuildIODataCollation::Raw,
+		"wtv2utv" | "wtv2uvd" => BuildIODataCollation::ByteSwapped1632,
+		 _ => BuildIODataCollation::ByteSwapped16
 	};
 
-	match BuildMeta::open_disk(file_path.to_string(), Some(disk_collation), validate_checksums) {
+	match BuildMeta::open_disk(file_path.to_string(), Some(disk_collation), validate_checksums, false) {
 		Ok(mut buildmeta) => {
 			if buildmeta.selected_build_index != selected_index {
 				let _ = buildmeta.set_selected_build_index(selected_index);
@@ -2556,12 +2560,13 @@ fn import_flash_approm(config: &LauncherConfig, selected_box: &String, selected_
 }
 
 fn import_disk_approm(selected_box: &String, file_path: &String, source_data: &mut Vec<u8>, validate_checksums: bool) -> Result<(), Box<dyn std::error::Error>> {
-	let disk_collation = match Regex::new(r"^wtv\d+utv").unwrap().is_match(selected_box.as_str()) {
-		true => BuildIODataCollation::ByteSwapped1632,
-		false => BuildIODataCollation::ByteSwapped16,
+	let disk_collation = match selected_box.as_str() {
+		"msntv2" => BuildIODataCollation::Raw,
+		"wtv2utv" | "wtv2uvd" => BuildIODataCollation::ByteSwapped1632,
+		 _ => BuildIODataCollation::ByteSwapped16
 	};
 
-	match BuildMeta::open_disk(file_path.to_string(), Some(disk_collation), validate_checksums) {
+	match BuildMeta::open_disk(file_path.to_string(), Some(disk_collation), validate_checksums, false) {
 		Ok(mut buildmeta) => {
 			let _ = buildmeta.write_build(source_data);
 		},
@@ -2603,7 +2608,7 @@ fn import_flashdisk_approm(config: &LauncherConfig, selected_box: &String, selec
 			Ok(_) => {
 				match FlashdiskIO::create(disk_file_path, Some(BuildIODataCollation::Raw), size) {
 					Ok(io) => {
-						match BuildMeta::new(io, Some(BuildMetaLayout::FlashdiskLayout), validate_checksums) {
+						match BuildMeta::new(io, Some(BuildMetaLayout::FlashdiskLayout), validate_checksums, false) {
 							Ok(mut buildmeta) => {
 								let _ = buildmeta.write_build(source_data);
 							},

@@ -1,3 +1,7 @@
+use std::io::{Read, Seek, SeekFrom};
+use std::fs;
+use std::path::{Path, PathBuf};
+
 use packbytes::FromBytes;
 
 use super::buildio::{
@@ -5,7 +9,31 @@ use super::buildio::{
 	BuildIODataCollation,
 	romio::ROMIO,
 	diskio::DiskIO,
-	flashdiskio::FlashdiskIO
+	flashdiskio::FlashdiskIO,
+	stream::BuildIOStream
+};
+
+use regex::Regex;
+
+use mbrman::{
+	MBR,
+	MBRPartitionEntry
+};
+use fatfs::{
+	Dir
+};
+
+use md5::{
+	Md5,
+	Digest
+};
+
+use rsa::{
+	RsaPublicKey,
+	pkcs8::DecodePublicKey
+};
+use sha1::{
+	Sha1
 };
 
 const WEBTV_BLOCK_SIZE: u64 = 0x00000200;
@@ -141,6 +169,12 @@ const UTV_BUILD_SELECT_OFFSET: u64 = 0x17480600;
 const UTV_BUILD_OFFSET0: u64 = 0x13480600;
 const UTV_BUILD_OFFSET1: u64 = 0x15480600;
 
+const MSNTV2_BOOT_SECTOR_OFFSET: u64 = 0x4000;
+const MSNTV2_OEM_NAME_BSOFFSET: u64 = 0x03;
+const MSNTV2_OEM_NAME_VALUE: u64 = 0x4d534e5456000000; // MSNTV\x00\x00\x00 as BE int
+const MSNTV2_PROD_SIG_PUBKEY: &'static [u8]  = include_bytes!("../../keys/msntv2-mainkey.ber");
+const MSNTV2_SIG_FILE_NAME: &'static str = "BOOT.SIG";
+
 const NO_ROMFS_FLAG: u32 = 0x4e6f4653; // NoFS
 
 #[allow(dead_code)]
@@ -192,7 +226,8 @@ pub enum BuildMetaLayout {
 	FlashdiskLayout,
 	LC2DiskLayout,
 	WebstarDiskLayout,
-	UTVDiskLayout
+	UTVDiskLayout,
+	MSNTV2DiskLayout
 }
 
 #[allow(non_snake_case, dead_code)]
@@ -219,6 +254,7 @@ pub struct BuildMeta {
 	pub selected_build_index: u8,
 	pub admin_info: DiskAdminInfo,
 	pub build_info: [BuildInfo; 2],
+	pub msntv2_info: MSNTV2Info,
 	io: Box<dyn BuildIO>
 }
 
@@ -265,11 +301,37 @@ pub struct ROMFSHeader {
 	pub romfs_checksum: u32,
 }
 
+#[allow(dead_code)]
+#[derive(Debug)]
+pub struct MSNTV2FileInfo {
+	pub file_name: String,
+	pub file_flags: String,
+	pub file_size: u32,
+	pub full_md5: [u8; 16],
+	pub calculated_full_md5: [u8; 16],
+	pub partial_md5: [u8; 16],
+	pub calculated_partial_md5: [u8; 16],
+}
+
+#[allow(dead_code)]
+#[derive(Debug)]
+pub struct MSNTV2Info {
+	pub rsa_signature: Vec<u8>,
+	pub signature_validates: Option<bool>,
+	pub build_flags: String,
+	pub build_contact: String,
+	pub build_date: String,
+	pub build_number: u32,
+	pub build_version: String,
+	pub build_signature_contact: String,
+	pub build_files: Vec<MSNTV2FileInfo>
+}
+
 impl BuildMeta {
 	pub fn open_rom(file_path: String, collation: Option<BuildIODataCollation>, calculate_checksums: bool) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
 		match ROMIO::open(file_path.clone(), collation) {
 			Ok(srcf) => {
-				BuildMeta::new(srcf, None, calculate_checksums)
+				BuildMeta::new(srcf, None, calculate_checksums, false)
 			},
 			Err(e) => {
 				Err(e)
@@ -277,10 +339,10 @@ impl BuildMeta {
 		}
 	}
 
-	pub fn open_disk(file_path: String, collation: Option<BuildIODataCollation>, calculate_checksums: bool) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
+	pub fn open_disk(file_path: String, collation: Option<BuildIODataCollation>, calculate_checksums: bool, calculate_signatures: bool) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
 		match DiskIO::open(file_path.clone(), collation) {
 			Ok(srcf) => {
-				BuildMeta::new(srcf, None, calculate_checksums)
+				BuildMeta::new(srcf, None, calculate_checksums, calculate_signatures)
 			},
 			Err(e) => {
 				Err(e)
@@ -291,7 +353,7 @@ impl BuildMeta {
 	pub fn open_flashdisk(file_path: String, collation: Option<BuildIODataCollation>, calculate_checksums: bool) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
 		match FlashdiskIO::open(file_path.clone(), collation) {
 			Ok(srcf) => {
-				BuildMeta::new(srcf, Some(BuildMetaLayout::FlashdiskLayout), calculate_checksums)
+				BuildMeta::new(srcf, Some(BuildMetaLayout::FlashdiskLayout), calculate_checksums, false)
 			},
 			Err(e) => {
 				Err(e)
@@ -299,7 +361,7 @@ impl BuildMeta {
 		}
 	}
 
-	pub fn new(build_io: Box<dyn BuildIO>, layout: Option<BuildMetaLayout>, calculate_checksums: bool) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
+	pub fn new(build_io: Box<dyn BuildIO>, layout: Option<BuildMetaLayout>, calculate_checksums: bool, calculate_signatures: bool) -> Result<BuildMeta, Box<dyn std::error::Error>>  {
 		let mut wtv_buildmeta = BuildMeta::default_buildmeta(build_io);
 
 		wtv_buildmeta.file_path = wtv_buildmeta.io.file_path().unwrap_or("".into()).clone();
@@ -316,7 +378,7 @@ impl BuildMeta {
 			_ => wtv_buildmeta.get_layout().unwrap_or(BuildMetaLayout::UnknownLayout)
 		};
 
-		let _ = wtv_buildmeta.load_buildinfo(calculate_checksums);
+		let _ = wtv_buildmeta.load_buildinfo(calculate_checksums, calculate_signatures);
 
 		Ok(wtv_buildmeta)
 	}
@@ -373,6 +435,7 @@ impl BuildMeta {
 			selected_build_index: 0,
 			admin_info: BuildMeta::default_admin_info(),
 			build_info: [BuildMeta::default_buildinfo(); 2],
+			msntv2_info: BuildMeta::default_msntv2_info(),
 			io: build_io,
 		}
 	}
@@ -399,6 +462,20 @@ impl BuildMeta {
 
 	fn default_admin_info() -> DiskAdminInfo {
 		DiskAdminInfo::from_bytes([0x00; 0x8c])
+	}
+
+	fn default_msntv2_info() -> MSNTV2Info {
+		MSNTV2Info {
+			rsa_signature: vec![],
+			signature_validates: None,
+			build_flags: "".to_string(),
+			build_contact: "".to_string(),
+			build_date: "".to_string(),
+			build_number: 0,
+			build_version: "".to_string(),
+			build_signature_contact: "".to_string(),
+			build_files: vec![]
+		}
 	}
 
 	fn get_admininfo(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -461,6 +538,17 @@ impl BuildMeta {
 			}
 		}
 
+		if file_size > MSNTV2_BOOT_SECTOR_OFFSET {
+			let _ = self.io.seek(MSNTV2_BOOT_SECTOR_OFFSET + MSNTV2_OEM_NAME_BSOFFSET)?;
+
+			let mut boot_sector_check = [0x00; 0x08];
+			let _ = self.io.read(&mut boot_sector_check).unwrap_or(0);
+
+			if u64::from_be_bytes(boot_sector_check) == MSNTV2_OEM_NAME_VALUE {
+				return Ok(BuildMetaLayout::MSNTV2DiskLayout);
+			}
+		}
+
 		let _ = self.io.seek(RAW_LAYOUT_CHECK_OFFSET)?;
 		let mut raw_check_data = [0x00; 0x04];
 		let _ = self.io.read(&mut raw_check_data).unwrap_or(0);
@@ -472,7 +560,356 @@ impl BuildMeta {
 		Ok(BuildMetaLayout::UnknownLayout)
 	}
 
-	fn load_buildinfo(&mut self, calculate_checksums: bool) -> Result<(), Box<dyn std::error::Error>> {
+
+	fn read_msntv2info(bootsig_blob: String) -> Result<MSNTV2Info, Box<dyn std::error::Error>> {
+		let mut msntv2_info = BuildMeta::default_msntv2_info();
+
+		for (line_idx, line_str) in bootsig_blob.lines().enumerate() {
+			if line_idx == 0 {
+				if Regex::new(r"^[0-9A-Fa-f]{2}+$").unwrap().is_match(line_str) {
+					msntv2_info.rsa_signature = match hex::decode(line_str) {
+						Ok(buf) => {
+							buf
+						},
+						Err(_) => {
+							vec![]
+						},
+					}
+				}
+			} else if line_idx == 1 {
+				match Regex::new(r"^(?<build_flags>\w+)\s+(?<build_contact>\S+)\s+(?<build_date>\w+ \d+\/\d+\/\d+ \d+:\d+:\d+.?\d*)$").unwrap().captures(line_str) {
+					Some(matches) => {
+						msntv2_info.build_flags = matches["build_flags"].to_string();
+						msntv2_info.build_contact = matches["build_contact"].to_string();
+						msntv2_info.build_date = matches["build_date"].to_string();
+					}
+					None => {
+					}
+				}
+			} else if line_idx == 2 {
+				match Regex::new(r"^(?<build_number>[0-9A-Fa-f]{8})\s+(?<build_version>[0-9A-Fa-f]{8})\s+SIGNSUB:\s*(?<build_signature_contact>\S+)$").unwrap().captures(line_str) {
+					Some(matches) => {
+						msntv2_info.build_number = match u32::from_str_radix(&matches["build_number"], 16) {
+							Ok(number) => {
+								number
+							},
+							Err(_) => {
+								0
+							}
+						};
+						match u32::from_str_radix(&matches["build_version"], 16) {
+							Ok(number) => {
+								msntv2_info.build_version = format!("{}.{}", ((number >> 16) & 0xffff), (number & 0xffff));
+							},
+							Err(_) => {
+								msntv2_info.build_version = "".to_string();
+							}
+						};
+						msntv2_info.build_signature_contact = matches["build_signature_contact"].to_string();
+					}
+					None => {
+					}
+				}
+			} else if line_idx > 2 {
+				match Regex::new(r"^(?<file_name>[A-Z0-9]{1,8}(\.[A-Z0-9]{0,3})?)\s+(?<file_size>[0-9A-Fa-f]+)\s+(?<full_md5>[0-9A-Fa-f]{8} [0-9A-Fa-f]{8} [0-9A-Fa-f]{8} [0-9A-Fa-f]{8})\s+(?<file_flags>\w+)\s+#\s(?<partial_md5>[0-9A-Fa-f]{8} [0-9A-Fa-f]{8} [0-9A-Fa-f]{8} [0-9A-Fa-f]{8})+$").unwrap().captures(line_str) {
+					Some(matches) => {
+						let msntv2_file_info = MSNTV2FileInfo {
+							file_name: matches["file_name"].to_string(),
+							file_flags: matches["file_flags"].to_string(),
+							file_size: match u32::from_str_radix(&matches["file_size"], 16) {
+								Ok(number) => {
+									number
+								},
+								Err(_) => {
+									0
+								}
+							},
+							full_md5: match hex::decode(matches["full_md5"].replace(" ", "")) {
+								Ok(buf) => {
+									match buf.try_into() {
+										Ok(buf) => {
+											buf
+										},
+										Err(_) => {
+											[0x00; 16]
+										}
+									}
+								},
+								Err(_) => {
+									[0x00; 16]
+								},
+							},
+							calculated_full_md5: [0x00; 16],
+							partial_md5: match hex::decode(matches["partial_md5"].replace(" ", "")) {
+								Ok(buf) => {
+									match buf.try_into() {
+										Ok(buf) => {
+											buf
+										},
+										Err(_) => {
+											[0x00; 16]
+										}
+									}
+								},
+								Err(_) => {
+									[0x00; 16]
+								},
+							},
+							calculated_partial_md5: [0x00; 16]
+						};
+
+						msntv2_info.build_files.push(msntv2_file_info);
+					}
+					None => {
+					}
+				}
+			}
+		}
+
+		Ok(msntv2_info)
+	}
+
+	fn verify_msntv2_signature(bootsig_blob: String, rsa_signature: &Vec<u8>) -> Result<bool, Box<dyn std::error::Error>> {
+		// The signature verifies the data after the first line in BOOT.SIG
+		let verify_data = bootsig_blob.find('\n').map(|idx| &bootsig_blob.as_bytes()[idx + 1..]).unwrap_or(&[]);
+
+		let hashed_data = <Sha1 as sha1::Digest>::digest(verify_data);
+		let public_key: RsaPublicKey = RsaPublicKey::from_public_key_der(MSNTV2_PROD_SIG_PUBKEY)?;
+
+		// Split out the first byte since the MSNTV2 signature has a 0x01 prefix (probably a version)
+		Ok(match rsa_signature.split_first() {
+			Some((0x01, signature)) => {
+				public_key.verify(
+					rsa::pkcs1v15::Pkcs1v15Sign::new_unprefixed(),
+					&hashed_data,
+					signature
+				).is_ok()
+			},
+			_ => {
+				false
+			}
+		})
+	}
+
+	fn calculate_msntv2_file_md5s<F: Read + Seek>(file: &mut F, build_file: &mut MSNTV2FileInfo, calculate_short_md5s: bool, calculate_full_md5s: bool) {
+		if calculate_full_md5s {
+			let mut buffer = Vec::new();
+			match file.read_to_end(&mut buffer) {
+				Ok(_) => {
+					let mut full_md5: [u8; 16] = Md5::digest(&buffer).into();
+					for full_md5_chunk in full_md5.chunks_mut(4) {
+						full_md5_chunk.reverse();
+					}
+					build_file.calculated_full_md5 = full_md5.clone();
+
+					if calculate_short_md5s && build_file.file_size > 512 {
+						let mut hasher = Md5::new();
+
+						let mid_point = (build_file.file_size / 2) as usize;
+
+						hasher.update(&buffer[..256]);
+						hasher.update(&buffer[mid_point..mid_point + 256]);
+						hasher.update(&buffer[(build_file.file_size - 256) as usize..]);
+
+						let mut partial_md5: [u8; 16] = hasher.finalize().into();
+						for partial_md5_chunk in partial_md5.chunks_mut(4) {
+							partial_md5_chunk.reverse();
+						}
+						build_file.calculated_partial_md5 = partial_md5.clone();
+					}
+				},
+				Err(_) => {
+					//
+				}
+			}
+		} else if calculate_short_md5s && build_file.file_size > 512 {
+			let mut hasher = Md5::new();
+
+			let mid_point = (build_file.file_size / 2) as u64;
+
+			let mut buffer = [0x00 as u8; 256];
+
+			match file.seek(SeekFrom::Start(0)) {
+				Ok(_) => {
+					match file.read_exact(&mut buffer) {
+						Ok(_) => {
+							hasher.update(&buffer);
+						},
+						Err(_) => {
+						}
+					};
+				},
+				Err(_) => {
+					//
+				}
+			};
+
+			match file.seek(SeekFrom::Start(mid_point)) {
+				Ok(_) => {
+					match file.read_exact(&mut buffer) {
+						Ok(_) => {
+							hasher.update(&buffer);
+						},
+						Err(_) => {
+						}
+					};
+				},
+				Err(_) => {
+					//
+				}
+			};
+
+			match file.seek(SeekFrom::End(-256)) {
+				Ok(_) => {
+					match file.read_exact(&mut buffer) {
+						Ok(_) => {
+							hasher.update(&buffer);
+						},
+						Err(_) => {
+						}
+					};
+				},
+				Err(_) => {
+					//
+				}
+			};
+
+			let mut partial_md5: [u8; 16] = hasher.finalize().into();
+			for partial_md5_chunk in partial_md5.chunks_mut(4) {
+				partial_md5_chunk.reverse();
+			}
+			build_file.calculated_partial_md5 = partial_md5.clone();
+		}
+	}
+
+	fn find_local_file(dir_path: &Path, file_name: &str) -> Option<PathBuf> {
+		let file_path = dir_path.join(file_name);
+
+		if file_path.is_file() {
+			Some(file_path)
+		} else {
+			// Case insensitive file lookup for macOS and Linux.
+			fs::read_dir(dir_path).ok()?
+				.filter_map(|entry| entry.ok())
+				.map(|entry| entry.path())
+				.find(|path| path.is_file() && path.file_name().map_or(false, |name| name.to_string_lossy().eq_ignore_ascii_case(file_name)))
+		}
+	}
+
+	fn read_local_msntv2info(dir_path: String, calculate_short_md5s: bool, calculate_full_md5s: bool, calculate_signatures: bool) -> Result<MSNTV2Info, Box<dyn std::error::Error>> {
+		let dir_path = Path::new(&dir_path);
+
+		let sig_file_path =
+			Self::find_local_file(dir_path, MSNTV2_SIG_FILE_NAME)
+			.ok_or(format!("{} not found in {}", MSNTV2_SIG_FILE_NAME, dir_path.display()))?;
+		let buffer = fs::read_to_string(sig_file_path)?;
+		let mut msntv2_info = Self::read_msntv2info(buffer.clone())?;
+
+		if calculate_signatures {
+			msntv2_info.signature_validates = Some(match Self::verify_msntv2_signature(buffer, &msntv2_info.rsa_signature) {
+				Ok(signature_validated) => {
+					signature_validated
+				},
+				Err(_) => {
+					false
+				}
+			});
+		}
+
+		if calculate_short_md5s || calculate_full_md5s {
+			for build_file in msntv2_info.build_files.iter_mut() {
+				match Self::find_local_file(dir_path, &build_file.file_name).map(fs::File::open) {
+					Some(Ok(mut file)) => {
+						Self::calculate_msntv2_file_md5s(&mut file, build_file, calculate_short_md5s, calculate_full_md5s);
+					},
+					_ => {
+						//
+					}
+				}
+			}
+		}
+
+		Ok(msntv2_info)
+	}
+
+	fn read_fatfs_msntv2info(fatfs_root: &Dir<'_, BuildIOStream<'_>>, calculate_short_md5s: bool, calculate_full_md5s: bool, calculate_signatures: bool) -> Result<MSNTV2Info, Box<dyn std::error::Error>> {
+		let mut file = fatfs_root.open_file(MSNTV2_SIG_FILE_NAME)?;
+		let mut buffer = String::new();
+		let _ = file.read_to_string(&mut buffer)?;
+		let mut msntv2_info = Self::read_msntv2info(buffer.clone())?;
+
+		if calculate_signatures {
+			msntv2_info.signature_validates = Some(match Self::verify_msntv2_signature(buffer, &msntv2_info.rsa_signature) {
+				Ok(signature_validated) => {
+					signature_validated
+				},
+				Err(_) => {
+					false
+				}
+			});
+		}
+
+		if calculate_short_md5s || calculate_full_md5s {
+			for build_file in msntv2_info.build_files.iter_mut() {
+				match fatfs_root.open_file(&build_file.file_name) {
+					Ok(mut file) => {
+						Self::calculate_msntv2_file_md5s(&mut file, build_file, calculate_short_md5s, calculate_full_md5s);
+					},
+					Err(_) => {
+					}
+				}
+			}
+
+		}
+
+		Ok(msntv2_info)
+	}
+
+	fn load_msntv2info(&mut self, calculate_checksums: bool, calculate_signatures: bool) -> Result<(), Box<dyn std::error::Error>> {
+		self.build_count = 1;
+		self.selected_build_index = 0;
+
+		let mbr = MBR::read_from(&mut BuildIOStream::new(self.io.as_mut())?, WEBTV_BLOCK_SIZE as u32)?;
+
+		let boot_partition = mbr.iter().fold(None, |found_partition, (_, current_partition)| {
+			// Usable partition in the MBR
+			if current_partition.is_used() {
+				// Set the first partition found
+				if found_partition.is_none() {
+					Some(current_partition)
+				// If we find a boot partition further along, then use that
+				} else if current_partition.boot == mbrman::BOOT_ACTIVE {
+					Some(current_partition)
+				} else {
+					// No match, use whatever is found (or None if not found)
+					found_partition
+				}
+			} else {
+				// No match, use whatever is found (or None if not found)
+				found_partition
+			}
+		});
+
+		if !boot_partition.is_none() {
+			let start = boot_partition.unwrap().starting_lba as u64 * WEBTV_BLOCK_SIZE;
+			let len = boot_partition.unwrap().sectors as u64 * WEBTV_BLOCK_SIZE;
+
+			let msntv2_info: MSNTV2Info = {
+				let fat_io = BuildIOStream::slice(self.io.as_mut(), start, len);
+				let fat = fatfs::FileSystem::new(fat_io, fatfs::FsOptions::new())?;
+
+				let root_dir = fat.root_dir();
+
+				Self::read_fatfs_msntv2info(&root_dir, calculate_checksums, false, calculate_signatures)?
+			};
+
+			self.msntv2_info = msntv2_info;
+		}
+
+		Ok(())
+	}
+
+	fn load_buildinfo(&mut self, calculate_checksums: bool, calculate_signatures: bool) -> Result<(), Box<dyn std::error::Error>> {
 		if self.layout == BuildMetaLayout::LC2DiskLayout {
 			self.build_count = 2;
 			self.selected_build_index = self.get_selected_build_index().unwrap_or(1);
@@ -497,6 +934,8 @@ impl BuildMeta {
 			} else {
 				self.build_count = 0;
 			}
+		} else if self.layout == BuildMetaLayout::MSNTV2DiskLayout {
+			let _ = self.load_msntv2info(calculate_checksums, calculate_signatures);
 		} else {
 			self.build_count = 1;
 			self.selected_build_index = 0;

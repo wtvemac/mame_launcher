@@ -9,7 +9,11 @@ build = "build.rs"
 [dependencies]
 chd = "0.3.3"
 crossbeam-channel = "0.5.15"
+digest = "0.10.7"
+fatfs = "0.3.6"
 hex = "0.4.3"
+mbrman = "0.6.1"
+md-5 = "0.10.6"
 native-dialog = "0.7.0"
 once_cell = "1.19.0"
 open = "5.1.4"
@@ -20,8 +24,10 @@ rand = "0.8.5"
 rand_core = "0.6.4"
 regex = "1.10.4"
 rodio = "0.18.1"
+rsa = { version = "0.9.10" }
 serde = { version = "1.0.203", features = ["derive"] }
 serialport = "4.3.0"
+sha1 = { version = "0.10.7", features = ["oid"] }
 slint = "1.18.1"
 strum = "0.26.2"
 strum_macros = "0.26.4"
