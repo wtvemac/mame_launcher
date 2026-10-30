@@ -2,6 +2,7 @@ use packbytes::{FromBytes, ToBytes};
 
 use super::{BuildIO, BuildIODataCollation};
 use std::{
+	collections::BTreeMap,
 	fs::{File, OpenOptions},
 	io::{Read, Write, Seek, SeekFrom},
 	path::Path
@@ -89,14 +90,6 @@ pub struct UserControlInformation {
 }
 
 #[allow(dead_code)]
-pub struct PageWriteInfo {
-	pub page_index: usize,
-	pub page_offset: usize,
-	pub size: usize,
-	pub data: Vec<u8>
-}
-
-#[allow(dead_code)]
 pub struct FlashdiskIO {
 	file_path: String,
 	collation: BuildIODataCollation,
@@ -110,13 +103,36 @@ pub struct FlashdiskIO {
 	usr_page_offsets: Vec<u64>,
 	current_page_index: usize,
 	current_page_offset: usize,
-	current_page_read: bool,
+	cached_page_index: Option<usize>,
 	current_page: Vec<u8>,
-	pending_page_writes: Vec<PageWriteInfo>
-
+	pending_page_writes: BTreeMap<usize, Vec<u8>>
 }
 
 impl FlashdiskIO {
+	fn writable_page_count(&self) -> usize {
+		self.usr_page_offsets.len().saturating_sub((DISKINFO_UNITS * self.pages_per_unit) as usize)
+	}
+
+	fn read_page_data(&mut self, page_index: usize, data: &mut [u8]) -> Result<(), Box<dyn std::error::Error>> {
+		match self.pending_page_writes.get(&page_index) {
+			Some(pending_page) => {
+				data.copy_from_slice(pending_page);
+			},
+			None => {
+				let page_offset = self.usr_page_offsets.get(page_index).copied().unwrap_or(EMPTY_PAGE);
+
+				if page_offset == EMPTY_PAGE {
+					data.fill(0xff);
+				} else {
+					self.file.seek(SeekFrom::Start(page_offset))?;
+					self.file.read_exact(data)?;
+				}
+			}
+		};
+
+		Ok(())
+	}
+
 	fn calculate_pages_per_unit(total_usr_size: u64) -> Result<u64, Box<dyn std::error::Error>> {
 		Ok(
 			match total_usr_size {
@@ -294,9 +310,9 @@ impl BuildIO for FlashdiskIO {
 			usr_page_offsets: vec![],
 			current_page_index: 0,
 			current_page_offset: 0,
-			current_page_read: false,
+			cached_page_index: None,
 			current_page: vec![0xff; USR_PAGE_SIZE as usize],
-			pending_page_writes: vec![]
+			pending_page_writes: BTreeMap::new()
 		};
 
 		io.size = io.file.metadata().unwrap().len();
@@ -322,9 +338,9 @@ impl BuildIO for FlashdiskIO {
 			usr_page_offsets: vec![],
 			current_page_index: 0,
 			current_page_offset: 0,
-			current_page_read: false,
+			cached_page_index: None,
 			current_page: vec![0xff; USR_PAGE_SIZE as usize],
-			pending_page_writes: vec![]
+			pending_page_writes: BTreeMap::new()
 		};
 
 		let pages_per_unit = FlashdiskIO::calculate_pages_per_unit(size).unwrap_or(0);
@@ -339,13 +355,11 @@ impl BuildIO for FlashdiskIO {
 
 		if self.current_page_index < self.usr_page_offsets.iter().len() {
 			self.current_page_offset = (pos % USR_PAGE_SIZE) as usize;
-			self.current_page_read = false;
 
 			Ok(pos)
 		} else {
 			self.current_page_index = 0;
 			self.current_page_offset = 0;
-			self.current_page_read = false;
 
 			Ok(0)
 		}
@@ -356,56 +370,41 @@ impl BuildIO for FlashdiskIO {
 	}
 
 	fn read(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
-		if buf.len() < 0x4 {
+		if self.collation != BuildIODataCollation::Raw && buf.len() < 0x4 {
 			return Err("Buffer length needs to be 4 bytes or greater.".into());
-		} else if (buf.len() & 1) == 1 {
+		} else if self.collation != BuildIODataCollation::Raw && (buf.len() & 1) == 1 {
 			return Err("Buffer length needs to be a multiple of 2.".into());
 		} else {
 			let need_total_size = buf.len();
 			let mut read_total_size = 0;
-			let mut current_buf_index = 0;
 
 			while read_total_size < need_total_size {
-				if !self.current_page_read && self.current_page_index < self.usr_page_offsets.len() {
-					let page_offset = self.usr_page_offsets[self.current_page_index];
-					if page_offset == EMPTY_PAGE {
-						self.current_page.fill(0xff);
-					} else {
-						self.file.seek(SeekFrom::Start(page_offset))?;
-
-						match self.file.read(&mut self.current_page) {
-							Ok(_) => {
-								self.current_page_read = true;
-							},
-							Err(e) => {
-								return Err(Box::new(e));
-							}
-						};
-					}
-				}
-	
-				let mut current_read_size = need_total_size - read_total_size;
-				if current_read_size > (USR_PAGE_SIZE as usize - self.current_page_offset) {
-					current_read_size = USR_PAGE_SIZE as usize - self.current_page_offset;
-					self.current_page_read = false;
+				if self.current_page_offset >= USR_PAGE_SIZE as usize {
 					self.current_page_index += 1;
+					self.current_page_offset = 0;
 
 					if self.current_page_index >= self.usr_page_offsets.len() {
 						self.current_page_index = 0;
 					}
 				}
 
-				buf[current_buf_index as usize..(current_buf_index + current_read_size) as usize]
-					.copy_from_slice(&self.current_page[self.current_page_offset as usize..(self.current_page_offset + current_read_size) as usize]);
+				if self.cached_page_index != Some(self.current_page_index) {
+					let mut current_page = std::mem::take(&mut self.current_page);
+					let result = self.read_page_data(self.current_page_index, &mut current_page);
+					self.current_page = current_page;
 
-				current_buf_index += current_read_size;
-				read_total_size += current_read_size;
+					result?;
 
-				if self.current_page_read {
-					self.current_page_offset += current_read_size;
-				} else {
-					self.current_page_offset = 0;
+					self.cached_page_index = Some(self.current_page_index);
 				}
+
+				let current_read_size = (need_total_size - read_total_size).min(USR_PAGE_SIZE as usize - self.current_page_offset);
+
+				buf[read_total_size..(read_total_size + current_read_size)]
+					.copy_from_slice(&self.current_page[self.current_page_offset..(self.current_page_offset + current_read_size)]);
+
+				read_total_size += current_read_size;
+				self.current_page_offset += current_read_size;
 			}
 
 			let _ = BuildIODataCollation::convert_raw_data(buf, self.collation);
@@ -415,37 +414,54 @@ impl BuildIO for FlashdiskIO {
 	}
 
 	fn write(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
-		if buf.len() < 0x4 {
+		if self.collation != BuildIODataCollation::Raw && buf.len() < 0x4 {
 			return Err("Buffer length needs to be 4 bytes or greater.".into());
-		} else if (buf.len() & 1) == 1 {
+		} else if self.collation != BuildIODataCollation::Raw && (buf.len() & 1) == 1 {
 			return Err("Buffer length needs to be a multiple of 2.".into());
 		} else {
+			let _ = BuildIODataCollation::convert_raw_data(buf, self.collation);
+
 			let need_total_size = buf.len();
 			let mut write_total_size = 0;
-			let mut current_buf_index = 0;
 
 			while write_total_size < need_total_size {
-				let mut current_write_size = need_total_size - write_total_size;
+				if self.current_page_offset >= USR_PAGE_SIZE as usize {
+					self.current_page_index += 1;
+					self.current_page_offset = 0;
+				}
+
+				if self.current_page_index >= self.writable_page_count() {
+					return Err("Write past the end of the disk.".into());
+				}
+
+				let current_write_size = (need_total_size - write_total_size).min(USR_PAGE_SIZE as usize - self.current_page_offset);
 				let write_page_index = self.current_page_index;
 				let write_page_offset = self.current_page_offset;
 
-				if current_write_size > (USR_PAGE_SIZE as usize - self.current_page_offset) {
-					current_write_size = USR_PAGE_SIZE as usize - self.current_page_offset;
-					self.current_page_index += 1;
-					self.current_page_offset = 0;
-				} else {
-					self.current_page_offset += current_write_size;
+				if !self.pending_page_writes.contains_key(&write_page_index) {
+					let mut pending_page = vec![0xff; USR_PAGE_SIZE as usize];
+
+					if write_page_offset > 0 || current_write_size < USR_PAGE_SIZE as usize {
+						self.read_page_data(write_page_index, &mut pending_page)?;
+					}
+
+					self.pending_page_writes.insert(write_page_index, pending_page);
 				}
 
-				self.pending_page_writes.push(PageWriteInfo {
-					page_index: write_page_index,
-					page_offset: write_page_offset,
-					size: current_write_size,
-					data: buf[current_buf_index as usize..(current_buf_index + current_write_size) as usize].to_vec()
-				});
+				let data = &buf[write_total_size..(write_total_size + current_write_size)];
 
-				current_buf_index += current_write_size;
+				if let Some(pending_page) = self.pending_page_writes.get_mut(&write_page_index) {
+					pending_page[write_page_offset..(write_page_offset + current_write_size)]
+						.copy_from_slice(data);
+				}
+
+				if self.cached_page_index == Some(write_page_index) {
+					self.current_page[write_page_offset..(write_page_offset + current_write_size)]
+						.copy_from_slice(data);
+				}
+
 				write_total_size += current_write_size;
+				self.current_page_offset += current_write_size;
 			}
 
 			Ok(write_total_size)
@@ -467,15 +483,6 @@ impl BuildIO for FlashdiskIO {
 
 				let _ = self.seek(0);
 				let _ = self.read(&mut usr_data[usr_start_index..]);
-
-				for pri in self.pending_page_writes.iter() {
-					let usr_index = usr_start_index + (pri.page_index * USR_PAGE_SIZE as usize) + pri.page_offset;
-
-					usr_data[usr_index..(usr_index + pri.size)]
-						.copy_from_slice(&pri.data[0..pri.size]);
-				}
-
-				self.pending_page_writes.clear();
 
 				for header_index in 0..DISKINFO_UNITS {
 					let usr_index = (header_index * (USR_PAGE_SIZE * self.pages_per_unit)) as usize;
@@ -567,10 +574,16 @@ impl BuildIO for FlashdiskIO {
 						let _ = dstf.write(&usr_data);
 						let _ = dstf.write(&spr_data);
 					},
-					_ => {
-						//
+					Err(e) => {
+						return Err(e.into());
 					}
 				};
+
+				self.pending_page_writes.clear();
+
+				self.usr_page_offsets.fill(EMPTY_PAGE);
+				let _ = self.enumerate_pages();
+				self.cached_page_index = None;
 			}
 		}
 

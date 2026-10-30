@@ -1,6 +1,7 @@
 pub mod romio;
 pub mod diskio;
 pub mod flashdiskio;
+pub mod stream;
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq)]

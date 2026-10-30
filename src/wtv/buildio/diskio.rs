@@ -1,6 +1,7 @@
 use packbytes::{FromBytes, ToBytes};
 use super::{BuildIO, BuildIODataCollation};
 use std::{
+	collections::BTreeMap,
 	fs::{File, OpenOptions},
 	path::Path
 };
@@ -59,14 +60,6 @@ pub struct CHDChunkMetadata {
 }
 
 #[allow(dead_code)]
-pub struct HunkWriteInfo {
-	pub hunk_index: usize,
-	pub hunk_offset: usize,
-	pub size: usize,
-	pub data: Vec<u8>
-}
-
-#[allow(dead_code)]
 pub struct CompressedHunkDiskIO {
 	file_path: String,
 	diff_path: String,
@@ -76,17 +69,51 @@ pub struct CompressedHunkDiskIO {
 	chd: Box<Chd<File>>,
 	current_hunk_index: u32,
 	current_hunk_offset: usize,
-	current_hunk_read: bool,
+	cached_hunk_index: Option<u32>,
 	current_hunk: Vec<u8>,
-	pending_hunk_writes: Vec<HunkWriteInfo>
+	pending_hunk_writes: BTreeMap<u32, Vec<u8>>
 }
 impl CompressedHunkDiskIO {
-	fn read_hunk(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-		let mut hunk = self.chd.hunk(self.current_hunk_index)?;
-				
-		hunk.read_hunk_in(&mut Vec::new(), &mut self.current_hunk)?;
+	fn open_chd(file_path: &String, diff_file_path: &String) -> Result<Box<Chd<File>>, Box<dyn std::error::Error>> {
+		if diff_file_path != "" && Path::new(diff_file_path).exists() {
+			Ok(Box::new(Chd::open(
+					File::open(diff_file_path)?,
+			Some(Box::new(Chd::open(
+						File::open(file_path)?,
+						None
+					)?))
+				)?))
+		} else {
+			Ok(Box::new(Chd::open(
+					File::open(file_path)?,
+					None
+				)?))
+		}
+	}
 
-		self.current_hunk_read = true;
+	fn read_hunk_data(&mut self, hunk_index: u32, data: &mut [u8]) -> Result<(), Box<dyn std::error::Error>> {
+		match self.pending_hunk_writes.get(&hunk_index) {
+			Some(pending_hunk) => {
+				data.copy_from_slice(pending_hunk);
+			},
+			None => {
+				let mut hunk = self.chd.hunk(hunk_index)?;
+
+				hunk.read_hunk_in(&mut Vec::new(), data)?;
+			}
+		};
+
+		Ok(())
+	}
+
+	fn read_hunk(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+		let mut current_hunk = std::mem::take(&mut self.current_hunk);
+		let result = self.read_hunk_data(self.current_hunk_index, &mut current_hunk);
+		self.current_hunk = current_hunk;
+
+		result?;
+
+		self.cached_hunk_index = Some(self.current_hunk_index);
 
 		Ok(())
 	}
@@ -124,34 +151,18 @@ impl BuildIO for CompressedHunkDiskIO {
 	fn open(file_path: String, collation: Option<BuildIODataCollation>) -> Result<Box<dyn BuildIO>, Box<dyn std::error::Error>> {
 		let diff_file_path = CompressedHunkDiskIO::find_diff_file(file_path.clone()).unwrap_or("".into());
 
-		let chd;
-		if diff_file_path != "" && Path::new(&diff_file_path).exists() {
-			chd = Box::new(Chd::open(
-					File::open(diff_file_path.clone())?, 
-			Some(Box::new(Chd::open(
-						File::open(file_path.clone())?, 
-						None
-					)?))
-				)?);
-		} else {
-			chd = Box::new(Chd::open(
-					File::open(file_path.clone())?, 
-					None
-				)?);
-		}
-
 		let mut io = CompressedHunkDiskIO {
 			file_path: file_path.clone(),
 			diff_path: diff_file_path.clone(),
 			collation: collation.unwrap_or(BuildIODataCollation::Raw),
 			size: 0,
 			created: false,
-			chd: chd,
+			chd: CompressedHunkDiskIO::open_chd(&file_path, &diff_file_path)?,
 			current_hunk_index: 0,
 			current_hunk_offset: 0,
-			current_hunk_read: false,
+			cached_hunk_index: None,
 			current_hunk: vec![],
-			pending_hunk_writes: vec![]
+			pending_hunk_writes: BTreeMap::new()
 		};
 
 		io.size = io.chd.header().logical_bytes();
@@ -170,9 +181,9 @@ impl BuildIO for CompressedHunkDiskIO {
 			chd: Box::new(Chd::open(File::open(file_path.clone())?, None)?),
 			current_hunk_index: 0,
 			current_hunk_offset: 0,
-			current_hunk_read: false,
+			cached_hunk_index: None,
 			current_hunk: vec![],
-			pending_hunk_writes: vec![]
+			pending_hunk_writes: BTreeMap::new()
 		};
 
 		io.current_hunk = io.chd.get_hunksized_buffer();
@@ -182,18 +193,16 @@ impl BuildIO for CompressedHunkDiskIO {
 
 	fn seek(&mut self, pos: u64) -> Result<u64, Box<dyn std::error::Error>>  {
 		let hunk_size = self.chd.header().hunk_size() as u64;
+		let hunk_index = (pos / hunk_size) as u32;
 
-		self.current_hunk_index = (pos / hunk_size) as u32;
-
-		if self.current_hunk_index > self.chd.header().hunk_count().into() {
+		if hunk_index >= self.chd.header().hunk_count() {
 			self.current_hunk_index = 0;
 			self.current_hunk_offset = 0;
-			self.current_hunk_read = false;
 
 			Ok(0)
 		} else {
-			self.current_hunk_offset = pos as usize % hunk_size as usize;
-			self.current_hunk_read = false;
+			self.current_hunk_index = hunk_index;
+			self.current_hunk_offset = (pos % hunk_size) as usize;
 
 			Ok(pos)
 		}
@@ -206,49 +215,37 @@ impl BuildIO for CompressedHunkDiskIO {
 	}
 
 	fn read(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
-		if buf.len() < 0x4 {
+		if self.collation != BuildIODataCollation::Raw && buf.len() < 0x4 {
 			Err("Buffer length needs to be 4 bytes or greater.".into())
-		} else if (buf.len() & 1) == 1 {
+		} else if self.collation != BuildIODataCollation::Raw && (buf.len() & 1) == 1 {
 			Err("Buffer length needs to be a multiple of 2.".into())
 		} else {
 			let hunk_size: usize = self.chd.header().hunk_size() as usize;
+			let hunk_count = self.chd.header().hunk_count();
 			let need_total_size = buf.len();
 			let mut read_total_size = 0;
-			let mut current_buf_index = 0;
 
 			while read_total_size < need_total_size {
-				if !self.current_hunk_read {
-					match self.read_hunk() {
-						Err(e) => {
-							return Err(e);
-						}
-						_ => {
-							//
-						}
-					};
-				}
-	
-				let mut current_read_size = need_total_size - read_total_size;
-				if current_read_size > (hunk_size - self.current_hunk_offset) {
-					current_read_size = hunk_size - self.current_hunk_offset;
-					self.current_hunk_read = false;
+				if self.current_hunk_offset >= hunk_size {
 					self.current_hunk_index += 1;
+					self.current_hunk_offset = 0;
 
-					if self.current_hunk_index > self.chd.header().hunk_count().into() {
+					if self.current_hunk_index >= hunk_count {
 						self.current_hunk_index = 0;
 					}
 				}
 
-				buf[current_buf_index as usize..(current_buf_index + current_read_size) as usize]
-					.copy_from_slice(&self.current_hunk[self.current_hunk_offset as usize..(self.current_hunk_offset + current_read_size) as usize]);
+				if self.cached_hunk_index != Some(self.current_hunk_index) {
+					self.read_hunk()?;
+				}
 
-				current_buf_index += current_read_size;
+				let current_read_size = (need_total_size - read_total_size).min(hunk_size - self.current_hunk_offset);
+
+				buf[read_total_size..(read_total_size + current_read_size)]
+					.copy_from_slice(&self.current_hunk[self.current_hunk_offset..(self.current_hunk_offset + current_read_size)]);
+
 				read_total_size += current_read_size;
 				self.current_hunk_offset += current_read_size;
-
-				if !self.current_hunk_read {
-					self.current_hunk_offset = 0;
-				}
 			}
 
 			let _ = BuildIODataCollation::convert_raw_data(buf, self.collation);
@@ -258,41 +255,57 @@ impl BuildIO for CompressedHunkDiskIO {
 	}
 
 	fn write(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
-		if buf.len() < 0x4 {
+		if self.collation != BuildIODataCollation::Raw && buf.len() < 0x4 {
 			return Err("Buffer length needs to be 4 bytes or greater.".into());
-		} else if (buf.len() & 1) == 1 {
+		} else if self.collation != BuildIODataCollation::Raw && (buf.len() & 1) == 1 {
 			return Err("Buffer length needs to be a multiple of 2.".into());
 		} else {
 			let _ = BuildIODataCollation::convert_raw_data(buf, self.collation);
 
 			let hunk_size = self.chd.header().hunk_size() as usize;
+			let hunk_count = self.chd.header().hunk_count();
 
 			let need_total_size = buf.len();
 			let mut write_total_size = 0;
-			let mut current_buf_index = 0;
 
 			while write_total_size < need_total_size {
-				let mut current_write_size = need_total_size - write_total_size;
-				let write_hunk_index = self.current_hunk_index as usize;
-				let write_hunk_offset = self.current_hunk_offset as usize;
-
-				if current_write_size > (hunk_size - self.current_hunk_offset) {
-					current_write_size = hunk_size - self.current_hunk_offset;
+				if self.current_hunk_offset >= hunk_size {
 					self.current_hunk_index += 1;
 					self.current_hunk_offset = 0;
-				} else {
-					self.current_hunk_offset += current_write_size;
 				}
 
-				self.pending_hunk_writes.push(HunkWriteInfo {
-					hunk_index: write_hunk_index,
-					hunk_offset: write_hunk_offset,
-					size: current_write_size,
-					data: buf[current_buf_index as usize..(current_buf_index + current_write_size) as usize].to_vec()
-				});
+				if self.current_hunk_index >= hunk_count {
+					return Err("Write past the end of the disk.".into());
+				}
 
-				current_buf_index += current_write_size;
+				let current_write_size = (need_total_size - write_total_size).min(hunk_size - self.current_hunk_offset);
+				let write_hunk_index = self.current_hunk_index;
+				let write_hunk_offset = self.current_hunk_offset;
+
+				if !self.pending_hunk_writes.contains_key(&write_hunk_index) {
+					let mut pending_hunk = self.chd.get_hunksized_buffer();
+
+					if write_hunk_offset > 0 || current_write_size < hunk_size {
+						self.read_hunk_data(write_hunk_index, &mut pending_hunk)?;
+					}
+
+					self.pending_hunk_writes.insert(write_hunk_index, pending_hunk);
+				}
+
+				let data = &buf[write_total_size..(write_total_size + current_write_size)];
+
+				if let Some(pending_hunk) = self.pending_hunk_writes.get_mut(&write_hunk_index) {
+					pending_hunk[write_hunk_offset..(write_hunk_offset + current_write_size)]
+						.copy_from_slice(data);
+				}
+
+				if self.cached_hunk_index == Some(write_hunk_index) {
+					self.current_hunk[write_hunk_offset..(write_hunk_offset + current_write_size)]
+						.copy_from_slice(data);
+				}
+
 				write_total_size += current_write_size;
+				self.current_hunk_offset += current_write_size;
 			}
 
 			Ok(write_total_size)
@@ -352,24 +365,10 @@ impl BuildIO for CompressedHunkDiskIO {
 						],
 					}.to_be_bytes());
 
-					let mut hunks = vec![];
-					for hwi in self.pending_hunk_writes.iter() {
-						let mut current_hunk = self.chd.get_hunksized_buffer();
-
-						if hwi.hunk_offset > 0 || hwi.size < hunk_size {
-							let mut hunk = self.chd.hunk(hwi.hunk_index as u32)?;
-
-							hunk.read_hunk_in(&mut Vec::new(), &mut current_hunk)?;
-						}
-
-						current_hunk[hwi.hunk_offset as usize..(hwi.hunk_offset + hwi.size) as usize]
-							.copy_from_slice(&hwi.data);
-
-						hunk_map[hwi.hunk_index] = current_file_hunk_index as u32;
+					for hunk_index in self.pending_hunk_writes.keys() {
+						hunk_map[*hunk_index as usize] = current_file_hunk_index as u32;
 
 						current_file_hunk_index += 1;
-
-						hunks.push(current_hunk);
 					}
 
 					let mut missing_hunk_offsets = vec![];
@@ -432,8 +431,8 @@ impl BuildIO for CompressedHunkDiskIO {
 					// Padding so the first hunk is correctly aligned.
 					let _ = dstf.write(&vec![0x00 as u8; hunk_data_offset - metadata_end_offset]);
 
-					for hunk in hunks.iter() {
-						let _ = dstf.write(&hunk);
+					for pending_hunk in self.pending_hunk_writes.values() {
+						let _ = dstf.write(pending_hunk);
 					}
 
 					// Move the hunks from the old to the new diff file.
@@ -455,12 +454,15 @@ impl BuildIO for CompressedHunkDiskIO {
 						}
 					}
 				},
-				_ => {
-					//
+				Err(e) => {
+					return Err(e.into());
 				}
 			};
 
 			self.pending_hunk_writes.clear();
+
+			self.chd = CompressedHunkDiskIO::open_chd(&self.file_path, &self.diff_path)?;
+			self.cached_hunk_index = None;
 		}
 
 		Ok(())
@@ -523,9 +525,9 @@ impl BuildIO for RawDiskIO {
 	}
 
 	fn read(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
-		if buf.len() < 0x4 {
+		if self.collation != BuildIODataCollation::Raw && buf.len() < 0x4 {
 			Err("Buffer length needs to be 4 bytes or greater.".into())
-		} else if (buf.len() & 1) == 1 {
+		} else if self.collation != BuildIODataCollation::Raw && (buf.len() & 1) == 1 {
 			Err("Buffer length needs to be a multiple of 2.".into())
 		} else {
 			let result = self.file.read(buf)?;
