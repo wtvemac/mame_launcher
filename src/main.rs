@@ -149,7 +149,8 @@ const CONSOLE_WARNING_PATTERNS: &[&str] = &[
 	"not available",
 	"NOT_AVAILABLE",
 	"NOT_FOUND",
-	"Timed out"
+	"Timed out",
+	"Rate Renegotiation"
 ];
 
 
