@@ -169,6 +169,9 @@ const UTV_BUILD_SELECT_OFFSET: u64 = 0x17480600;
 const UTV_BUILD_OFFSET0: u64 = 0x13480600;
 const UTV_BUILD_OFFSET1: u64 = 0x15480600;
 
+const MSNTV2_BIOS_SIZE: u64 = 1 * 1024 * 1024;
+const MSNTV2_BIOS_UNKMARK_OFFSET: u64 = 0x000ffff0;
+const MSNTV2_BIOS_UNKMARK_VALUE: u64 = 0xea003000f0000000;
 const MSNTV2_BOOT_SECTOR_OFFSET: u64 = 0x4000;
 const MSNTV2_OEM_NAME_BSOFFSET: u64 = 0x03;
 const MSNTV2_OEM_NAME_VALUE: u64 = 0x4d534e5456000000; // MSNTV\x00\x00\x00 as BE int
@@ -227,7 +230,8 @@ pub enum BuildMetaLayout {
 	LC2DiskLayout,
 	WebstarDiskLayout,
 	UTVDiskLayout,
-	MSNTV2DiskLayout
+	MSNTV2DiskLayout,
+	MSNTV2BIOSLayout
 }
 
 #[allow(non_snake_case, dead_code)]
@@ -549,6 +553,17 @@ impl BuildMeta {
 			}
 		}
 
+		if file_size == MSNTV2_BIOS_SIZE {
+			let _ = self.io.seek(MSNTV2_BIOS_UNKMARK_OFFSET)?;
+
+			let mut bios_mark_check = [0x00; 0x08];
+			let _ = self.io.read(&mut bios_mark_check).unwrap_or(0);
+
+			if u64::from_be_bytes(bios_mark_check) == MSNTV2_BIOS_UNKMARK_VALUE {
+				return Ok(BuildMetaLayout::MSNTV2BIOSLayout);
+			}
+		}
+
 		let _ = self.io.seek(RAW_LAYOUT_CHECK_OFFSET)?;
 		let mut raw_check_data = [0x00; 0x04];
 		let _ = self.io.read(&mut raw_check_data).unwrap_or(0);
@@ -561,7 +576,7 @@ impl BuildMeta {
 	}
 
 
-	fn read_msntv2info(bootsig_blob: String) -> Result<MSNTV2Info, Box<dyn std::error::Error>> {
+	fn read_msntv2disk_info(bootsig_blob: String) -> Result<MSNTV2Info, Box<dyn std::error::Error>> {
 		let mut msntv2_info = BuildMeta::default_msntv2_info();
 
 		for (line_idx, line_str) in bootsig_blob.lines().enumerate() {
@@ -669,7 +684,7 @@ impl BuildMeta {
 		Ok(msntv2_info)
 	}
 
-	fn verify_msntv2_signature(bootsig_blob: String, rsa_signature: &Vec<u8>) -> Result<bool, Box<dyn std::error::Error>> {
+	fn verify_msntv2disk_signature(bootsig_blob: String, rsa_signature: &Vec<u8>) -> Result<bool, Box<dyn std::error::Error>> {
 		// The signature verifies the data after the first line in BOOT.SIG
 		let verify_data = bootsig_blob.find('\n').map(|idx| &bootsig_blob.as_bytes()[idx + 1..]).unwrap_or(&[]);
 
@@ -691,7 +706,7 @@ impl BuildMeta {
 		})
 	}
 
-	fn calculate_msntv2_file_md5s<F: Read + Seek>(file: &mut F, build_file: &mut MSNTV2FileInfo, calculate_short_md5s: bool, calculate_full_md5s: bool) {
+	fn calculate_msntv2disk_file_md5s<F: Read + Seek>(file: &mut F, build_file: &mut MSNTV2FileInfo, calculate_short_md5s: bool, calculate_full_md5s: bool) {
 		if calculate_full_md5s {
 			let mut buffer = Vec::new();
 			match file.read_to_end(&mut buffer) {
@@ -796,17 +811,17 @@ impl BuildMeta {
 		}
 	}
 
-	fn read_local_msntv2info(dir_path: String, calculate_short_md5s: bool, calculate_full_md5s: bool, calculate_signatures: bool) -> Result<MSNTV2Info, Box<dyn std::error::Error>> {
+	fn read_local_msntv2disk_info(dir_path: String, calculate_short_md5s: bool, calculate_full_md5s: bool, calculate_signatures: bool) -> Result<MSNTV2Info, Box<dyn std::error::Error>> {
 		let dir_path = Path::new(&dir_path);
 
 		let sig_file_path =
 			Self::find_local_file(dir_path, MSNTV2_SIG_FILE_NAME)
 			.ok_or(format!("{} not found in {}", MSNTV2_SIG_FILE_NAME, dir_path.display()))?;
 		let buffer = fs::read_to_string(sig_file_path)?;
-		let mut msntv2_info = Self::read_msntv2info(buffer.clone())?;
+		let mut msntv2_info = Self::read_msntv2disk_info(buffer.clone())?;
 
 		if calculate_signatures {
-			msntv2_info.signature_validates = Some(match Self::verify_msntv2_signature(buffer, &msntv2_info.rsa_signature) {
+			msntv2_info.signature_validates = Some(match Self::verify_msntv2disk_signature(buffer, &msntv2_info.rsa_signature) {
 				Ok(signature_validated) => {
 					signature_validated
 				},
@@ -820,7 +835,7 @@ impl BuildMeta {
 			for build_file in msntv2_info.build_files.iter_mut() {
 				match Self::find_local_file(dir_path, &build_file.file_name).map(fs::File::open) {
 					Some(Ok(mut file)) => {
-						Self::calculate_msntv2_file_md5s(&mut file, build_file, calculate_short_md5s, calculate_full_md5s);
+						Self::calculate_msntv2disk_file_md5s(&mut file, build_file, calculate_short_md5s, calculate_full_md5s);
 					},
 					_ => {
 						//
@@ -832,14 +847,14 @@ impl BuildMeta {
 		Ok(msntv2_info)
 	}
 
-	fn read_fatfs_msntv2info(fatfs_root: &Dir<'_, BuildIOStream<'_>>, calculate_short_md5s: bool, calculate_full_md5s: bool, calculate_signatures: bool) -> Result<MSNTV2Info, Box<dyn std::error::Error>> {
+	fn read_fatfs_msntv2disk_info(fatfs_root: &Dir<'_, BuildIOStream<'_>>, calculate_short_md5s: bool, calculate_full_md5s: bool, calculate_signatures: bool) -> Result<MSNTV2Info, Box<dyn std::error::Error>> {
 		let mut file = fatfs_root.open_file(MSNTV2_SIG_FILE_NAME)?;
 		let mut buffer = String::new();
 		let _ = file.read_to_string(&mut buffer)?;
-		let mut msntv2_info = Self::read_msntv2info(buffer.clone())?;
+		let mut msntv2_info = Self::read_msntv2disk_info(buffer.clone())?;
 
 		if calculate_signatures {
-			msntv2_info.signature_validates = Some(match Self::verify_msntv2_signature(buffer, &msntv2_info.rsa_signature) {
+			msntv2_info.signature_validates = Some(match Self::verify_msntv2disk_signature(buffer, &msntv2_info.rsa_signature) {
 				Ok(signature_validated) => {
 					signature_validated
 				},
@@ -853,7 +868,7 @@ impl BuildMeta {
 			for build_file in msntv2_info.build_files.iter_mut() {
 				match fatfs_root.open_file(&build_file.file_name) {
 					Ok(mut file) => {
-						Self::calculate_msntv2_file_md5s(&mut file, build_file, calculate_short_md5s, calculate_full_md5s);
+						Self::calculate_msntv2disk_file_md5s(&mut file, build_file, calculate_short_md5s, calculate_full_md5s);
 					},
 					Err(_) => {
 					}
@@ -865,10 +880,7 @@ impl BuildMeta {
 		Ok(msntv2_info)
 	}
 
-	fn load_msntv2info(&mut self, calculate_checksums: bool, calculate_signatures: bool) -> Result<(), Box<dyn std::error::Error>> {
-		self.build_count = 1;
-		self.selected_build_index = 0;
-
+	fn load_msntv2disk_info(&mut self, calculate_checksums: bool, calculate_signatures: bool) -> Result<(), Box<dyn std::error::Error>> {
 		let mbr = MBR::read_from(&mut BuildIOStream::new(self.io.as_mut())?, WEBTV_BLOCK_SIZE as u32)?;
 
 		let boot_partition = mbr.iter().fold(None, |found_partition, (_, current_partition)| {
@@ -900,11 +912,36 @@ impl BuildMeta {
 
 				let root_dir = fat.root_dir();
 
-				Self::read_fatfs_msntv2info(&root_dir, calculate_checksums, false, calculate_signatures)?
+				Self::read_fatfs_msntv2disk_info(&root_dir, calculate_checksums, false, calculate_signatures)?
 			};
 
 			self.msntv2_info = msntv2_info;
+
+			let nkbin_info = self.msntv2_info.build_files.iter().find(|file| file.file_name.eq_ignore_ascii_case("NK.BIN"));
+			if nkbin_info.is_some() {
+				self.build_count = 1;
+
+				self.build_info[0].build_header.build_version = self.msntv2_info.build_number;
+				self.build_info[0].build_header.code_dword_length = nkbin_info.unwrap().file_size;
+				self.build_info[0].build_header.code_checksum = u32::from_le_bytes(nkbin_info.unwrap().partial_md5[..4].try_into().unwrap());
+				self.build_info[0].calculated_code_checksum = u32::from_le_bytes(nkbin_info.unwrap().calculated_partial_md5[..4].try_into().unwrap());
+			} else {
+				self.build_count = 0;
+			}
+			self.selected_build_index = 0;
 		}
+
+		Ok(())
+	}
+
+	fn load_msntv2bios_info(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+		self.build_count = 1;
+
+		let _ = self.io.seek(MSNTV2_BIOS_SIZE - 4)?;
+		
+		let mut bios_version = [0x00; 0x04];
+		let _ = self.io.read(&mut bios_version)?;
+		self.build_info[0].build_header.build_version = u32::from_le_bytes(bios_version);
 
 		Ok(())
 	}
@@ -935,7 +972,9 @@ impl BuildMeta {
 				self.build_count = 0;
 			}
 		} else if self.layout == BuildMetaLayout::MSNTV2DiskLayout {
-			let _ = self.load_msntv2info(calculate_checksums, calculate_signatures);
+			let _ = self.load_msntv2disk_info(calculate_checksums, calculate_signatures);
+		} else if self.layout == BuildMetaLayout::MSNTV2BIOSLayout {
+			let _ = self.load_msntv2bios_info();
 		} else {
 			self.build_count = 1;
 			self.selected_build_index = 0;
