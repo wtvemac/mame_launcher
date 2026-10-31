@@ -86,6 +86,7 @@ slint::include_modules!();
 const STACK_SIZE: usize = 32 * 1024 * 1024;
 const SSID_ROM_FILE: &'static str = "ds2401.bin";
 const DEFAULT_BOOTORM_FILE_NAME: &'static str = "bootrom.o";
+const DEFAULT_MSNTV2_BOOTORM_FILE_NAME: &'static str = "bios-emac-mame-only.bin";
 const BOOTROM_BASE_ADDRESS: u32 = 0x9fc00000;
 const BOOTROM_FLASH_FILE_PREFIX: &'static str = "bootrom_flash";
 // wtv2 (Plus) boxes will be detected and ran from this launcher but we assume (and can only verify) a flash-based approm 
@@ -169,7 +170,11 @@ enum BuildStorageType {
 	StrippedFlashBuild,
 	MaskRomBuild,
 	DiskBuild,
-	FlashdiskBuild
+	FlashdiskBuild,
+	MSNTV2BIOSBuild,
+	MSNTV2DiskOSBuild,
+	PCBIOSBuild,
+	PCDiskOSBuild
 }
 
 #[allow(dead_code)]
@@ -185,7 +190,8 @@ enum BuildStorageState {
 	CantReadBuild,
 	CodeChecksumMismatch,
 	RomfsChecksumMismatch,
-	BadBaseAddress
+	BadBaseAddress,
+	SignatureMismatch
 }
 
 #[allow(dead_code)]
@@ -488,7 +494,11 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 			.clone()
 			.unwrap_or("".into());
 
-		biossets.insert(biosset_name + ".o", biosset_description);
+		if selected_box == "msntv2" {
+			biossets.insert(biosset_name + ".bin", biosset_description);
+		} else {
+			biossets.insert(biosset_name + ".o", biosset_description);
+		}
 	}
 
 	let validate_checksums = config.persistent.mame_options.validate_checksums.unwrap_or(true);
@@ -505,7 +515,6 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 			.unwrap_or("".into());
 
 		if rom_name != *SSID_ROM_FILE && rom_region != "serial_id" {
-			
 			let rom_status = 
 				rom.status
 				.clone()
@@ -518,14 +527,14 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 					biossets
 					.get(&rom_name)
 					.unwrap_or(&"".into())
-					.into()
-			} else if rom_name != DEFAULT_BOOTORM_FILE_NAME {
+					.into();
+			} else if rom_name != DEFAULT_BOOTORM_FILE_NAME && rom_name != DEFAULT_MSNTV2_BOOTORM_FILE_NAME {
 				continue;
 			}
 
 			let mut bootrom = VerifiableBuildItem {
 				hint: "".into(),
-				value: rom_name.clone().into(),
+				value: if rom_name == DEFAULT_MSNTV2_BOOTORM_FILE_NAME { "bios-emac".into() } else { rom_name.clone().into() },
 				status: rom_status.clone().into(),
 				description: description.into(),
 				can_revert: false,
@@ -541,20 +550,32 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 				match BuildMeta::open_rom(bootrom_path, None, validate_checksums) {
 					Ok(build_meta) => {
 						bootrom.build_info = Some(build_meta.build_info[0].clone());
-						if (build_meta.build_info[0].build_header.build_flags & BuildFlag::Debug) != 0x00 {
-							bootrom.hint = (build_meta.build_info[0].build_header.build_version.clone().to_string() + "d").into();
-						} else {
-							bootrom.hint = build_meta.build_info[0].build_header.build_version.clone().to_string().into();
-						}
-	
-						if validate_checksums && build_meta.build_info[0].build_header.code_checksum != build_meta.build_info[0].calculated_code_checksum {
-							bootrom.build_storage_state = BuildStorageState::CodeChecksumMismatch;
-						} else if validate_checksums && build_meta.build_info[0].romfs_header.romfs_checksum != build_meta.build_info[0].calculated_romfs_checksum {
-							bootrom.build_storage_state = BuildStorageState::RomfsChecksumMismatch;
-						} else if build_meta.build_info[0].build_header.build_base_address != BOOTROM_BASE_ADDRESS {
-							bootrom.build_storage_state = BuildStorageState::BadBaseAddress;
-						} else {
+
+						if selected_box == "msntv2" {
+							if build_meta.layout == BuildMetaLayout::MSNTV2BIOSLayout && build_meta.build_info[0].build_header.build_version > 0 {
+								bootrom.hint = build_meta.build_info[0].build_header.build_version.clone().to_string().into();
+								bootrom.build_storage_type = BuildStorageType::MSNTV2DiskOSBuild;
+							} else {
+								bootrom.build_storage_type = BuildStorageType::PCBIOSBuild;
+							}
+
 							bootrom.build_storage_state = BuildStorageState::BuildLooksGood;
+						} else {
+							if (build_meta.build_info[0].build_header.build_flags & BuildFlag::Debug) != 0x00 {
+								bootrom.hint = (build_meta.build_info[0].build_header.build_version.clone().to_string() + "d").into();
+							} else {
+								bootrom.hint = build_meta.build_info[0].build_header.build_version.clone().to_string().into();
+							}
+		
+							if validate_checksums && build_meta.build_info[0].build_header.code_checksum != build_meta.build_info[0].calculated_code_checksum {
+								bootrom.build_storage_state = BuildStorageState::CodeChecksumMismatch;
+							} else if validate_checksums && build_meta.build_info[0].romfs_header.romfs_checksum != build_meta.build_info[0].calculated_romfs_checksum {
+								bootrom.build_storage_state = BuildStorageState::RomfsChecksumMismatch;
+							} else if build_meta.build_info[0].build_header.build_base_address != BOOTROM_BASE_ADDRESS {
+								bootrom.build_storage_state = BuildStorageState::BadBaseAddress;
+							} else {
+								bootrom.build_storage_state = BuildStorageState::BuildLooksGood;
+							}
 						}
 					},
 					Err(_) => {
@@ -768,7 +789,7 @@ fn get_flash_approms(config: &LauncherConfig, selected_machine: &MAMEMachineNode
 	Ok(approms)
 }
 
-fn populate_approms_from_disk_file(approms: &mut Vec<VerifiableBuildItem>, file_path: String, collation: Option<BuildIODataCollation>, prefix: String, discription: String, is_preset_disk: bool, validate_checksums: bool, validate_signatures: bool)  -> Result<(), Box<dyn std::error::Error>> {
+fn populate_approms_from_disk_file(approms: &mut Vec<VerifiableBuildItem>, file_path: String, collation: Option<BuildIODataCollation>, prefix: String, discription: String, is_preset_disk: bool, validate_checksums: bool, is_msntv2: bool)  -> Result<(), Box<dyn std::error::Error>> {
 	let can_revert = match is_preset_disk {
 		true => {
 			let diff_file_path = CompressedHunkDiskIO::find_diff_file(file_path.clone()).unwrap_or("".into());
@@ -778,18 +799,28 @@ fn populate_approms_from_disk_file(approms: &mut Vec<VerifiableBuildItem>, file_
 		_ => false
 	};
 
-	match BuildMeta::open_disk(file_path.clone(), collation, validate_checksums, validate_signatures) {
+	match BuildMeta::open_disk(file_path.clone(), collation, validate_checksums, is_msntv2) {
 		Ok(build_meta) => {
 			let mut build_index = 0;
 			for buildinfo in build_meta.build_info.iter() {
-				let mut approm = VerifiableBuildItem {
+				let mut approm: VerifiableBuildItem = VerifiableBuildItem {
 					hint: "".into(),
 					value: (prefix.clone() + "[" + &build_index.to_string() + "]").into(),
 					status: "".into(),
 					can_revert: can_revert,
-					description: discription.clone().into(),
+					description: if build_meta.layout == BuildMetaLayout::MSNTV2DiskLayout {
+						format!("{} ({})", build_meta.msntv2_info.build_version, discription.clone()).into()
+					} else {
+						discription.clone().into()
+					},
 					hash: "".into(),
-					build_storage_type: BuildStorageType::DiskBuild,
+					build_storage_type: if build_meta.layout == BuildMetaLayout::MSNTV2DiskLayout {
+						BuildStorageType::MSNTV2DiskOSBuild
+					} else if is_msntv2 { // If we're adding MSNTV2 OSs but the disk format isn't MSNTV2 then assume a PC-formatted disk.
+						BuildStorageType::PCDiskOSBuild
+					} else {
+						BuildStorageType::DiskBuild
+					},
 					build_storage_state: BuildStorageState::UnknownBuildState,
 					build_info: None
 				};
@@ -799,10 +830,12 @@ fn populate_approms_from_disk_file(approms: &mut Vec<VerifiableBuildItem>, file_
 				}
 
 				approm.build_info = Some(buildinfo.clone());
-				if (buildinfo.build_header.build_flags & BuildFlag::Debug) != 0x00 {
-					approm.hint = (buildinfo.build_header.build_version.clone().to_string() + "d").into();
-				} else {
-					approm.hint = buildinfo.build_header.build_version.clone().to_string().into();
+				if buildinfo.build_header.build_version > 0 {
+					if (buildinfo.build_header.build_flags & BuildFlag::Debug) != 0x00 {
+						approm.hint = (buildinfo.build_header.build_version.clone().to_string() + "d").into();
+					} else {
+						approm.hint = buildinfo.build_header.build_version.clone().to_string().into();
+					}
 				}
 
 				if build_meta.build_count == 0 {
@@ -811,7 +844,9 @@ fn populate_approms_from_disk_file(approms: &mut Vec<VerifiableBuildItem>, file_
 					approm.build_storage_state = BuildStorageState::CodeChecksumMismatch;
 				} else if validate_checksums && buildinfo.romfs_header.romfs_checksum != buildinfo.calculated_romfs_checksum {
 					approm.build_storage_state = BuildStorageState::RomfsChecksumMismatch;
-				} else if buildinfo.build_header.build_base_address < APPROM3_DISK_BASE_ADDRESS_MIN || buildinfo.build_header.build_base_address > APPROM3_DISK_BASE_ADDRESS_MAX {
+				} else if is_msntv2 && build_meta.layout == BuildMetaLayout::MSNTV2DiskLayout && build_meta.msntv2_info.signature_validates != Some(true) {
+					approm.build_storage_state = BuildStorageState::SignatureMismatch;
+				} else if !is_msntv2 && build_meta.layout != BuildMetaLayout::MSNTV2DiskLayout && buildinfo.build_header.build_base_address < APPROM3_DISK_BASE_ADDRESS_MIN || buildinfo.build_header.build_base_address > APPROM3_DISK_BASE_ADDRESS_MAX {
 					approm.build_storage_state = BuildStorageState::BadBaseAddress;
 				} else {
 					approm.build_storage_state = BuildStorageState::BuildLooksGood;
@@ -914,7 +949,7 @@ fn get_flashdisk_approms(config: &LauncherConfig, selected_machine: &MAMEMachine
 		can_revert: false,
 		description: "".into(),
 		hash: "".into(),
-		build_storage_type: BuildStorageType::DiskBuild,
+		build_storage_type: BuildStorageType::FlashdiskBuild,
 		build_storage_state: BuildStorageState::UnknownBuildState,
 		build_info: None
 	};
@@ -1145,7 +1180,7 @@ fn get_slots(selected_machine: &MAMEMachineNode) -> Result<Vec<MachineSlotItem>,
 	Ok(slots)
 }
 
-fn populate_selected_box_bootroms(ui_weak: &slint::Weak<MainWindow>, config: &LauncherConfig, selected_machine: &MAMEMachineNode, supress_warnings: bool) -> Result<(usize, BuildStorageState), Box<dyn std::error::Error>> {
+fn populate_selected_box_bootroms(ui_weak: &slint::Weak<MainWindow>, config: &LauncherConfig, selected_machine: &MAMEMachineNode, supress_warnings: bool) -> Result<(usize, BuildStorageType, BuildStorageState), Box<dyn std::error::Error>> {
 	let config_persistent_mame = config.persistent.mame_options.clone();
 
 	let selected_box = selected_machine.name.clone().unwrap_or("".into());
@@ -1206,6 +1241,18 @@ fn populate_selected_box_bootroms(ui_weak: &slint::Weak<MainWindow>, config: &La
 			);
 		}
 
+		let image_name = if selected_box == "msntv2" {
+			"BIOS".to_string()
+		} else {
+			"BootROM".to_string()
+		};
+
+		let image_file = if selected_box == "msntv2" {
+			"bios.bin".to_string()
+		} else {
+			"bootrom.o".to_string()
+		};
+
 		ui_mame.set_selectable_bootroms(slint::ModelRc::new(slint::VecModel::from(selectable_bootroms)));
 		if available_bootroms.iter().count() > 0 {
 			ui.set_mame_broken(false);
@@ -1221,41 +1268,44 @@ fn populate_selected_box_bootroms(ui_weak: &slint::Weak<MainWindow>, config: &La
 			if !supress_warnings {
 				match selected_bootrom.build_storage_state {
 					BuildStorageState::UnknownBuildState => {
-						ui.set_launcher_state_message("Unknown BootROM state. Please choose a new bootrom.o file if it doesn't run!".into());
+						ui.set_launcher_state_message(format!("Unknown {} state. Please choose a new {} file if it doesn't run!", image_name, image_file).into());
 					},
 					BuildStorageState::BuildLooksGood => {
 						// No need to show a warning message for this.
 					},
 					BuildStorageState::FileNotFound => {
-						ui.set_launcher_state_message("The BootROM image doesn't exist. Please choose a bootrom.o file!".into());
+						ui.set_launcher_state_message(format!("The {} image doesn't exist. Please choose a {} file!", image_name, image_file).into());
 						ui_mame.set_bootrom_import_state(BuildImportState::WillCreate);
 					},
 					BuildStorageState::RomSizeMismatch => {
-						ui.set_launcher_state_message("BootROM size mismatch! MAME will probably reject this BootROM!".into());
+						ui.set_launcher_state_message(format!("{} size mismatch! MAME will probably reject this {}!", image_name, image_name).into());
 					},
 					BuildStorageState::RomHashMismatch => {
-						ui.set_launcher_state_message("BootROM hash mismatch! MAME will probably reject this BootROM!".into());
+						ui.set_launcher_state_message(format!("{} hash mismatch! MAME will probably reject this {}!", image_name, image_name).into());
 					},
 					BuildStorageState::StrippedFlashCyclopsed => {
-						ui.set_launcher_state_message("Found one BootROM flash file but couldn't find the other. Choosing a new bootrom.o file may fix this.".into());
+						ui.set_launcher_state_message(format!("Found one {} flash file but couldn't find the other. Choosing a new {} file may fix this.", image_name, image_file).into());
 						ui_mame.set_bootrom_import_state(BuildImportState::WillCreate);
 					},
 					BuildStorageState::StrippedFlashMissing => {
-						ui.set_launcher_state_message("Couldn't find a BootROM. The flash files may be missing? Choosing a new bootrom.o file may fix this.".into());
+						ui.set_launcher_state_message(format!("Couldn't find a {}. The flash files may be missing? Choosing a new {} file may fix this.", image_name, image_file).into());
 						ui_mame.set_bootrom_import_state(BuildImportState::WillCreate);
 					},
 					BuildStorageState::CantReadBuild => {
-						ui.set_launcher_state_message("Error parsing BootROM image? Please choose a bootrom.o file!".into());
+						ui.set_launcher_state_message(format!("Error parsing {} image? Please choose a {} file!", image_name, image_file).into());
 						ui_mame.set_bootrom_import_state(BuildImportState::WillCreate);
 					},
 					BuildStorageState::CodeChecksumMismatch => {
-						ui.set_launcher_state_message("BootROM code checksum mismatch! Did you choose an image that's too large? Please choose a new bootrom.o file if it doesn't run!".into());
+						ui.set_launcher_state_message(format!("{} code checksum mismatch! Did you choose an image that's too large? Please choose a new {} file if it doesn't run!", image_name, image_file).into());
 					},
 					BuildStorageState::RomfsChecksumMismatch => {
-						ui.set_launcher_state_message("BootROM ROMFS checksum mismatch! Did you choose an image that's too large? Please choose a new bootrom.o file if it doesn't run!".into());
+						ui.set_launcher_state_message(format!("{} ROMFS checksum mismatch! Did you choose an image that's too large? Please choose a new {} file if it doesn't run!", image_name, image_file).into());
 					}
 					BuildStorageState::BadBaseAddress => {
-						ui.set_launcher_state_message("BootROM base address incorrect! Did you choose an AppROM image? Please choose a new bootrom.o file if it doesn't run!".into());
+						ui.set_launcher_state_message(format!("{} base address incorrect! Did you import an AppROM image as a BootROM? Please choose a new {} file if it doesn't run!", image_name, image_file).into());
+					}
+					BuildStorageState::SignatureMismatch => {
+						//
 					}
 				}
 			}
@@ -1265,15 +1315,15 @@ fn populate_selected_box_bootroms(ui_weak: &slint::Weak<MainWindow>, config: &La
 			ui_mame.set_bootrom_import_state(BuildImportState::WillCreate);
 
 			if !supress_warnings {
-				ui.set_launcher_state_message("I asked MAME to list its usable BootROMs for this box and it gave me nothing! Broken MAME executable?".into());
+				ui.set_launcher_state_message(format!("I asked MAME to list its usable {}s for this box and it gave me nothing! Broken MAME executable?", image_name).into());
 			}
 		}
 	});
 
-	Ok((selected_bootrom_index, selected_bootrom.build_storage_state.clone()))
+	Ok((selected_bootrom_index, selected_bootrom.build_storage_type.clone(), selected_bootrom.build_storage_state.clone()))
 }
 
-fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &LauncherConfig, selected_machine: &MAMEMachineNode, supress_warnings: bool, selected_bootrom_index: usize) -> Result<BuildStorageState, Box<dyn std::error::Error>> {
+fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &LauncherConfig, selected_machine: &MAMEMachineNode, supress_warnings: bool, selected_bootrom_index: usize, selected_bootrom_type: BuildStorageType) -> Result<BuildStorageState, Box<dyn std::error::Error>> {
 	let config_persistent_mame = config.persistent.mame_options.clone();
 	let config_persistent_paths = config.persistent.paths.clone();
 
@@ -1442,10 +1492,24 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 			);
 		}
 
+		let image_name = if selected_box == "msntv2" {
+			"OS".to_string()
+		} else {
+			"AppROM".to_string()
+		};
+
+		let image_file = if selected_box == "msntv2" {
+			"hd.img".to_string()
+		} else {
+			"approm.o".to_string()
+		};
+
+		let pc_msntv2_disk = selected_box == "msntv2" && (selected_bootrom_type == BuildStorageType::PCBIOSBuild || selected_approm.build_storage_type == BuildStorageType::PCDiskOSBuild);
+
 		ui_mame.set_selectable_approms(slint::ModelRc::new(slint::VecModel::from(selectable_approms)));
 		if available_approms.iter().count() > 0 {
 			ui_mame.set_selected_approm(selected_approm.value.clone().into());
-			if selected_approm.value == "WinCE" {
+			if selected_approm.value == "WinCE" || pc_msntv2_disk {
 				ui_mame.set_approm_import_state(BuildImportState::ImportUnavailable);
 			} else {
 				ui_mame.set_approm_import_state(BuildImportState::WillReplace);
@@ -1454,13 +1518,13 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 			if !supress_warnings {
 				match selected_approm.build_storage_state {
 					BuildStorageState::UnknownBuildState => {
-						ui.set_launcher_state_message("Unknown AppROM state. Please choose a new approm.o file if it doesn't run!".into());
+						ui.set_launcher_state_message(format!("Unknown {} state. Please choose a new {} file if it doesn't run!", image_name, image_file).into());
 					},
 					BuildStorageState::BuildLooksGood => {
 						// No need to show a warning message for this.
 					},
 					BuildStorageState::FileNotFound => {
-						ui.set_launcher_state_message("The AppROM image doesn't exist. Please choose a approm.o file!".into());
+						ui.set_launcher_state_message(format!("The {} image doesn't exist. Please choose a {} file!", image_name, image_file).into());
 						ui_mame.set_approm_import_state(BuildImportState::WillCreate);
 					},
 					BuildStorageState::RomSizeMismatch => {
@@ -1470,28 +1534,31 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 						// Not checking an AppROM as a verified MAME ROM.
 					},
 					BuildStorageState::StrippedFlashCyclopsed => {
-						ui.set_launcher_state_message("Found one AppROM flash file but couldn't find the other. Choosing a new approm.o file may fix this.".into());
+						ui.set_launcher_state_message(format!("Found one {} flash file but couldn't find the other. Choosing a new {} file may fix this.", image_name, image_file).into());
 						ui_mame.set_approm_import_state(BuildImportState::WillCreate);
 					},
 					BuildStorageState::StrippedFlashMissing => {
-						ui.set_launcher_state_message("Couldn't find an AppROM. The flash files may be missing? Choosing a new approm.o file may fix this.".into());
+						ui.set_launcher_state_message(format!("Couldn't find an {}. The flash files may be missing? Choosing a new {} file may fix this.", image_name, image_file).into());
 						ui_mame.set_approm_import_state(BuildImportState::WillCreate);
 					},
 					BuildStorageState::CantReadBuild => {
-						ui.set_launcher_state_message("Error parsing AppROM image? Please choose a new approm.o file if it doesn't run!".into());
+						ui.set_launcher_state_message(format!("Error parsing {} image? Please choose a new {} file if it doesn't run!", image_name, image_file).into());
 						ui_mame.set_approm_import_state(BuildImportState::WillCreate);
 					},
 					BuildStorageState::CodeChecksumMismatch => {
-						ui.set_launcher_state_message("AppROM code checksum mismatch! Did you choose an image that's too large? Please choose a new approm.o file if it doesn't run!".into());
+						ui.set_launcher_state_message(format!("{} code checksum mismatch! Did you choose an image that's too large? Please choose a new {} file if it doesn't run!", image_name, image_file).into());
 					},
 					BuildStorageState::RomfsChecksumMismatch => {
-						ui.set_launcher_state_message("AppROM ROMFS checksum mismatch! Did you choose an image that's too large? Please choose a new approm.o file if it doesn't run!".into());
+						ui.set_launcher_state_message(format!("{} ROMFS checksum mismatch! Did you choose an image that's too large? Please choose a new {} file if it doesn't run!", image_name, image_file).into());
 					},
 					BuildStorageState::BadBaseAddress => {
-						ui.set_launcher_state_message("AppROM base address incorrect! Did you choose an image for the wrong box? Please choose a new approm.o file if it doesn't run!".into());
+						ui.set_launcher_state_message(format!("{} base address incorrect! Did you choose an image for the wrong box? Please choose a new {} file if it doesn't run!", image_name, image_file).into());
 						// The case where they select a bfe approm for a bf0 bootrom or a bf0 approm for a bfe bootrom wil still break. Check for this case?
-					}
-					}
+					},
+					BuildStorageState::SignatureMismatch => {
+						ui.set_launcher_state_message("Signature mismatch! Please choose a different NK.BIN and BOOT.SIG or use the emac BIOS".into());
+					},
+				}
 			}
 		} else {
 			ui_mame.set_selected_approm("".into());
@@ -1501,16 +1568,16 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 
 				if !supress_warnings {
 					if can_choose_hdimg {
-						ui.set_launcher_state_message("No AppROMs available. Please choose a hard disk image!".into());
+						ui.set_launcher_state_message(format!("No {}s available. Please choose a hard disk image!", image_name).into());
 					} else {
-						ui.set_launcher_state_message("No AppROMs available. Unable to find a disk!".into());
+						ui.set_launcher_state_message(format!("No {}s available. Unable to find a disk!", image_name).into());
 					}
 				}
 			} else {
 				ui_mame.set_approm_import_state(BuildImportState::WillCreate);
 
 				if !supress_warnings {
-					ui.set_launcher_state_message("No AppROMs available. Please choose a new approm.o!".into());
+					ui.set_launcher_state_message(format!("No {}s available. Please choose a new {}!", image_name, image_file).into());
 				}
 			}
 		}
@@ -1802,9 +1869,10 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 			// Populate UI with bootroms for the selected box
 			//
 			let supress_bootrom_warnings = false;
-			let (selected_bootrom_index, selected_bootrom_state) = match populate_selected_box_bootroms(ui_weak, config, machine, supress_bootrom_warnings) {
-				Ok((selected_bootrom_index, selected_bootrom_state)) => (selected_bootrom_index, selected_bootrom_state),
-				Err(_e) => (0, BuildStorageState::UnknownBuildState)
+			
+			let (selected_bootrom_index, selected_bootrom_type, selected_bootrom_state) = match populate_selected_box_bootroms(ui_weak, config, machine, supress_bootrom_warnings) {
+				Ok((selected_bootrom_index, selected_bootrom_type, selected_bootrom_state)) => (selected_bootrom_index, selected_bootrom_type, selected_bootrom_state),
+				Err(_e) => (0, BuildStorageType::UnknownStorageType, BuildStorageState::UnknownBuildState)
 			};
 
 			//
@@ -1812,7 +1880,7 @@ fn populate_selected_box_config(ui_weak: &slint::Weak<MainWindow>, config: &Laun
 			//
 			// Only one warning can be displayed at a time so bootrom warnings take precedence (if we have a bad bootrom, nothing will boot).
 			let supress_approm_warnings = supress_bootrom_warnings || selected_bootrom_state != BuildStorageState::BuildLooksGood;
-			let selected_approm_state = match populate_selected_box_approms(ui_weak, config, machine, supress_approm_warnings, selected_bootrom_index) {
+			let selected_approm_state = match populate_selected_box_approms(ui_weak, config, machine, supress_approm_warnings, selected_bootrom_index, selected_bootrom_type) {
 				Ok(selected_approm_state) => selected_approm_state,
 				Err(_e) => BuildStorageState::UnknownBuildState
 			};
@@ -2286,7 +2354,7 @@ fn save_ssid(raw_ssid: [u8; 0x08], ui_weak: slint::Weak<MainWindow>, is_blocking
 	let selected_box = ui_mame.get_selected_box().to_string();
 
 	let save_thread = std::thread::spawn(move || {
-		enable_loading(&ui_weak, "Saving SSID".into());
+		enable_loading(&ui_weak, "Saving".into());
 
 		let config = LauncherConfig::new().unwrap();
 
@@ -2363,7 +2431,7 @@ fn import_bootrom(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_
 		let try_bootrom_file: String = ui_mame.get_selected_bootrom().into();
 
 		let _ = std::thread::spawn(move || {
-			enable_loading(&ui_weak, "Saving BootROM".into());
+			enable_loading(&ui_weak, "Saving".into());
 
 			let config = LauncherConfig::new().unwrap();
 
@@ -2398,7 +2466,11 @@ fn import_bootrom(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_
 							.clone()
 							.unwrap_or("".into());
 				
-						biossets.insert(biosset_name + ".o", biosset_description);
+						if selected_box == "msntv2" {
+							biossets.insert(biosset_name + ".bin", biosset_description);
+						} else {
+							biossets.insert(biosset_name + ".o", biosset_description);
+						}
 					}
 
 					for rom in machine.clone().rom.unwrap_or(vec![]).iter() {
@@ -2413,7 +2485,7 @@ fn import_bootrom(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_
 							.unwrap_or("".into());
 
 						if rom_name != *SSID_ROM_FILE && rom_region != "serial_id" {
-							if !biossets.contains_key(&rom_name) && rom_name != DEFAULT_BOOTORM_FILE_NAME {
+							if !biossets.contains_key(&rom_name) && rom_name != DEFAULT_BOOTORM_FILE_NAME && rom_name != DEFAULT_MSNTV2_BOOTORM_FILE_NAME {
 								continue;
 							}
 
@@ -2665,7 +2737,7 @@ fn import_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_s
 		let selected_hdimg_enabled = ui_mame.get_selected_hdimg_enabled();
 
 		let _ = std::thread::spawn(move || {
-			enable_loading(&ui_weak, "Saving AppROM".into());
+			enable_loading(&ui_weak, "Saving".into());
 
 			let config = LauncherConfig::new().unwrap();
 

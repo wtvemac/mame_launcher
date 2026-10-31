@@ -129,7 +129,7 @@ export component StartPage inherits Page {
 	}
 
 	TitledHorizontalBox {
-		title: @tr("Selected ROM");
+		title: @tr("Selected System Data");
 		box-spacing: 5px;
 		z: 1;
 
@@ -138,7 +138,7 @@ export component StartPage inherits Page {
 			spacing: 2px;
 			z: 2;
 			Text {
-				text: @tr("BootROM Build");
+				text: (UIMAMEOptions.selected_box == "msntv2") ? @tr("BIOS Build") : @tr("BootROM Build");
 			}
 			EditableComboBox {
 				hintedmodel: UIMAMEOptions.selectable_bootroms;
@@ -163,7 +163,7 @@ export component StartPage inherits Page {
 			spacing: 2px;
 			z: 1;
 			Text {
-				text: @tr("AppROM Build");
+				text: (UIMAMEOptions.selected_box == "msntv2") ? @tr("OS Build") : @tr("AppROM Build");
 			}
 			HorizontalLayout {
 				spacing: 2px;
@@ -215,7 +215,7 @@ export component StartPage inherits Page {
 			width: (parent.width * 0.4) - 10px;
 			spacing: 2px;
 			Text {
-				text: @tr("SSID (DS2401 ROM)");
+				text: (UIMAMEOptions.selected_box == "msntv2") ? @tr("BoxID (Ethernet EEPROM)") : @tr("SSID (DS2401 ROM)");
 			}
 			EditableComboBox {
 				hintedmodel: UIMAMEOptions.selectable_ssids;
