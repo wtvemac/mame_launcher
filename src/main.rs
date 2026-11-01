@@ -4258,7 +4258,7 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 		if ui_mame.get_console_input().into() {
 			let found_debug_bitb = match Regex::new(r"^(?<slot_select>[^; ]+?)\; (?<bitb_select>.+?)$").unwrap().captures(ui_mame.get_selected_debug_bitb_startpoint().as_str()) {
 				Some(matches) => {
-					mame_command.arg("-".to_owned() + &matches["slot_select"]).arg("null_modem");
+					//mame_command.arg("-".to_owned() + &matches["slot_select"]).arg("null_modem");
 
 					let selected_debug_bitb_endpoint = ui_mame.get_selected_debug_bitb_endpoint();
 					let usable_debug_bitb_endpoint = match selected_debug_bitb_endpoint.as_str() {
@@ -4312,7 +4312,7 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 		if selected_modem_bitb_endpoint != "" && selected_modem_bitb_startpoint != "" {
 			match Regex::new(r"^(?<slot_select>[^; ]+?)\; (?<bitb_select>.+?)$").unwrap().captures(selected_modem_bitb_startpoint.as_str()) {
 				Some(matches) => {
-					mame_command.arg("-".to_owned() + &matches["slot_select"]).arg("null_modem");
+					//mame_command.arg("-".to_owned() + &matches["slot_select"]).arg("null_modem");
 		
 					if Regex::new(r"^[^\:]+\:\d+$").unwrap().is_match(selected_modem_bitb_endpoint.as_str()) {
 						mame_command.arg("-".to_owned() + &matches["bitb_select"]).arg(&("socket.".to_owned() + &selected_modem_bitb_endpoint));
