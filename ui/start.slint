@@ -94,7 +94,7 @@ export global UIMAMEOptions {
 	in-out property<bool> use_drc: true;
 	in-out property<bool> debug_mode: false;
 	in-out property<bool> skip_info_screen: true;
-	in-out property<bool> validate_checksums: true;
+	in-out property<bool> validate_build_image: true;
 	in-out property<bool> console_input: false;
 	in-out property<bool> disable_sound: false;
 
@@ -288,10 +288,10 @@ export component StartPage inherits Page {
 					checked <=> UIMAMEOptions.windowed_mode;
 				}
 				Switch {
-					text: @tr("Validate Checksums");
+					text: @tr("Validate Build Image");
 					width: 180px;
 					height: 28px;
-					checked <=> UIMAMEOptions.validate_checksums;
+					checked <=> UIMAMEOptions.validate_build_image;
 				}
 				Switch {
 					text: @tr("Disable Sound");

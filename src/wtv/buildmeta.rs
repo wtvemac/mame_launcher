@@ -312,6 +312,7 @@ pub struct MSNTV2FileInfo {
 	pub file_name: String,
 	pub file_flags: String,
 	pub file_size: u32,
+	pub file_exists: bool,
 	pub full_md5: [u8; 16],
 	pub calculated_full_md5: [u8; 16],
 	pub partial_md5: [u8; 16],
@@ -329,7 +330,9 @@ pub struct MSNTV2Info {
 	pub build_number: u32,
 	pub build_version: String,
 	pub build_signature_contact: String,
-	pub build_files: Vec<MSNTV2FileInfo>
+	pub all_files_exist: bool,
+	pub build_files: Vec<MSNTV2FileInfo>,
+	boot_parition_slice: Option<(u64, u64)>
 }
 
 impl BuildMeta {
@@ -479,7 +482,9 @@ impl BuildMeta {
 			build_number: 0,
 			build_version: "".to_string(),
 			build_signature_contact: "".to_string(),
-			build_files: vec![]
+			all_files_exist: false,
+			build_files: vec![],
+			boot_parition_slice: None
 		}
 	}
 
@@ -632,6 +637,7 @@ impl BuildMeta {
 						let msntv2_file_info = MSNTV2FileInfo {
 							file_name: matches["file_name"].to_string(),
 							file_flags: matches["file_flags"].to_string(),
+							file_exists: false,
 							file_size: match u32::from_str_radix(&matches["file_size"], 16) {
 								Ok(number) => {
 									number
@@ -798,7 +804,7 @@ impl BuildMeta {
 		}
 	}
 
-	fn find_local_file(dir_path: &Path, file_name: &str) -> Option<PathBuf> {
+	pub fn find_local_file(dir_path: &Path, file_name: &str) -> Option<PathBuf> {
 		let file_path = dir_path.join(file_name);
 
 		if file_path.is_file() {
@@ -812,7 +818,15 @@ impl BuildMeta {
 		}
 	}
 
-	fn read_local_msntv2disk_info(dir_path: String, calculate_short_md5s: bool, calculate_full_md5s: bool, calculate_signatures: bool) -> Result<MSNTV2Info, Box<dyn std::error::Error>> {
+	pub fn open_msntv2_boot_fs(&mut self) -> Result<fatfs::FileSystem<BuildIOStream<'_>>, Box<dyn std::error::Error>> {
+		let (start, len) = self.msntv2_info.boot_parition_slice.ok_or("No boot partition")?;
+
+		let fat_io = BuildIOStream::slice(self.io.as_mut(), start, len);
+
+		Ok(fatfs::FileSystem::new(fat_io, fatfs::FsOptions::new())?)
+	}	
+
+	pub fn read_local_msntv2disk_info(dir_path: String, calculate_short_md5s: bool, calculate_full_md5s: bool, calculate_signatures: bool) -> Result<MSNTV2Info, Box<dyn std::error::Error>> {
 		let dir_path = Path::new(&dir_path);
 
 		let sig_file_path =
@@ -832,15 +846,20 @@ impl BuildMeta {
 			});
 		}
 
-		if calculate_short_md5s || calculate_full_md5s {
-			for build_file in msntv2_info.build_files.iter_mut() {
-				match Self::find_local_file(dir_path, &build_file.file_name).map(fs::File::open) {
-					Some(Ok(mut file)) => {
+		// Just an exist check (with optional MD5 check), no file size check
+		msntv2_info.all_files_exist = true;
+		for build_file in msntv2_info.build_files.iter_mut() {
+			match Self::find_local_file(dir_path, &build_file.file_name).map(fs::File::open) {
+				Some(Ok(mut file)) => {
+					if calculate_short_md5s || calculate_full_md5s {
 						Self::calculate_msntv2disk_file_md5s(&mut file, build_file, calculate_short_md5s, calculate_full_md5s);
-					},
-					_ => {
-						//
 					}
+
+					build_file.file_exists = true;
+				},
+				_ => {
+					build_file.file_exists = false;
+					msntv2_info.all_files_exist = false;
 				}
 			}
 		}
@@ -865,17 +884,22 @@ impl BuildMeta {
 			});
 		}
 
-		if calculate_short_md5s || calculate_full_md5s {
-			for build_file in msntv2_info.build_files.iter_mut() {
-				match fatfs_root.open_file(&build_file.file_name) {
-					Ok(mut file) => {
+		// Just an exist check (with optional MD5 check), no file size check
+		msntv2_info.all_files_exist = true;
+		for build_file in msntv2_info.build_files.iter_mut() {
+			match fatfs_root.open_file(&build_file.file_name) {
+				Ok(mut file) => {
+					if calculate_short_md5s || calculate_full_md5s {
 						Self::calculate_msntv2disk_file_md5s(&mut file, build_file, calculate_short_md5s, calculate_full_md5s);
-					},
-					Err(_) => {
 					}
+
+					build_file.file_exists = true;
+				},
+				Err(_) => {
+					build_file.file_exists = false;
+					msntv2_info.all_files_exist = false;
 				}
 			}
-
 		}
 
 		Ok(msntv2_info)
@@ -913,7 +937,14 @@ impl BuildMeta {
 
 				let root_dir = fat.root_dir();
 
-				Self::read_fatfs_msntv2disk_info(&root_dir, calculate_checksums, false, calculate_signatures)?
+				let mut m2i = Self::read_fatfs_msntv2disk_info(&root_dir, calculate_checksums, false, calculate_signatures)?;
+
+				drop(root_dir);
+				fat.unmount()?;
+
+				m2i.boot_parition_slice = Some((start, len));
+
+				m2i
 			};
 
 			self.msntv2_info = msntv2_info;

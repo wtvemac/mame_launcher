@@ -238,7 +238,7 @@ pub struct MAMEOptions {
     pub use_drc: Option<bool>,
     pub debug_mode: Option<bool>,
     pub skip_info_screen: Option<bool>,
-    pub validate_checksums: Option<bool>,
+    pub validate_build_image: Option<bool>,
     pub console_input: Option<bool>,
     pub disable_sound: Option<bool>,
     pub custom_options: Option<String>
@@ -382,7 +382,7 @@ impl LauncherConfig {
 				use_drc: Some(true),
 				debug_mode: Some(false),
 				skip_info_screen: Some(true),
-				validate_checksums: Some(true),
+				validate_build_image: Some(true),
 				console_input: Some(false),
 				disable_sound: Some(false),
 				custom_options: Some("".into())
