@@ -173,6 +173,7 @@ const MSNTV2_BIOS_SIZE: u64 = 1 * 1024 * 1024;
 const MSNTV2_BIOS_UNKMARK_OFFSET: u64 = 0x000ffff0;
 const MSNTV2_BIOS_UNKMARK_VALUE: u64 = 0xea003000f0000000;
 const MSNTV2_BOOT_SECTOR_OFFSET: u64 = 0x4000;
+const MSNTV2_DISK_SIZE: u64 = 64 * 1000 * 1000;
 const MSNTV2_OEM_NAME_BSOFFSET: u64 = 0x03;
 const MSNTV2_OEM_NAME_VALUE: u64 = 0x4d534e5456000000; // MSNTV\x00\x00\x00 as BE int
 const MSNTV2_PROD_SIG_PUBKEY: &'static [u8]  = include_bytes!("../../keys/msntv2-mainkey.ber");
@@ -542,7 +543,7 @@ impl BuildMeta {
 			}
 		}
 
-		if file_size > MSNTV2_BOOT_SECTOR_OFFSET {
+		if file_size > MSNTV2_BOOT_SECTOR_OFFSET && file_size >= MSNTV2_DISK_SIZE {
 			let _ = self.io.seek(MSNTV2_BOOT_SECTOR_OFFSET + MSNTV2_OEM_NAME_BSOFFSET)?;
 
 			let mut boot_sector_check = [0x00; 0x08];
