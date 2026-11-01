@@ -1213,9 +1213,9 @@ fn get_slots(selected_machine: &MAMEMachineNode) -> Result<Vec<MachineSlotItem>,
 					slot_name: slot_name.clone().into(),
 					slot_type: SlotType::Unknown
 				};
-				if Regex::new(r"(modem|mdm)").unwrap().is_match(slot_name.clone().as_str()) {
+				if Regex::new(r"(modem|mdm|comb)").unwrap().is_match(slot_name.clone().as_str()) {
 					slot.slot_type = SlotType::ModemSerial;
-				} else if Regex::new(r"(debug|dbg|pekoe)").unwrap().is_match(slot_name.clone().as_str()) {
+				} else if Regex::new(r"(debug|dbg|pekoe|coma)").unwrap().is_match(slot_name.clone().as_str()) {
 					slot.slot_type = SlotType::DebugSerial;
 				}
 
