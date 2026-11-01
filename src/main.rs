@@ -88,6 +88,7 @@ slint::include_modules!();
 const STACK_SIZE: usize = 32 * 1024 * 1024;
 const SSID_ROM_FILE: &'static str = "ds2401.bin";
 const MSNTV2_ETHERNET_EEPROM_FILE: &'static str = "pci_1e.0_slot8_i82801_eth_eeprom";
+const MSNTV2_ALWAYS_RESET_EEPROM: bool = true;
 const DEFAULT_BOOTORM_FILE_NAME: &'static str = "bootrom.o";
 const DEFAULT_MSNTV2_BOOTORM_FILE_NAME: &'static str = "bios-emac-mame-only.bin";
 const BOOTROM_BASE_ADDRESS: u32 = 0x9fc00000;
@@ -2467,7 +2468,7 @@ fn save_boxid(raw_box_id: [u8; 8], ui_weak: slint::Weak<MainWindow>, is_blocking
 
 		match std::fs::create_dir_all(ssid_directory_path) {
 			Ok(_) => {
-				let mut eeprom_blob: Option<[u8; 128]> = if Path::new(&ssid_file_path).exists() {
+				let mut eeprom_blob: Option<[u8; 128]> = if !MSNTV2_ALWAYS_RESET_EEPROM && Path::new(&ssid_file_path).exists() {
 					match File::open(&ssid_file_path) {
 						Ok(mut f) => {
 							let mut raw_eeprom = [0x00; 128];

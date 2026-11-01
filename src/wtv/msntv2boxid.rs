@@ -107,6 +107,15 @@ impl MSNTV2BoxIdInfo {
 	}
 
 	#[allow(dead_code)]
+	pub fn reset_eeprom(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+		self.eeprom_blob = BOXID_DEFAULT_EEPROM_BLOB.clone();
+
+		let _  =self.set_mac_address(self.mac_address_raw, true);
+
+		Ok(())
+	}
+
+	#[allow(dead_code)]
 	pub fn set_box_id(&mut self, raw_box_id: [u8; 8], update_crcs: bool) -> Result<(), Box<dyn std::error::Error>> {
 		self.raw = raw_box_id.clone();
 
