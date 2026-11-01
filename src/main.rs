@@ -175,6 +175,7 @@ enum BuildStorageType {
 	DiskBuild,
 	FlashdiskBuild,
 	MSNTV2BIOSBuild,
+	MSNTV2BIOSBypassBuild,
 	MSNTV2DiskOSBuild,
 	PCBIOSBuild,
 	PCDiskOSBuild
@@ -559,7 +560,11 @@ fn get_bootroms(config: &LauncherConfig, selected_machine: &MAMEMachineNode) -> 
 						if selected_box == "msntv2" {
 							if build_meta.layout == BuildMetaLayout::MSNTV2BIOSLayout && build_meta.build_info[0].build_header.build_version > 0 {
 								bootrom.hint = build_meta.build_info[0].build_header.build_version.clone().to_string().into();
-								bootrom.build_storage_type = BuildStorageType::MSNTV2DiskOSBuild;
+								if bootrom.value.contains("emac") {
+									bootrom.build_storage_type = BuildStorageType::MSNTV2BIOSBypassBuild;
+								} else {
+									bootrom.build_storage_type = BuildStorageType::MSNTV2BIOSBuild;
+								}
 							} else {
 								bootrom.build_storage_type = BuildStorageType::PCBIOSBuild;
 							}
@@ -1603,7 +1608,9 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 						// The case where they select a bfe approm for a bf0 bootrom or a bf0 approm for a bfe bootrom wil still break. Check for this case?
 					},
 					BuildStorageState::SignatureMismatch => {
-						ui.set_launcher_state_message("Signature mismatch! Choose a different NK.BIN and BOOT.SIG or use the emac BIOS".into());
+						if selected_bootrom_type != BuildStorageType::MSNTV2BIOSBypassBuild {
+							ui.set_launcher_state_message("Signature mismatch! Choose a different NK.BIN and BOOT.SIG or use the emac BIOS".into());
+						}
 					},
 				}
 			}
