@@ -226,7 +226,8 @@ export component StartPage inherits Page {
 			HorizontalLayout {
 				width: 100%;
 				spacing: 2px;
-				EditableComboBox {
+				if UIMAMEOptions.selected_box != "msntv2" : EditableComboBox {
+					visible: (UIMAMEOptions.selected_box != "msntv2");
 					hintedmodel: UIMAMEOptions.selectable_ssid_manufactures;
 					current-value <=> UIMAMEOptions.selected_ssid_manufacture;
 					width: 60%;
@@ -234,7 +235,7 @@ export component StartPage inherits Page {
 				}
 				Button {
 					text: @tr("Generate");
-					width: (parent.width * 0.4) - 4px;
+					width: (UIMAMEOptions.selected_box != "msntv2") ? ((parent.width * 0.4) - 4px) : parent.width;
 					height: 34px;
 					clicked => {
 						UIMAMEOptions.generate-ssid();
