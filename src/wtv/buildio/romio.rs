@@ -95,7 +95,7 @@ impl BuildIO for ROMIO {
 	}
 
 	fn read(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
-		let corrected_size = buf.len().min((self.len().unwrap_or(0) - self.stream_position().unwrap_or(0)) as usize);
+		let corrected_size = buf.len().min((self.len().unwrap_or(0).wrapping_sub(self.stream_position().unwrap_or(0))) as usize);
 
 		if self.collation == BuildIODataCollation::StrippedROMs {
 			if buf.len() < 0x4 {
@@ -126,7 +126,7 @@ impl BuildIO for ROMIO {
 	}
 
 	fn write(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
-		let corrected_size = buf.len().min((self.len().unwrap_or(0) - self.stream_position().unwrap_or(0)) as usize);
+		let corrected_size = buf.len().min((self.len().unwrap_or(0).wrapping_sub(self.stream_position().unwrap_or(0))) as usize);
 
 		if self.collation == BuildIODataCollation::StrippedROMs {
 			if buf.len() < 0x4 {
