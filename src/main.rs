@@ -2622,7 +2622,13 @@ fn import_bootrom(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_
 
 			let mut bootrom_file: String = "".into();
 			let mut bootrom_collation = BuildIODataCollation::Raw;
-			let bootrom_rom_size = 0x200000;
+			let bootrom_rom_size = if selected_box == "wtv2jpc" || selected_box == "wtv2jpp" {
+				0x400000
+			} else if selected_box == "msntv2" {
+				0x100000
+			} else {
+				0x200000
+			};
 
 			let mut bootroms: Vec<String> = vec![];
 
