@@ -16,8 +16,7 @@ use super::buildio::{
 use regex::Regex;
 
 use mbrman::{
-	MBR,
-	MBRPartitionEntry
+	MBR
 };
 use fatfs::{
 	Dir
