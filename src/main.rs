@@ -2938,7 +2938,8 @@ fn import_approm(source_path: String, ui_weak: slint::Weak<MainWindow>, remove_s
 						let _ = srcf.seek(SeekFrom::Start(0));
 						let _ = srcf.read(&mut source_data);
 
-						// This serves as a convience like it does in my WebTV Disk Editor.
+						// This serves as a convenience like it does in my WebTV Disk Editor.
+						// On import it fixes the checksum automatically so the build will boot.
 						if correct_checksums {
 							match BuildMeta::open_rom(source_path.clone(), None, correct_checksums) {
 								Ok(build_meta) => {
