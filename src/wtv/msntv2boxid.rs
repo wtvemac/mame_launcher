@@ -12,6 +12,8 @@ const BOXID_MACX_LEN: u8 = 6;
 const BOXID_MACX_ORDER: [usize; 6] = [4, 1, 2, 5, 0, 3];
 const BOXID_MACX_XOR: u8 = 0x4a;
 
+const BOXID_MAME_VENDOR_BYTE: u8 = 0x71;
+
 const BOXID_BYTE_BITCNT: u8 = 8;
 
 const BOXID_INTEL_CSUM_TARGET: u16 = 0xbaba;
@@ -97,6 +99,7 @@ impl MSNTV2BoxIdInfo {
 
 		// Remove is_broadcast/multicast and is_local bits
 		mac_address[0] &= !0x3;
+		mac_address[1] = BOXID_MAME_VENDOR_BYTE;
 
 		let _ = box_id.set_mac_address(mac_address, true);
 
