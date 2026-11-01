@@ -1522,6 +1522,10 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 
 	can_revert_approm = selected_approm.value != "" && selected_approm.can_revert;
 
+	if selected_bootrom_type == BuildStorageType::MSNTV2BIOSBypassBuild && selected_approm.build_storage_state == BuildStorageState::SignatureMismatch {
+		selected_approm.build_storage_state = BuildStorageState::BuildLooksGood;
+	}
+
 	let _ = ui_weak.upgrade_in_event_loop(move |ui| {
 
 		let ui_mame = ui.global::<UIMAMEOptions>();
@@ -1609,9 +1613,7 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 						// The case where they select a bfe approm for a bf0 bootrom or a bf0 approm for a bfe bootrom wil still break. Check for this case?
 					},
 					BuildStorageState::SignatureMismatch => {
-						if selected_bootrom_type != BuildStorageType::MSNTV2BIOSBypassBuild {
-							ui.set_launcher_state_message("Signature mismatch! Choose a different NK.BIN and BOOT.SIG or use the emac BIOS".into());
-						}
+						ui.set_launcher_state_message("Signature mismatch! Choose a different NK.BIN and BOOT.SIG or use the emac BIOS".into());
 					},
 				}
 			}
