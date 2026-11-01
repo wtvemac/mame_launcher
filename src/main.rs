@@ -86,6 +86,7 @@ use wtv::{
 slint::include_modules!();
 
 const STACK_SIZE: usize = 32 * 1024 * 1024;
+const ALWAYS_GENERATE_ID_FILES: bool = true;
 const SSID_ROM_FILE: &'static str = "ds2401.bin";
 const MSNTV2_ETHERNET_EEPROM_FILE: &'static str = "pci_1e.0_slot8_i82801_eth_eeprom";
 const MSNTV2_ALWAYS_RESET_EEPROM: bool = true;
@@ -1032,7 +1033,7 @@ fn get_flashdisk_approms(config: &LauncherConfig, selected_machine: &MAMEMachine
 	Ok(approms)
 }
 
-fn get_ssids(config: &LauncherConfig, selected_machine: &MAMEMachineNode, selected_bootrom_index: usize) -> Result<Vec<VerifiableSSIDItem>, Box<dyn std::error::Error>> {
+fn get_ssids(ui_weak: &slint::Weak<MainWindow>, config: &LauncherConfig, selected_machine: &MAMEMachineNode, selected_bootrom_index: usize) -> Result<Vec<VerifiableSSIDItem>, Box<dyn std::error::Error>> {
 	let mut ssids: Vec<VerifiableSSIDItem> = vec![];
 
 	let selected_box = 
@@ -1062,6 +1063,17 @@ fn get_ssids(config: &LauncherConfig, selected_machine: &MAMEMachineNode, select
 			boxid_file_path = mame_directory_path.clone() + "/nvram/" + &selected_box + "_" + &selected_bootrom_index.to_string() + "/" + &boxid_file.clone();
 		} else {
 			boxid_file_path = mame_directory_path.clone() + "/nvram/" + &selected_box + "/" + &boxid_file.clone();
+		}
+
+		if ALWAYS_GENERATE_ID_FILES && !Path::new(&boxid_file_path).exists() {
+			match MSNTV2BoxIdInfo::generate() {
+				Ok(boxid_info) => {
+					let _ = save_boxid_for_box(boxid_info.raw, selected_box.clone(), selected_bootrom_index, ui_weak.clone(), true, true);
+				},
+				_ => {
+
+				}
+			}
 		}
 
 		if Path::new(&boxid_file_path).exists() {
@@ -1114,6 +1126,23 @@ fn get_ssids(config: &LauncherConfig, selected_machine: &MAMEMachineNode, select
 		}
 
 		let ssid_file_path = mame_directory_path.clone() + "/roms/" + &selected_box + "/" + &ssid_file.clone();
+
+		if ALWAYS_GENERATE_ID_FILES && !Path::new(&ssid_file_path).exists() {
+			let ssid_manufacture = if Regex::new(r"^wtv\d+phil$").unwrap().is_match(selected_box.as_str()) {
+				SSIDManufacture::Phillips
+			} else {
+				SSIDManufacture::Sony
+			};
+
+			match SSIDInfo::generate(SSIDBoxType::MAME, ssid_manufacture) {
+				Ok(ssid_info) => {
+					let _ = save_ssid_for_box(ssid_info.raw, selected_box.clone(), ui_weak.clone(), true, true);
+				},
+				_ => {
+
+				}
+			}
+		}
 
 		if Path::new(&ssid_file_path).exists() {
 			let mut f = File::open(ssid_file_path)?;
@@ -1683,7 +1712,7 @@ fn populate_selected_box_ssids(ui_weak: &slint::Weak<MainWindow>, config: &Launc
 		boxid_info: None
 	};
 
-	let available_ssids = match get_ssids(config, &selected_machine, selected_bootrom_index) {
+	let available_ssids = match get_ssids(ui_weak, config, &selected_machine, selected_bootrom_index) {
 		Ok(ssids) => ssids,
 		Err(_e) => vec![]
 	};
@@ -2413,7 +2442,7 @@ fn check_custom_ssid(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std
 			if selected_box == "msntv2" {
 				match MSNTV2BoxIdInfo::new_from_string(requested_ssid) {
 					Ok(boxid_info) => {
-						let _ = save_boxid(boxid_info.raw, ui_weak.clone(), false);
+						let _ = save_boxid(boxid_info.raw, ui_weak.clone(), false, false);
 					},
 					_ => {
 
@@ -2432,7 +2461,7 @@ fn check_custom_ssid(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std
 							}
 						}
 
-						let _ = save_ssid(raw_ssid, ui_weak.clone(), true);
+						let _ = save_ssid(raw_ssid, ui_weak.clone(), true, false);
 					}
 					_ => { }
 				}
@@ -2443,14 +2472,20 @@ fn check_custom_ssid(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std
 	Ok(())
 }
 
-fn save_boxid(raw_box_id: [u8; 8], ui_weak: slint::Weak<MainWindow>, is_blocking: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn save_boxid(raw_box_id: [u8; 8], ui_weak: slint::Weak<MainWindow>, is_blocking: bool, silent: bool) -> Result<(), Box<dyn std::error::Error>> {
 	let ui = ui_weak.unwrap();
 	let ui_mame = ui.global::<UIMAMEOptions>();
 	let selected_box = ui_mame.get_selected_box().to_string();
 	let selected_bootrom_index: usize = ui_mame.get_selected_bootrom_index() as usize;
 
+	save_boxid_for_box(raw_box_id, selected_box, selected_bootrom_index, ui_weak, is_blocking, silent)
+}
+
+fn save_boxid_for_box(raw_box_id: [u8; 8], selected_box: String, selected_bootrom_index: usize, ui_weak: slint::Weak<MainWindow>, is_blocking: bool, silent: bool) -> Result<(), Box<dyn std::error::Error>> {
 	let save_thread = std::thread::spawn(move || {
-		enable_loading(&ui_weak, "Saving".into());
+		if !silent {
+			enable_loading(&ui_weak, "Saving".into());
+		}
 
 		let config = LauncherConfig::new().unwrap();
 
@@ -2528,9 +2563,11 @@ fn save_boxid(raw_box_id: [u8; 8], ui_weak: slint::Weak<MainWindow>, is_blocking
 			}
 		}
 
-		disable_loading(&ui_weak);
+		if !silent {
+			disable_loading(&ui_weak);
 
-		let _ = save_config(ui_weak.clone(), true, None, None, None);
+			let _ = save_config(ui_weak.clone(), true, None, None, None);
+		}
 	});
 
 	if is_blocking {
@@ -2540,13 +2577,19 @@ fn save_boxid(raw_box_id: [u8; 8], ui_weak: slint::Weak<MainWindow>, is_blocking
 	Ok(())
 }
 
-fn save_ssid(raw_ssid: [u8; 0x08], ui_weak: slint::Weak<MainWindow>, is_blocking: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn save_ssid(raw_ssid: [u8; 0x08], ui_weak: slint::Weak<MainWindow>, is_blocking: bool, silent: bool) -> Result<(), Box<dyn std::error::Error>> {
 	let ui = ui_weak.unwrap();
 	let ui_mame = ui.global::<UIMAMEOptions>();
 	let selected_box = ui_mame.get_selected_box().to_string();
 
+	save_ssid_for_box(raw_ssid, selected_box, ui_weak, is_blocking, silent)
+}
+
+fn save_ssid_for_box(raw_ssid: [u8; 0x08], selected_box: String, ui_weak: slint::Weak<MainWindow>, is_blocking: bool, silent: bool) -> Result<(), Box<dyn std::error::Error>> {
 	let save_thread = std::thread::spawn(move || {
-		enable_loading(&ui_weak, "Saving".into());
+		if !silent {
+			enable_loading(&ui_weak, "Saving".into());
+		}
 
 		let config = LauncherConfig::new().unwrap();
 
@@ -2601,9 +2644,11 @@ fn save_ssid(raw_ssid: [u8; 0x08], ui_weak: slint::Weak<MainWindow>, is_blocking
 			}
 		}
 
-		disable_loading(&ui_weak);
+		if !silent {
+			disable_loading(&ui_weak);
 
-		let _ = save_config(ui_weak.clone(), true, None, None, None);
+			let _ = save_config(ui_weak.clone(), true, None, None, None);
+		}
 	});
 
 	if is_blocking {
@@ -4733,7 +4778,7 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 		if selected_box == "msntv2" {
 			match MSNTV2BoxIdInfo::generate() {
 				Ok(boxid_info) => {
-					let _ = save_boxid(boxid_info.raw, ui_weak.clone(), false);
+					let _ = save_boxid(boxid_info.raw, ui_weak.clone(), false, false);
 				},
 				_ => {
 
@@ -4747,7 +4792,7 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 				SSIDManufacture::from_u16(u16::from_str_radix(&selected_ssid_manufacture.to_string().trim_start_matches("0x"), 16).unwrap_or(0x0000))
 			) {
 				Ok(ssid_info) => {
-					let _ = save_ssid(ssid_info.raw, ui_weak.clone(), false);
+					let _ = save_ssid(ssid_info.raw, ui_weak.clone(), false, false);
 				},
 				_ => {
 
