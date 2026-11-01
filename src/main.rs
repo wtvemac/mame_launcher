@@ -4214,10 +4214,6 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 
 		mame_command.arg("-nomouse");
 
-		if ui_mame.get_verbose_mode().into() {
-			mame_command.arg("-verbose");
-		}
-
 		if ui_mame.get_windowed_mode().into() {
 			mame_command.arg("-window");
 			mame_command.arg("-nomaximize");
