@@ -109,6 +109,7 @@ const DEFAULT_BOX_ORDER: [&'static str; 20] = [
 	"wtv2lc2",
 	"wtv2sony",
 	"wtv2phil",
+	"msntv2",
 	"wtv2jpp",
 	"wtv2jpc",
 	"wtv2wld",
@@ -121,8 +122,7 @@ const DEFAULT_BOX_ORDER: [&'static str; 20] = [
 	"wtv2ncl",
 	"wtv2esr",
 	"wtv2utv",
-	"wtv2uvd",
-	"msntv2"
+	"wtv2uvd"
 ];
 const DEFAULT_FLASHDISK_SIZE: u64 = 8 * 1024 * 1024;
 const PUBLIC_TOUCHPP_ADDRESS: &'static str = "wtv.ooguy.com:1122";
