@@ -1342,13 +1342,13 @@ fn populate_selected_box_bootroms(ui_weak: &slint::Weak<MainWindow>, config: &La
 						ui_mame.set_bootrom_import_state(BuildImportState::WillCreate);
 					},
 					BuildStorageState::CodeChecksumMismatch => {
-						ui.set_launcher_state_message(format!("{} code checksum mismatch! Did you choose an image that's too large? Please choose a new {} file if it doesn't run!", image_name, image_file).into());
+						ui.set_launcher_state_message(format!("{} code checksum mismatch! Did you choose an image that's too large? Choose a new {} file if it doesn't run!", image_name, image_file).into());
 					},
 					BuildStorageState::RomfsChecksumMismatch => {
-						ui.set_launcher_state_message(format!("{} ROMFS checksum mismatch! Did you choose an image that's too large? Please choose a new {} file if it doesn't run!", image_name, image_file).into());
+						ui.set_launcher_state_message(format!("{} ROMFS checksum mismatch! Did you choose an image that's too large? Choose a new {} file if it doesn't run!", image_name, image_file).into());
 					}
 					BuildStorageState::BadBaseAddress => {
-						ui.set_launcher_state_message(format!("{} base address incorrect! Did you import an AppROM image as a BootROM? Please choose a new {} file if it doesn't run!", image_name, image_file).into());
+						ui.set_launcher_state_message(format!("{} base address incorrect! Did you import an AppROM image as a BootROM? Choose a new {} file if it doesn't run!", image_name, image_file).into());
 					}
 					BuildStorageState::SignatureMismatch => {
 						//
@@ -1564,7 +1564,7 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 			if !supress_warnings {
 				match selected_approm.build_storage_state {
 					BuildStorageState::UnknownBuildState => {
-						ui.set_launcher_state_message(format!("Unknown {} state. Please choose a new {} file if it doesn't run!", image_name, image_file).into());
+						ui.set_launcher_state_message(format!("Unknown {} state. Choose a new {} file if it doesn't run!", image_name, image_file).into());
 					},
 					BuildStorageState::BuildLooksGood => {
 						// No need to show a warning message for this.
@@ -1588,21 +1588,21 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 						ui_mame.set_approm_import_state(BuildImportState::WillCreate);
 					},
 					BuildStorageState::CantReadBuild => {
-						ui.set_launcher_state_message(format!("Error parsing {} image? Please choose a new {} file if it doesn't run!", image_name, image_file).into());
+						ui.set_launcher_state_message(format!("Error parsing {} image? Choose a new {} file if it doesn't run!", image_name, image_file).into());
 						ui_mame.set_approm_import_state(BuildImportState::WillCreate);
 					},
 					BuildStorageState::CodeChecksumMismatch => {
-						ui.set_launcher_state_message(format!("{} code checksum mismatch! Did you choose an image that's too large? Please choose a new {} file if it doesn't run!", image_name, image_file).into());
+						ui.set_launcher_state_message(format!("{} code checksum mismatch! Did you choose an image that's too large? Choose a new {} file if it doesn't run!", image_name, image_file).into());
 					},
 					BuildStorageState::RomfsChecksumMismatch => {
-						ui.set_launcher_state_message(format!("{} ROMFS checksum mismatch! Did you choose an image that's too large? Please choose a new {} file if it doesn't run!", image_name, image_file).into());
+						ui.set_launcher_state_message(format!("{} ROMFS checksum mismatch! Did you choose an image that's too large? Choose a new {} file if it doesn't run!", image_name, image_file).into());
 					},
 					BuildStorageState::BadBaseAddress => {
-						ui.set_launcher_state_message(format!("{} base address incorrect! Did you choose an image for the wrong box? Please choose a new {} file if it doesn't run!", image_name, image_file).into());
+						ui.set_launcher_state_message(format!("{} base address incorrect! Did you choose an image for the wrong box? Choose a new {} file if it doesn't run!", image_name, image_file).into());
 						// The case where they select a bfe approm for a bf0 bootrom or a bf0 approm for a bfe bootrom wil still break. Check for this case?
 					},
 					BuildStorageState::SignatureMismatch => {
-						ui.set_launcher_state_message("Signature mismatch! Please choose a different NK.BIN and BOOT.SIG or use the emac BIOS".into());
+						ui.set_launcher_state_message("Signature mismatch! Choose a different NK.BIN and BOOT.SIG or use the emac BIOS".into());
 					},
 				}
 			}
