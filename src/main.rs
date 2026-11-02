@@ -219,6 +219,7 @@ enum SlotType {
 	ModemSerial,
 	DebugSerial,
 	MoIPBridge,
+	LIRCDevice,
 	Unknown
 }
 
@@ -1233,6 +1234,19 @@ fn get_slots(selected_machine: &MAMEMachineNode) -> Result<Vec<MachineSlotItem>,
 
 				slots.push(slot);
 			}
+		} else if device_type == "lirc" {
+			if briefname != "" {
+				let slot = MachineSlotItem {
+					hint: "".into(),
+					value: (device_tag.clone() + "; " + &briefname.clone().to_owned()).into(),
+					description: "".into(),
+					name: briefname.clone().into(),
+					slot_name: device_tag.clone().into(),
+					slot_type: SlotType::LIRCDevice
+				};
+
+				slots.push(slot);
+			}
 		}
 	}
 
@@ -1917,6 +1931,8 @@ fn populate_selected_box_slots(ui_weak: &slint::Weak<MainWindow>, _config: &Laun
 
 	// Softmodem boxes have a MoIP bridge, which lets the modem connect to a sip: endpoint.
 	let mut selected_moip_startpoint = "".to_string();
+	// Newer (wtv varient) MAME versions allow LIRC input. Allowing you to use a IR receiver direct with the guest OS in MAME.
+	let mut selected_lirc_startpoint = "".to_string();
 	for slot in available_slots.iter() {
 		if slot.slot_type == SlotType::ModemSerial && selected_modem_startpoint.slot_type == SlotType::Unknown {
 			selected_modem_startpoint = slot.clone();
@@ -1924,6 +1940,8 @@ fn populate_selected_box_slots(ui_weak: &slint::Weak<MainWindow>, _config: &Laun
 			selected_debug_startpoint = slot.clone();
 		} else if slot.slot_type == SlotType::MoIPBridge && selected_moip_startpoint == "" {
 			selected_moip_startpoint = slot.value.to_string();
+		} else if slot.slot_type == SlotType::LIRCDevice && selected_lirc_startpoint == "" {
+			selected_lirc_startpoint = slot.value.to_string();
 		}
 	}
 
@@ -1977,15 +1995,24 @@ fn populate_selected_box_slots(ui_weak: &slint::Weak<MainWindow>, _config: &Laun
 			}
 		}
 
+		// In practice there's only one modem startpoint but this allows more than one. Validate the startpoints before setting the startpoint value.
 		ui_mame.set_selectable_modem_bitb_startpoints(slint::ModelRc::new(slint::VecModel::from(selectable_modem_bitb_startpoints)));
 		if selected_modem_startpoint.slot_type == SlotType::ModemSerial && !selected_modem_bitb_startpoint_valid {
 			ui_mame.set_selected_modem_bitb_startpoint(selected_modem_startpoint.value.clone().into());
 		}
+
+		// There's only one -moip startpoint so no need to validate it against a known list. The right value is forced.
 		ui_mame.set_selected_modem_moip_startpoint(selected_moip_startpoint.into());
+
+		// Most of the time there's only one debug startpoint but in cases like wtv2wld that has two debug ports, we validate it against the list before setting the startpoint value.
 		ui_mame.set_selectable_debug_bitb_startpoints(slint::ModelRc::new(slint::VecModel::from(selectable_debug_bitb_startpoints)));
 		if selected_debug_startpoint.slot_type == SlotType::DebugSerial && !selected_debug_bitb_startpoint_valid {
 			ui_mame.set_selected_debug_bitb_startpoint(selected_debug_startpoint.value.clone().into());
 		}
+
+		// There's only one -lirc startpoint so no need to validate it against a know list. The right value is forced.
+		ui_mame.set_selected_lirc_startpoint(selected_lirc_startpoint.into());
+
 		if !supress_warnings {
 			if !found_modem_slot {
 				ui.set_launcher_state_message("I asked MAME to list its usable modems for this box and it gave me nothing! Broken MAME executable?".into());
@@ -2267,6 +2294,63 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 
 		////
 		//
+		// Start->Selected LIRC Endpoint
+		//
+		////
+
+		let mut selectable_lirc_endpoints: Vec<HintedItem> = vec![ ];
+		#[cfg(target_os = "linux")]
+		{
+			use std::os::unix::fs::FileTypeExt;
+
+			let mut lirc_devices: Vec<std::path::PathBuf> = fs::read_dir("/dev")
+				.into_iter()
+				.flatten()
+				.flatten()
+				.filter(|entry| entry.file_name().to_string_lossy().starts_with("lirc"))
+				.filter(|entry| entry.file_type().map(|file_type| file_type.is_char_device()).unwrap_or(false))
+				.map(|entry| entry.path())
+				.collect();
+			lirc_devices.sort();
+
+			for (index, lirc_device) in lirc_devices.iter().enumerate() {
+				selectable_lirc_endpoints.push(
+					HintedItem {
+						hint: ("LIRC Device ".to_owned() + &index.to_string()).into(),
+						tooltip: "".into(),
+						value: lirc_device.to_string_lossy().to_string().into(),
+						icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
+					}
+				);
+			}
+		}
+		// A server like this doesn't exist as far as I know but can be built for non-Linux platforms.
+		// A WinLIRC server exists @ 8765 but it does not send MODE2 data.
+		selectable_lirc_endpoints.push(
+			HintedItem {
+				hint: "Local MODE2".into(),
+				tooltip: "".into(),
+				value: "127.0.0.1:8766".to_string().into(),
+				icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
+			}
+		);
+		ui_mame.set_selectable_lirc_endpoints(slint::ModelRc::new(slint::VecModel::from(selectable_lirc_endpoints.clone())));
+		let selected_lirc_endpoint = config_persistent_mame.selected_lirc_endpoint.unwrap_or("".into());
+		let mut selected_lirc_endpoint_valid = false;
+		for selectable_lirc_endpoint in selectable_lirc_endpoints.iter() {
+			if selected_lirc_endpoint == *selectable_lirc_endpoint.value {
+				selected_lirc_endpoint_valid = true;
+				break;
+			}
+		}
+		if selected_lirc_endpoint_valid {
+			ui_mame.set_selected_lirc_endpoint(selected_lirc_endpoint.clone().into());
+		} else {
+			ui_mame.set_selected_lirc_endpoint(selectable_lirc_endpoints[0].value.clone().into());
+		}
+
+		////
+		//
 		// Start->Options
 		//
 		////
@@ -2278,6 +2362,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		ui_mame.set_validate_build_image(config_persistent_mame.validate_build_image.unwrap_or(true).into());
 		ui_mame.set_console_input(config_persistent_mame.console_input.unwrap_or(false).into());
 		ui_mame.set_disable_sound(config_persistent_mame.disable_sound.unwrap_or(false).into());
+		ui_mame.set_enable_lirc(config_persistent_mame.enable_lirc.unwrap_or(false).into());
 
 		ui_mame.set_custom_options(config_persistent_mame.custom_options.unwrap_or("".into()).into());
 	});
@@ -3321,6 +3406,7 @@ fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool, new_bootroms: Opt
 				selected_modem_bitb_endpoint: Some(ui_mame.get_selected_modem_bitb_endpoint().into()),
 				selected_modem_moip_endpoint: Some(ui_mame.get_selected_modem_moip_endpoint().into()),
 				selected_debug_bitb_endpoint: Some(ui_mame.get_selected_debug_bitb_endpoint().into()),
+				selected_lirc_endpoint: Some(ui_mame.get_selected_lirc_endpoint().into()),
 				selected_hdimg_paths: selected_hdimg_paths,
 				selected_hdimg_enabled: selected_hdimg_enabled,
 				verbose_mode: Some(ui_mame.get_verbose_mode().into()),
@@ -3330,6 +3416,7 @@ fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool, new_bootroms: Opt
 				validate_build_image: Some(ui_mame.get_validate_build_image().into()),
 				console_input: Some(ui_mame.get_console_input().into()),
 				disable_sound: Some(ui_mame.get_disable_sound().into()),
+				enable_lirc: Some(ui_mame.get_enable_lirc().into()),
 				custom_options: Some(ui_mame.get_custom_options().into())
 			},
 			network: network
@@ -4465,6 +4552,16 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 			}
 		}
 
+		let selected_lirc_startpoint: String = ui_mame.get_selected_lirc_startpoint().to_string();
+		if ui_mame.get_enable_lirc().into() && selected_lirc_startpoint != "" {
+			let selected_lirc_endpoint: String = ui_mame.get_selected_lirc_endpoint().to_string();
+			if Regex::new(r"^[^\:]+\:\d+$").unwrap().is_match(selected_lirc_endpoint.as_str()) {
+				mame_command.arg("-lirc").arg(&("socket.".to_owned() + &selected_lirc_endpoint));
+			} else {
+				mame_command.arg("-lirc").arg(selected_lirc_endpoint);
+			}
+		}
+
 		let selected_hdimg_path: String = ui_mame.get_selected_hdimg_path().to_string();
 		let selected_hdimg_enabled = ui_mame.get_selected_hdimg_enabled();
 		if selected_hdimg_enabled && selected_hdimg_path != "" {
@@ -4842,6 +4939,7 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 		ui_mame.set_selected_modem_bitb_startpoint("".into());
 		ui_mame.set_selected_modem_moip_startpoint("".into());
 		ui_mame.set_selected_debug_bitb_startpoint("".into());
+		ui_mame.set_selected_lirc_startpoint("".into());
 
 		let _ = save_config(ui_weak.clone(), true, None, None, None);
 	});

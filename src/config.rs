@@ -249,6 +249,7 @@ pub struct MAMEOptions {
     pub selected_modem_bitb_endpoint: Option<String>,
     pub selected_modem_moip_endpoint: Option<String>,
     pub selected_debug_bitb_endpoint: Option<String>,
+    pub selected_lirc_endpoint: Option<String>,
 	pub selected_hdimg_paths: Option<HashMap<String, String>>,
 	pub selected_hdimg_enabled: Option<HashMap<String, bool>>,
     pub verbose_mode: Option<bool>,
@@ -258,6 +259,7 @@ pub struct MAMEOptions {
     pub validate_build_image: Option<bool>,
     pub console_input: Option<bool>,
     pub disable_sound: Option<bool>,
+    pub enable_lirc: Option<bool>,
     pub custom_options: Option<String>
 }
 
@@ -670,6 +672,7 @@ impl LauncherConfig {
 				selected_modem_bitb_endpoint: None,
 				selected_modem_moip_endpoint: None,
 				selected_debug_bitb_endpoint: None,
+				selected_lirc_endpoint: None,
 				selected_hdimg_paths: None,
 				selected_hdimg_enabled: None,
 				verbose_mode: Some(false),
@@ -679,6 +682,7 @@ impl LauncherConfig {
 				validate_build_image: Some(true),
 				console_input: Some(false),
 				disable_sound: Some(false),
+				enable_lirc: Some(false),
 				custom_options: Some("".into())
 			},
 			network: Some(NetworkOptions::default_options())

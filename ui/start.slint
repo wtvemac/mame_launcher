@@ -111,6 +111,11 @@ export global UIMAMEOptions {
 	in-out property<[HintedItem]> selectable_debug_bitb_startpoints: [];
 	in-out property<string> selected_debug_bitb_startpoint: "";
 
+	// LIRC
+	in-out property<[HintedItem]> selectable_lirc_endpoints: [];
+	in-out property<string> selected_lirc_endpoint: "";
+	in-out property<string> selected_lirc_startpoint: "";
+
 	// Other Options
 	in-out property<bool> verbose_mode: false;
 	in-out property<bool> windowed_mode: true;
@@ -119,6 +124,8 @@ export global UIMAMEOptions {
 	in-out property<bool> validate_build_image: true;
 	in-out property<bool> console_input: false;
 	in-out property<bool> disable_sound: false;
+	in-out property<bool> can_use_lirc: (selected_lirc_startpoint != "");
+	in-out property<bool> enable_lirc: false;
 
 	// Custom options
 	in-out property<string> custom_options: "";
@@ -296,44 +303,46 @@ export component StartPage inherits Page {
 	TitledVerticalBox {
 		title: @tr("Other Options");
 	
-		HorizontalLayout {
+		GridLayout {
 			width: 100%;
 			padding-bottom: 7px;
-			VerticalLayout {
-				width: 50%;
-				spacing: 5px;
-				Switch {
-					text: @tr("Windowed Mode");
-					width: 180px;
-					height: 28px;
-					checked <=> UIMAMEOptions.windowed_mode;
-				}
-				Switch {
-					text: @tr("Validate Build Image");
-					width: 180px;
-					height: 28px;
-					checked <=> UIMAMEOptions.validate_build_image;
-				}
-				Switch {
-					text: @tr("Disable Sound");
-					width: 180px;
-					height: 28px;
-					checked <=> UIMAMEOptions.disable_sound;
-				}
-			}
-
-			VerticalLayout {
-				width: 50%;
-				spacing: 5px;
-				Switch {
-					text: @tr("Verbose Mode");
-					width: 180px;
-					height: 28px;
-					checked <=> UIMAMEOptions.verbose_mode;
+			spacing-vertical: 5px;
+			Row {
+				HorizontalLayout {
+					width: 50%;
+					alignment: start;
+					Switch {
+						text: @tr("Windowed Mode");
+						width: 180px;
+						height: 28px;
+						checked <=> UIMAMEOptions.windowed_mode;
+					}
 				}
 				HorizontalLayout {
+					width: 50%;
+					alignment: start;
+					Switch {
+						text: @tr("Verbose Mode");
+						width: 180px;
+						height: 28px;
+						checked <=> UIMAMEOptions.verbose_mode;
+					}
+				}
+			}
+			Row {
+				HorizontalLayout {
+					width: 50%;
+					alignment: start;
+					Switch {
+						text: @tr("Validate Build Image");
+						width: 180px;
+						height: 28px;
+						checked <=> UIMAMEOptions.validate_build_image;
+					}
+				}
+				HorizontalLayout {
+					width: 50%;
 					spacing: 0px;
-					width: 100%;
 					Switch {
 						text: @tr("Console Input");
 						width: 180px;
@@ -350,9 +359,21 @@ export component StartPage inherits Page {
 						
 					}
 				}
+			}
+			Row {
 				HorizontalLayout {
+					width: 50%;
+					alignment: start;
+					Switch {
+						text: @tr("Disable Sound");
+						width: 180px;
+						height: 28px;
+						checked <=> UIMAMEOptions.disable_sound;
+					}
+				}
+				HorizontalLayout {
+					width: 50%;
 					spacing: 0px;
-					width: 100%;
 					Switch {
 						text: @tr("Debug Mode");
 						width: 180px;
@@ -369,11 +390,38 @@ export component StartPage inherits Page {
 						
 					}
 				}
-				Switch {
-					text: @tr("Use Dynamic Recompiler");
-					width: 180px;
-					height: 28px;
-					checked <=> UIMAMEOptions.use_drc;
+			}
+			Row {
+				HorizontalLayout {
+					width: 50%;
+					spacing: 0px;
+					padding-right: 10px;
+					Switch {
+						text: @tr("Enable LIRC");
+						width: 180px;
+						height: 28px;
+						enabled: UIMAMEOptions.can_use_lirc; // if the "Enable LIRC" toggle is available, not if LIRC is enabled. enabled=false when MAME doesn't support -lirc
+						checked <=> UIMAMEOptions.enable_lirc;
+					}
+					EditableComboBox {
+						visible: UIMAMEOptions.enable_lirc;
+						enabled: UIMAMEOptions.can_use_lirc;
+						height: 33px;
+						editable: true;
+						hintedmodel: UIMAMEOptions.selectable_lirc_endpoints;
+						current-value <=> UIMAMEOptions.selected_lirc_endpoint;
+						
+					}
+				}
+				HorizontalLayout {
+					width: 50%;
+					alignment: start;
+					Switch {
+						text: @tr("Use Dynamic Recompiler");
+						width: 180px;
+						height: 28px;
+						checked <=> UIMAMEOptions.use_drc;
+					}
 				}
 			}
 		}
