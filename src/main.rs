@@ -218,6 +218,7 @@ enum SSIDStorageState {
 enum SlotType {
 	ModemSerial,
 	DebugSerial,
+	MoIPBridge,
 	Unknown
 }
 
@@ -256,7 +257,7 @@ struct MachineSlotItem {
 	pub hint: slint::SharedString,
 	pub value: slint::SharedString,
 	pub description: slint::SharedString,
-	pub bitbanger_name: String,
+	pub name: String,
 	pub slot_name: String,
 	pub slot_type: SlotType
 }
@@ -1194,32 +1195,45 @@ fn get_slots(selected_machine: &MAMEMachineNode) -> Result<Vec<MachineSlotItem>,
 			device.dtype
 			.clone()
 			.unwrap_or("".into());
-		if device_type == "bitbanger" {
-			let mut bitbanger_briefname = "".to_string();
-			for instance in device.instance.clone().unwrap_or(vec![]).iter() {
-				bitbanger_briefname =
-					instance.briefname
-					.clone()
-					.unwrap_or("".into());
-				if bitbanger_briefname != "" {
-					break;
-				}
+		let mut briefname = "".to_string();
+		for instance in device.instance.clone().unwrap_or(vec![]).iter() {
+			briefname =
+				instance.briefname
+				.clone()
+				.unwrap_or("".into());
+			if briefname != "" {
+				break;
 			}
-			if bitbanger_briefname != "" {
-				let device_tag = 
-					device.tag
-					.clone()
-					.unwrap_or("".into());
+		}
+		let device_tag = 
+			device.tag
+			.clone()
+			.unwrap_or("".into());
+
+		if device_type == "bitbanger" {
+			if briefname != "" {
 				match Regex::new(r"^(?<slot_name>.+?)\:null_modem\:stream$").unwrap().captures(device_tag.as_str()) {
 					Some(matches) => {
-						bitbangers.insert(matches["slot_name"].to_string(), bitbanger_briefname);
+						bitbangers.insert(matches["slot_name"].to_string(), briefname);
 					}
 					None => {
 					}
 				}
 			}
-		}
+		} else if device_type == "moipbridge" {
+			if briefname != "" {
+				let slot = MachineSlotItem {
+					hint: "".into(),
+					value: (device_tag.clone() + "; " + &briefname.clone().to_owned()).into(),
+					description: "".into(),
+					name: briefname.clone().into(),
+					slot_name: device_tag.clone().into(),
+					slot_type: SlotType::MoIPBridge
+				};
 
+				slots.push(slot);
+			}
+		}
 	}
 
 	for xslot in selected_machine.clone().slot.unwrap_or(vec![]).iter() {
@@ -1244,7 +1258,7 @@ fn get_slots(selected_machine: &MAMEMachineNode) -> Result<Vec<MachineSlotItem>,
 					hint: "".into(),
 					value: (slot_name.clone() + "; " + &bitbangers[&slot_name.clone()].clone().to_owned()).into(),
 					description: "".into(),
-					bitbanger_name: bitbangers[&slot_name.clone()].clone().into(),
+					name: bitbangers[&slot_name.clone()].clone().into(),
 					slot_name: slot_name.clone().into(),
 					slot_type: SlotType::Unknown
 				};
@@ -1873,7 +1887,7 @@ fn populate_selected_box_slots(ui_weak: &slint::Weak<MainWindow>, _config: &Laun
 		hint: "".into(),
 		value: "".into(),
 		description: "".into(),
-		bitbanger_name: "".into(),
+		name: "".into(),
 		slot_name: "".into(),
 		slot_type: SlotType::Unknown
 	};
@@ -1881,7 +1895,7 @@ fn populate_selected_box_slots(ui_weak: &slint::Weak<MainWindow>, _config: &Laun
 		hint: "".into(),
 		value: "".into(),
 		description: "".into(),
-		bitbanger_name: "".into(),
+		name: "".into(),
 		slot_name: "".into(),
 		slot_type: SlotType::Unknown
 	};
@@ -1901,16 +1915,29 @@ fn populate_selected_box_slots(ui_weak: &slint::Weak<MainWindow>, _config: &Laun
 		available_slots.reverse();
 	}
 
+	// Softmodem boxes have a MoIP bridge, which lets the modem connect to a sip: endpoint.
+	let mut selected_moip_startpoint = "".to_string();
 	for slot in available_slots.iter() {
 		if slot.slot_type == SlotType::ModemSerial && selected_modem_startpoint.slot_type == SlotType::Unknown {
 			selected_modem_startpoint = slot.clone();
 		} else if slot.slot_type == SlotType::DebugSerial && selected_debug_startpoint.slot_type == SlotType::Unknown {
 			selected_debug_startpoint = slot.clone();
+		} else if slot.slot_type == SlotType::MoIPBridge && selected_moip_startpoint == "" {
+			selected_moip_startpoint = slot.value.to_string();
 		}
+	}
+
+	if selected_moip_startpoint != "" {
+		found_modem_slot = true;
 	}
 
 	let _ = ui_weak.upgrade_in_event_loop(move |ui| {
 		let ui_mame = ui.global::<UIMAMEOptions>();
+
+		// This handles cases where we need to point the modem or debug serial selection into.
+		// For example, on the wtv2wld box it has two debug points but we can only use one at a time
+		// So this allows you to select which debug port to use.
+		// It is never more than one for the modem case but the code is here in case we add one.
 
 		let selected_modem_bitb_startpoint = ui_mame.get_selected_modem_bitb_startpoint().to_string();
 		let mut selected_modem_bitb_startpoint_valid = false;
@@ -1954,6 +1981,7 @@ fn populate_selected_box_slots(ui_weak: &slint::Weak<MainWindow>, _config: &Laun
 		if selected_modem_startpoint.slot_type == SlotType::ModemSerial && !selected_modem_bitb_startpoint_valid {
 			ui_mame.set_selected_modem_bitb_startpoint(selected_modem_startpoint.value.clone().into());
 		}
+		ui_mame.set_selected_modem_moip_startpoint(selected_moip_startpoint.into());
 		ui_mame.set_selectable_debug_bitb_startpoints(slint::ModelRc::new(slint::VecModel::from(selectable_debug_bitb_startpoints)));
 		if selected_debug_startpoint.slot_type == SlotType::DebugSerial && !selected_debug_bitb_startpoint_valid {
 			ui_mame.set_selected_debug_bitb_startpoint(selected_debug_startpoint.value.clone().into());
@@ -2132,6 +2160,26 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 				icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
 			}
 		];
+
+		// Boxes with a MoIP bridge can use the same endpoints as above or a sip: endpoint.
+		let mut selectable_modem_moip_box_endpoints = selectable_modem_bitb_endpoints.clone();
+		selectable_modem_moip_box_endpoints.push(
+			HintedItem {
+				hint: "Redialed SIP".into(),
+				tooltip: "".into(),
+				value: "sip:redialed:redialed2@sip.webtv.zone:16555".into(),
+				icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
+			}
+		);
+		selectable_modem_moip_box_endpoints.push(
+			HintedItem {
+				hint: "eMac's Public SIP".into(),
+				tooltip: "".into(),
+				value: "sip:hacktv:hacktv@moip.mywire.org:16151".into(),
+				icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
+			}
+		);
+
 		match serialport::available_ports() {
 			Ok(ports) => {
 				for (index, port) in ports.iter().enumerate() {
@@ -2142,24 +2190,29 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 						_ => "Unknown".into()
 					};
 
-					selectable_modem_bitb_endpoints.push(
-						HintedItem {
-							hint: ("[".to_owned() + &serial_port_type + "] Serial Port " + &index.to_string()).into(),
-							tooltip: ("Serial Port Type: ".to_owned() + &serial_port_type).into(),
-							value: port.port_name.clone().into(),
-							icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
-						}
-					);
+					let serial_port_item = HintedItem {
+						hint: ("[".to_owned() + &serial_port_type + "] Serial Port " + &index.to_string()).into(),
+						tooltip: ("Serial Port Type: ".to_owned() + &serial_port_type).into(),
+						value: port.port_name.clone().into(),
+						icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
+					};
+					selectable_modem_bitb_endpoints.push(serial_port_item.clone());
+					selectable_modem_moip_box_endpoints.push(serial_port_item);
 				}
 			},
 			_ => { }
 		}
-		ui_mame.set_selectable_modem_bitb_endpoints(slint::ModelRc::new(slint::VecModel::from(selectable_modem_bitb_endpoints.clone())));
+		ui_mame.set_selectable_modem_bitb_endpoints(slint::ModelRc::new(slint::VecModel::from(selectable_modem_bitb_endpoints)));
+		// Restore even if it's not in the list since it could have been typed in manually.
 		let selected_modem_bitb_endpoint = config_persistent_mame.selected_modem_bitb_endpoint.unwrap_or("".into());
-		for selectable_debug_bitb_endpoint in selectable_modem_bitb_endpoints.iter() {
-			if selected_modem_bitb_endpoint == *selectable_debug_bitb_endpoint.value {
-				ui_mame.set_selected_modem_bitb_endpoint(selected_modem_bitb_endpoint.clone().into());
-			}
+		if selected_modem_bitb_endpoint != "" {
+			ui_mame.set_selected_modem_bitb_endpoint(selected_modem_bitb_endpoint.clone().into());
+		}
+
+		ui_mame.set_selectable_modem_moip_box_endpoints(slint::ModelRc::new(slint::VecModel::from(selectable_modem_moip_box_endpoints)));
+		let selected_modem_moip_endpoint = config_persistent_mame.selected_modem_moip_endpoint.unwrap_or("".into());
+		if selected_modem_moip_endpoint != "" {
+			ui_mame.set_selected_modem_moip_endpoint(selected_modem_moip_endpoint.clone().into());
 		}
 
 		////
@@ -3267,6 +3320,7 @@ fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool, new_bootroms: Opt
 				selected_box: Some(ui_mame.get_selected_box().into()),
 				selected_bootroms: selected_bootroms,
 				selected_modem_bitb_endpoint: Some(ui_mame.get_selected_modem_bitb_endpoint().into()),
+				selected_modem_moip_endpoint: Some(ui_mame.get_selected_modem_moip_endpoint().into()),
 				selected_debug_bitb_endpoint: Some(ui_mame.get_selected_debug_bitb_endpoint().into()),
 				selected_hdimg_paths: selected_hdimg_paths,
 				selected_hdimg_enabled: selected_hdimg_enabled,
@@ -4383,9 +4437,24 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 			}
 		}
 
+		// Boxes with a MoIP bridge use -moip for sip: modem endpoints and -bitb for ever other modem endpoint.
+		let selected_modem_moip_startpoint: String = ui_mame.get_selected_modem_moip_startpoint().to_string();
 		let selected_modem_bitb_startpoint: String = ui_mame.get_selected_modem_bitb_startpoint().to_string();
-		let selected_modem_bitb_endpoint: String = ui_mame.get_selected_modem_bitb_endpoint().to_string();
-		if selected_modem_bitb_endpoint != "" && selected_modem_bitb_startpoint != "" {
+		let selected_modem_bitb_endpoint: String = if selected_modem_moip_startpoint != "" {
+			ui_mame.get_selected_modem_moip_endpoint().to_string()
+		} else {
+			ui_mame.get_selected_modem_bitb_endpoint().to_string()
+		};
+		if selected_modem_bitb_endpoint.starts_with("sip:") {
+			match Regex::new(r"^(?<moip_tag>[^; ]+?)\; (?<moip_select>.+?)$").unwrap().captures(selected_modem_moip_startpoint.as_str()) {
+				Some(matches) => {
+					mame_command.arg("-".to_owned() + &matches["moip_select"]).arg(&selected_modem_bitb_endpoint);
+				}
+				None => {
+					let _ = add_console_text(ui_weak.clone(), " \n \nERROR: This box doesn't have a MoIP bridge so the sip: modem endpoint can't be used.\n".to_string(), MAMEConsoleScrollMode::ForceScroll, 0);
+				}
+			}
+		} else if selected_modem_bitb_endpoint != "" && selected_modem_bitb_startpoint != "" {
 			match Regex::new(r"^(?<slot_select>[^; ]+?)\; (?<bitb_select>.+?)$").unwrap().captures(selected_modem_bitb_startpoint.as_str()) {
 				Some(matches) => {
 					//mame_command.arg("-".to_owned() + &matches["slot_select"]).arg("null_modem");
@@ -4776,6 +4845,7 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 		let ui_mame = ui.global::<UIMAMEOptions>();
 
 		ui_mame.set_selected_modem_bitb_startpoint("".into());
+		ui_mame.set_selected_modem_moip_startpoint("".into());
 		ui_mame.set_selected_debug_bitb_startpoint("".into());
 
 		let _ = save_config(ui_weak.clone(), true, None, None, None);
