@@ -3438,11 +3438,7 @@ fn choose_executable_file(ui_weak: slint::Weak<MainWindow>) -> Result<String, Bo
 	let ui = ui_weak.unwrap();
 	let ui_paths = ui.global::<UIPaths>();
 
-	let mut last_opened_exe_path: String = ui_paths.get_last_opened_exe_path().into();
-
-	if last_opened_exe_path == "" {
-		last_opened_exe_path = "~".into();
-	}
+	let last_opened_exe_path = get_choose_file_location(ui_paths.get_last_opened_exe_path().into());
 
 	let chooser: FileDialogBuilder;
 
@@ -3760,11 +3756,7 @@ fn choose_hdimg(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::err
 	let ui_paths = ui.global::<UIPaths>();
 	let ui_mame = ui.global::<UIMAMEOptions>();
 
-	let mut last_opened_img_path: String = ui_paths.get_last_opened_img_path().into();
-
-	if last_opened_img_path == "" {
-		last_opened_img_path = "~".into();
-	}
+	let last_opened_img_path = get_choose_file_location(ui_paths.get_last_opened_img_path().into());
 
 	let chooser = 
 		DialogBuilder::file()
@@ -3855,17 +3847,22 @@ fn unset_hdimg(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::erro
 	Ok(())
 }
 
+fn get_choose_file_location(path: String) -> String {
+	Path::new(&path)
+		.ancestors()
+		.find(|ancestor| ancestor.is_dir())
+		.and_then(|ancestor| ancestor.to_str())
+		.unwrap_or("~")
+		.to_string()
+}
+
 fn choose_build_file(ui_weak: slint::Weak<MainWindow>) -> Result<String, Box<dyn std::error::Error>> {
 	let ui = ui_weak.unwrap();
 	let ui_paths = ui.global::<UIPaths>();
 	let ui_mame = ui.global::<UIMAMEOptions>();
 
-	let mut last_opened_rom_path: String = ui_paths.get_last_opened_rom_path().into();
+	let last_opened_rom_path = get_choose_file_location(ui_paths.get_last_opened_rom_path().into());
 	let selected_box = ui_mame.get_selected_box().clone().to_string();
-
-	if last_opened_rom_path == "" {
-		last_opened_rom_path = "~".into();
-	}
 
 	let rommy_enabled = ui_paths.get_rommy_enabled();
 
