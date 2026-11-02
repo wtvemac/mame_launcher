@@ -2275,7 +2275,6 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		ui_mame.set_windowed_mode(config_persistent_mame.windowed_mode.unwrap_or(true).into());
 		ui_mame.set_use_drc(config_persistent_mame.use_drc.unwrap_or(true).into());
 		ui_mame.set_debug_mode(config_persistent_mame.debug_mode.unwrap_or(false).into());
-		ui_mame.set_skip_info_screen(config_persistent_mame.skip_info_screen.unwrap_or(true).into());
 		ui_mame.set_validate_build_image(config_persistent_mame.validate_build_image.unwrap_or(true).into());
 		ui_mame.set_console_input(config_persistent_mame.console_input.unwrap_or(false).into());
 		ui_mame.set_disable_sound(config_persistent_mame.disable_sound.unwrap_or(false).into());
@@ -3328,7 +3327,6 @@ fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool, new_bootroms: Opt
 				windowed_mode: Some(ui_mame.get_windowed_mode().into()),
 				use_drc: Some(ui_mame.get_use_drc().into()),
 				debug_mode: Some(ui_mame.get_debug_mode().into()),
-				skip_info_screen: Some(ui_mame.get_skip_info_screen().into()),
 				validate_build_image: Some(ui_mame.get_validate_build_image().into()),
 				console_input: Some(ui_mame.get_console_input().into()),
 				disable_sound: Some(ui_mame.get_disable_sound().into()),
@@ -4336,6 +4334,7 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 		mame_command.arg(ui_mame.get_selected_box().to_string());
 
 		mame_command.arg("-nomouse");
+		mame_command.arg("-skip_gameinfo");
 
 		if ui_mame.get_windowed_mode().into() {
 			mame_command.arg("-window");
@@ -4354,10 +4353,6 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 
 		if ui_mame.get_debug_mode().into() {
 			mame_command.arg("-debug");
-		}
-
-		if ui_mame.get_skip_info_screen().into() {
-			mame_command.arg("-skip_gameinfo");
 		}
 
 		if ui_mame.get_disable_sound().into() {

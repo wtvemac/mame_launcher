@@ -116,7 +116,6 @@ export global UIMAMEOptions {
 	in-out property<bool> windowed_mode: true;
 	in-out property<bool> use_drc: true;
 	in-out property<bool> debug_mode: false;
-	in-out property<bool> skip_info_screen: true;
 	in-out property<bool> validate_build_image: true;
 	in-out property<bool> console_input: false;
 	in-out property<bool> disable_sound: false;
@@ -303,12 +302,6 @@ export component StartPage inherits Page {
 			VerticalLayout {
 				width: 50%;
 				spacing: 5px;
-				Switch {
-					text: @tr("Skip Info Screen");
-					width: 180px;
-					height: 28px;
-					checked <=> UIMAMEOptions.skip_info_screen;
-				}
 				Switch {
 					text: @tr("Windowed Mode");
 					width: 180px;
