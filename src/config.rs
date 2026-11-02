@@ -467,18 +467,18 @@ impl LauncherConfig {
 		}
 	}
 
-	fn xml_attribute_is(element: &BytesStart, name: &[u8], value: &str) -> bool {
+	fn xml_attribute_is(element: &BytesStart, name: &str, value: &str) -> bool {
 		element.attributes().flatten().any(|attribute| {
-			attribute.key.as_ref() == name && attribute.unescape_value().map(|attribute_value| attribute_value == value).unwrap_or(false)
+			attribute.key.as_ref() == name && attribute.normalized_value(quick_xml::XmlVersion::Implicit1_0).map(|attribute_value| attribute_value == value).unwrap_or(false)
 		})
 	}
 
 	fn xml_with_attribute(element: &BytesStart, name: &str, value: &str) -> BytesStart<'static> {
-		let mut new_element = BytesStart::new(String::from_utf8_lossy(element.name().as_ref()).into_owned());
+		let mut new_element = BytesStart::new(element.name().as_ref().to_owned());
 		let mut replaced = false;
 
 		for attribute in element.attributes().flatten() {
-			if attribute.key.as_ref() == name.as_bytes() {
+			if attribute.key.as_ref() == name {
 				new_element.push_attribute((name, value));
 				replaced = true;
 			} else {
@@ -562,19 +562,19 @@ impl LauncherConfig {
 
 			loop {
 				match reader.read_event()? {
-					Event::Start(element) if element.name().as_ref() == b"system" => {
-						in_system = LauncherConfig::xml_attribute_is(&element, b"name", machine_name);
+					Event::Start(element) if element.name().as_ref() == "system" => {
+						in_system = LauncherConfig::xml_attribute_is(&element, "name", machine_name);
 						has_system |= in_system;
 					},
-					Event::End(element) if element.name().as_ref() == b"system" => in_system = false,
-					Event::Start(element) if in_system && element.name().as_ref() == b"network" => {
+					Event::End(element) if element.name().as_ref() == "system" => in_system = false,
+					Event::Start(element) if in_system && element.name().as_ref() == "network" => {
 						in_network = true;
 						has_network = true;
 					},
-					Event::Empty(element) if in_system && element.name().as_ref() == b"network" => has_network = true,
-					Event::End(element) if element.name().as_ref() == b"network" => in_network = false,
-					Event::Start(element) | Event::Empty(element) if in_network && element.name().as_ref() == b"device" => {
-						has_device |= LauncherConfig::xml_attribute_is(&element, b"tag", device_tag);
+					Event::Empty(element) if in_system && element.name().as_ref() == "network" => has_network = true,
+					Event::End(element) if element.name().as_ref() == "network" => in_network = false,
+					Event::Start(element) | Event::Empty(element) if in_network && element.name().as_ref() == "device" => {
+						has_device |= LauncherConfig::xml_attribute_is(&element, "tag", device_tag);
 					},
 					Event::Eof => break,
 					_ => {}
@@ -595,28 +595,28 @@ impl LauncherConfig {
 			let event = reader.read_event()?;
 
 			match &event {
-				Event::Start(element) if element.name().as_ref() == b"system" => {
-					in_system = LauncherConfig::xml_attribute_is(element, b"name", machine_name);
+				Event::Start(element) if element.name().as_ref() == "system" => {
+					in_system = LauncherConfig::xml_attribute_is(element, "name", machine_name);
 
-					writer.write_event(&event)?;
+					writer.write_event(event.borrow())?;
 					if in_system && !has_network {
 						LauncherConfig::xml_write_network_device(&mut writer, &device_element, true)?;
 					}
 
 					continue;
 				},
-				Event::End(element) if element.name().as_ref() == b"system" => in_system = false,
-				Event::Start(element) if in_system && element.name().as_ref() == b"network" => {
+				Event::End(element) if element.name().as_ref() == "system" => in_system = false,
+				Event::Start(element) if in_system && element.name().as_ref() == "network" => {
 					in_network = true;
 
-					writer.write_event(&event)?;
+					writer.write_event(event.borrow())?;
 					if !has_device {
 						LauncherConfig::xml_write_network_device(&mut writer, &device_element, false)?;
 					}
 
 					continue;
 				},
-				Event::Empty(element) if in_system && element.name().as_ref() == b"network" && !has_device => {
+				Event::Empty(element) if in_system && element.name().as_ref() == "network" && !has_device => {
 					writer.write_event(Event::Start(BytesStart::new("network").with_attributes(element.attributes().flatten())))?;
 					LauncherConfig::xml_write_network_device(&mut writer, &device_element, false)?;
 					writer.write_event(Event::Text(BytesText::new("\n        ")))?;
@@ -624,9 +624,9 @@ impl LauncherConfig {
 
 					continue;
 				},
-				Event::End(element) if element.name().as_ref() == b"network" => in_network = false,
-				Event::Start(element) | Event::Empty(element) if in_network && element.name().as_ref() == b"device" && LauncherConfig::xml_attribute_is(element, b"tag", device_tag) => {
-					if !LauncherConfig::xml_attribute_is(element, b"interface", &interface_value) {
+				Event::End(element) if element.name().as_ref() == "network" => in_network = false,
+				Event::Start(element) | Event::Empty(element) if in_network && element.name().as_ref() == "device" && LauncherConfig::xml_attribute_is(element, "tag", device_tag) => {
+					if !LauncherConfig::xml_attribute_is(element, "interface", &interface_value) {
 						let new_element = LauncherConfig::xml_with_attribute(element, "interface", &interface_value);
 
 						if let Event::Start(_) = event {
@@ -642,7 +642,7 @@ impl LauncherConfig {
 				_ => {}
 			}
 
-			writer.write_event(&event)?;
+			writer.write_event(event.borrow())?;
 		}
 
 		let new_cfg_xml = String::from_utf8(writer.into_inner())?;

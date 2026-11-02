@@ -24,12 +24,9 @@ use std::{
 	},
 	time::{Duration, Instant}
 };
-use rand::{
-	Rng,
-	distributions::{Alphanumeric, DistString}
-};
+use rand::distr::{Alphanumeric, SampleString};
 use regex::Regex;
-use native_dialog::FileDialog;
+use native_dialog::{DialogBuilder, FileDialogBuilder};
 use sysinfo::{Pid, System};
 use rodio;
 use serialport;
@@ -3308,15 +3305,15 @@ fn choose_executable_file(ui_weak: slint::Weak<MainWindow>) -> Result<String, Bo
 		last_opened_exe_path = "~".into();
 	}
 
-	let chooser: FileDialog;
+	let chooser: FileDialogBuilder;
 
 	chooser = 
-		FileDialog::new()
+		DialogBuilder::file()
 		.set_location(&last_opened_exe_path)
-		.set_filename("".into());
+		.set_filename("");
 
 
-	let selected_file_pathbuf = chooser.show_open_single_file().unwrap_or(None);
+	let selected_file_pathbuf = chooser.open_single_file().show().unwrap_or(None);
 
 	let mut file_path: String = "".into();
 	if selected_file_pathbuf != None {
@@ -3353,7 +3350,7 @@ fn get_rommy_file(in_file_path: String, python_path: String, rommy_path: String)
 		Some(tmp_dir) => {
 			let selected_file_directory = LauncherConfig::get_parent(in_file_path.clone()).unwrap_or("".into());
 
-			let random_file_name = Alphanumeric.sample_string(&mut rand::thread_rng(), 16) + ".o";
+			let random_file_name = Alphanumeric.sample_string(&mut rand::rng(), 16) + ".o";
 			let random_file_path = tmp_dir.to_owned() + "/" + &random_file_name;
 
 			let mut command = Command::new(python_path);
@@ -3631,12 +3628,12 @@ fn choose_hdimg(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::err
 	}
 
 	let chooser = 
-		FileDialog::new()
+		DialogBuilder::file()
 		.set_location(&last_opened_img_path)
-		.set_filename("".into())
+		.set_filename("")
 		.add_filter("WebTV HD Image", &["img", "dd", "bin"]);
 
-	let selected_file_pathbuf = chooser.show_open_single_file().unwrap_or(None);
+	let selected_file_pathbuf = chooser.open_single_file().show().unwrap_or(None);
 
 	if selected_file_pathbuf != None {
 		let mut selected_file_path: String = "".into();
@@ -3733,14 +3730,14 @@ fn choose_build_file(ui_weak: slint::Weak<MainWindow>) -> Result<String, Box<dyn
 
 	let rommy_enabled = ui_paths.get_rommy_enabled();
 
-	let chooser: FileDialog;
+	let chooser: FileDialogBuilder;
 
 	if rommy_enabled && selected_box != "msntv2" {
 		chooser = 
-			FileDialog::new()
+			DialogBuilder::file()
 			.set_title("Choose build image")
 			.set_location(&last_opened_rom_path)
-			.set_filename("".into())
+			.set_filename("")
 			.add_filter("WebTV Build Files", &["o", "bin", "img", "rom", "brom", "json"])
 			.add_filter("WebTV Build Image", &["o", "bin", "img"])
 			.add_filter("WebTV partXXX File", &["rom", "brom"])
@@ -3748,22 +3745,22 @@ fn choose_build_file(ui_weak: slint::Weak<MainWindow>) -> Result<String, Box<dyn
 	} else {
 		if selected_box == "msntv2" {
 			chooser = 
-				FileDialog::new()
+				DialogBuilder::file()
 				.set_title("Choose NK.BIN OS image")
 				.set_location(&last_opened_rom_path)
-				.set_filename("".into())
+				.set_filename("")
 				.add_filter("MSNTV2 OS Image", &["sig", "bin", "SIG", "BIN"]);
 		} else {
 			chooser = 
-				FileDialog::new()
+				DialogBuilder::file()
 				.set_title("Choose build image")
 				.set_location(&last_opened_rom_path)
-				.set_filename("".into())
+				.set_filename("")
 				.add_filter("WebTV Build Image", &["o", "bin", "img"]);
 		}
 	}
 
-	let selected_file_pathbuf = chooser.show_open_single_file().unwrap_or(None);
+	let selected_file_pathbuf = chooser.open_single_file().show().unwrap_or(None);
 
 	let mut returned_file_path: String = "".into();
 	if selected_file_pathbuf != None {
@@ -3861,11 +3858,11 @@ fn do_fart(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error::E
 	let _ = std::thread::spawn(move || {
 		let _ = fart_enable(ui_weak.clone(), true);
 
-		let (_stream, shandle) = rodio::OutputStream::try_default().unwrap();
+		let sink_handle = rodio::DeviceSinkBuilder::open_default_sink().unwrap();
 
-		let asink = rodio::Sink::try_new(&shandle).unwrap();
+		let asink = rodio::Player::connect_new(&sink_handle.mixer());
 
-		let rand_intro_index = (rand::thread_rng().gen_range(1..1000) % 3) + 1;
+		let rand_intro_index = (rand::random_range(1..1000) % 3) + 1;
 		let fart_intro = match rand_intro_index {
 			1 => FART_INTRO1,
 			2 => FART_INTRO2,
@@ -3874,7 +3871,7 @@ fn do_fart(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error::E
 		};
 		asink.append(rodio::Decoder::new(BufReader::new(Cursor::new(fart_intro))).unwrap());
 
-		let rand_fart_index = (rand::thread_rng().gen_range(1..1000) % 3) + 1;
+		let rand_fart_index = (rand::random_range(1..1000) % 3) + 1;
 		let fart = match rand_fart_index {
 			1 => FART1,
 			2 => FART2,
@@ -4483,9 +4480,10 @@ fn end_mame(ui_weak: slint::Weak<MainWindow>) {
 		let _ = std::thread::spawn(move || {
 			enable_loading(&ui_weak, "Closing MAME".into());
 			
-			let sys = System::new_all();
-			if let Some(process) = sys.process(Pid::from(mame_pid as usize)) {
-				process.kill();
+			if let Ok(sys) = System::new_all() {
+				if let Some(process) = sys.process(Pid::from(mame_pid as usize)) {
+					process.kill();
+				}
 			}
 
 			let _ = save_config(ui_weak.clone(), true, None, None, None);
