@@ -6,6 +6,7 @@
 // You need to run this launcher with the SLINT_BACKEND=winit-software env to force the software renderer.
 
 mod config;
+mod netstack;
 mod wtv;
 
 use std::{
@@ -64,7 +65,8 @@ use {
 	accessibility_sys::{AXIsProcessTrustedWithOptions, kAXTrustedCheckOptionPrompt}
 };
 
-use config::{LauncherConfig, MAMEMachineNode, MAMEOptions, Paths, PersistentConfig};
+use config::{DEFAULT_DNS0000_TARGET, LauncherConfig, MAMEMachineNode, MAMEOptions, NetworkOptions, Paths, PersistentConfig};
+use netstack::NetworkStack;
 use wtv::{
 	buildio::{
 		BuildIO,
@@ -90,6 +92,7 @@ const ALWAYS_GENERATE_ID_FILES: bool = true;
 const SSID_ROM_FILE: &'static str = "ds2401.bin";
 const MSNTV2_ETHERNET_EEPROM_FILE: &'static str = "pci_1e.0_slot8_i82801_eth_eeprom";
 const MSNTV2_ALWAYS_RESET_EEPROM: bool = true;
+const MSNTV2_ETHERNET_DEVICE_TAG: &'static str = ":pci:1e.0:slot8:i82801_eth";
 const DEFAULT_BOOTORM_FILE_NAME: &'static str = "bootrom.o";
 const DEFAULT_MSNTV2_BOOTORM_FILE_NAME: &'static str = "bios-emac-mame-only.bin";
 const BOOTROM_BASE_ADDRESS: u32 = 0x9fc00000;
@@ -3244,6 +3247,16 @@ fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool, new_bootroms: Opt
 			}
 		};
 
+		let default_network = NetworkOptions::default_options();
+		let network = match LauncherConfig::get_persistent_config() {
+			Ok(config) => config.network,
+			_ => None
+		}.map(|network| NetworkOptions {
+			ethernet_enabled: network.ethernet_enabled.or(default_network.ethernet_enabled.clone()),
+			dns0000_target: network.dns0000_target.or(default_network.dns0000_target.clone()),
+			dns_overrides: network.dns_overrides.or(default_network.dns_overrides.clone())
+		}).or(Some(default_network));
+
 		let new_config = PersistentConfig {
 			paths: Paths {
 				mame_path: Some(ui_paths.get_mame_path().into()),
@@ -3269,7 +3282,8 @@ fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool, new_bootroms: Opt
 				console_input: Some(ui_mame.get_console_input().into()),
 				disable_sound: Some(ui_mame.get_disable_sound().into()),
 				custom_options: Some(ui_mame.get_custom_options().into())
-			}
+			},
+			network: network
 		};
 
 		let _ = LauncherConfig::save_persistent_config(&new_config); // May freeze up UI
@@ -4189,7 +4203,7 @@ fn output_mame_stdio(ui_weak: slint::Weak<MainWindow>, stdout: Option<ChildStdou
 	Ok(process_has_error.load(Relaxed))
 }
 
-fn spawn_mame_from_command(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx: Receiver<String>, mut mame_command: Command) -> Result<(), Box<dyn std::error::Error>> {
+fn spawn_mame_from_command(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx: Receiver<String>, mut mame_command: Command, network_stack: Option<NetworkStack>) -> Result<(), Box<dyn std::error::Error>> {
 	let _ = std::thread::spawn(move || {
 		let mut full_mame_command_line: String;
 
@@ -4223,6 +4237,9 @@ fn spawn_mame_from_command(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u1
 		};
 
 		let _= set_mame_pid(ui_weak.clone(), 0);
+
+		// Stops the launcher network.
+		drop(network_stack);
 
 		let _ = add_console_text(ui_weak.clone(), " \nMAME Ended\n".into(), MAMEConsoleScrollMode::ForceScroll, 0);
 
@@ -4263,7 +4280,7 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 		#[cfg(target_os = "windows")]
 		mame_command.creation_flags(0x08000000); // CREATE_NO_WINDOW
 
-		mame_command.current_dir(mame_directory_path);
+		mame_command.current_dir(mame_directory_path.clone());
 
 		mame_command.arg(ui_mame.get_selected_box().to_string());
 
@@ -4303,6 +4320,13 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 			mame_command.arg("-bios").arg(selected_bootrom);
 		}
 
+		let network_stack = if ui_mame.get_selected_box().as_str() == "msntv2" {
+			start_netstack(ui_weak.clone(), &mame_executable_path, &mame_directory_path, &mut mame_command)
+		} else {
+			None
+		};
+
+		// Custom options come after the launcher's options so they can override them.
 		let custom_options: String = ui_mame.get_custom_options().to_string();
 		if custom_options != "" {
 			// EMAC: should acocunt for quoted arguments but this is good "for now"
@@ -4386,10 +4410,66 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 			mame_command.arg("-hard").arg(selected_hdimg_path);
 		}
 
-		let _ = spawn_mame_from_command(ui_weak, debug_bitb_port, drx, mame_command);
+		let _ = spawn_mame_from_command(ui_weak, debug_bitb_port, drx, mame_command, network_stack);
 	}
 
 	Ok(())
+}
+
+fn start_netstack(ui_weak: slint::Weak<MainWindow>, mame_executable_path: &String, mame_directory_path: &String, mame_command: &mut Command) -> Option<NetworkStack> {
+	let network_options = match LauncherConfig::get_persistent_config() {
+		Ok(config) => config.network,
+		_ => None
+	}.unwrap_or(NetworkOptions::default_options());
+
+	if !network_options.ethernet_enabled.unwrap_or(true) {
+		return None;
+	}
+
+	if !LauncherConfig::mame_supports_option(mame_executable_path, "network_socket") {
+		let _ = add_console_text(ui_weak.clone(), "WARNING: This MAME build doesn't support the launcher network so ethernet won't be available. Update MAME to use ethernet.\n".into(), MAMEConsoleScrollMode::ForceScroll, 0);
+
+		return None;
+	}
+
+	if let Err(e) = LauncherConfig::set_mame_network_interface(mame_directory_path, "msntv2", MSNTV2_ETHERNET_DEVICE_TAG, 0) {
+		let _ = add_console_text(ui_weak.clone(), "WARNING: Couldn't select the ethernet network device in MAME's config. Ethernet may not work.\n".to_owned() + &e.to_string() + "\n", MAMEConsoleScrollMode::ForceScroll, 0);
+	}
+
+	let dns0000_target = network_options.dns0000_target
+		.map(|target| target.trim().to_string())
+		.filter(|target| target != "")
+		.unwrap_or(DEFAULT_DNS0000_TARGET.into());
+
+	let dns_overrides: Vec<(String, String)> = network_options.dns_overrides.unwrap_or_default()
+		.into_iter()
+		.map(|(domain, target)| {
+			if target.trim() == "0.0.0.0" {
+				(domain, dns0000_target.clone())
+			} else {
+				(domain, target)
+			}
+		})
+		.collect();
+
+	let ui_weak_cpy = ui_weak.clone();
+	let network_log = Box::new(move |text: String| {
+		let _ = add_console_text(ui_weak_cpy.clone(), text, MAMEConsoleScrollMode::ConditionalScroll, 0);
+	});
+
+	match NetworkStack::start(dns_overrides, network_log) {
+		Ok(network_stack) => {
+			mame_command.arg("-networkprovider").arg("socket");
+			mame_command.arg("-network_socket").arg("127.0.0.1:".to_owned() + &network_stack.port().to_string());
+
+			Some(network_stack)
+		},
+		Err(e) => {
+			let _ = add_console_text(ui_weak.clone(), "ERROR: Couldn't start the launcher network! Ethernet won't be available.\n".to_owned() + &e.to_string() + "\n", MAMEConsoleScrollMode::ForceScroll, 0);
+
+			None
+		}
+	}
 }
 
 fn end_mame(ui_weak: slint::Weak<MainWindow>) {
