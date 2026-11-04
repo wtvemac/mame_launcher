@@ -41,6 +41,7 @@ const RAW_LAYOUT_CHECK_OFFSET: u64 = 0x00000000;
 const RAW_LAYOUT_CHECK_MASK: u32 = 0xfffff000;
 const RAW_LAYOUT_CHECK_VALUE: u32 = 0x10000000;
 const RAW_BUILD_OFFSET0: u64 = 0x00000000;
+const RAW_BUILD_MAX_SIZE: u64 = 4 * 1024 * 1024;
 
 const PARTITION_TABLE_MAGIC: u32 = 0x74696d6e; // timn
 const PARTITION_TABLE_MAGIC_OFFSET: u64 = 0x00000008;
@@ -49,6 +50,7 @@ const FLASHDISK_ADMININFO_OFFSET: u64 = 0x00000600;
 const FLASHDISK_NVRAM_SIZE_CHECK_VALUE: u32 = 0x00004000;
 const FLASHDISK_BUILD_HEADER_OFFSET: u64 = 0x00000800;
 const FLASHDISK_DEFAULT_BUILD_OFFSET: u64 = 0x00020800;
+const FLASHDISK_BUILD_DEFAULT_SIZE: u64 = 4 * 1024 * 1024;
 const FLASHDISK_DEFAULT_BLOCK0: [u8; WEBTV_BLOCK_SIZE as usize] = [
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -152,21 +154,23 @@ const FLASHDISK_DEFAULT_BLOCK3: [u8; WEBTV_BLOCK_SIZE as usize] = [ // this is t
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 
 ];
 
-
 const LC2_PARTITION_TABLE_OFFSET: u64 = 0x014c1000;
 const LC2_BUILD_SELECT_OFFSET: u64 = 0x01080600;
 const LC2_BUILD_OFFSET0: u64 = 0x00080600;
 const LC2_BUILD_OFFSET1: u64 = 0x00880600;
+const LC2_BUILD_DEFAULT_SIZE: u64 = 8 * 1024 * 1024;
 
 const WEBSTART_PART_COUNT_CHECK_OFFSET: u64 = 0x00000004;
 const WEBSTART_PART_TYPE_CHECK_OFFSET: u64 = 0x00000068;
 const WEBSTART_PART_TYPE_CHECK_VALUE: u32 = 0x00000004;
 const WEBSTAR_BUILD_OFFSET0: u64 = 0x00080600;
+const WEBSTAR_BUILD_DEFAULT_SIZE: u64 = 16 * 1024 * 1024;
 
 const UTV_PARTITION_TABLE_OFFSET: u64 = 0x178c1000;
 const UTV_BUILD_SELECT_OFFSET: u64 = 0x17480600;
 const UTV_BUILD_OFFSET0: u64 = 0x13480600;
 const UTV_BUILD_OFFSET1: u64 = 0x15480600;
+const UTV_BUILD_DEFAULT_SIZE: u64 = 32 * 1024 * 1024;
 
 const MSNTV2_BIOS_SIZE: u64 = 1 * 1024 * 1024;
 const MSNTV2_BIOS_UNKMARK_OFFSET: u64 = 0x000ffff0;
@@ -177,6 +181,7 @@ const MSNTV2_OEM_NAME_BSOFFSET: u64 = 0x03;
 const MSNTV2_OEM_NAME_VALUE: u64 = 0x4d534e5456000000; // MSNTV\x00\x00\x00 as BE int
 const MSNTV2_PROD_SIG_PUBKEY: &'static [u8]  = include_bytes!("../../keys/msntv2-mainkey.ber");
 const MSNTV2_SIG_FILE_NAME: &'static str = "BOOT.SIG";
+const MSNTV2_BUILD_DEFAULT_SIZE: u64 = 32 * 1000 * 1000;
 
 const NO_ROMFS_FLAG: u32 = 0x4e6f4653; // NoFS
 
@@ -412,7 +417,9 @@ impl BuildMeta {
 
 		let _ = self.io.seek(build_offset);
 
-		let result = self.io.write(buf)?;
+		let max_size = self.get_selected_build_max_size();
+		let limit = buf.len().min((if max_size > 0 { max_size } else { RAW_BUILD_MAX_SIZE }) as usize);
+		let result = self.io.write(&mut buf[..limit])?;
 
 		let _ = self.io.commit();
 
@@ -431,6 +438,24 @@ impl BuildMeta {
 		}
 
 		Ok(())
+	}
+
+	pub fn get_selected_build_max_size(&mut self) -> u64 {
+		if self.layout == BuildMetaLayout::LC2DiskLayout {
+			LC2_BUILD_DEFAULT_SIZE
+		} else if self.layout == BuildMetaLayout::WebstarDiskLayout {
+			WEBSTAR_BUILD_DEFAULT_SIZE
+		} else if self.layout == BuildMetaLayout::UTVDiskLayout {
+			UTV_BUILD_DEFAULT_SIZE
+		} else if self.layout == BuildMetaLayout::FlashdiskLayout {
+			// If we intend to have custom flashdisk boxes then this will need to change (or really any custom layout)
+			FLASHDISK_BUILD_DEFAULT_SIZE
+		} else if self.layout == BuildMetaLayout::MSNTV2DiskLayout {
+			MSNTV2_BUILD_DEFAULT_SIZE
+		} else {
+			// BootROM/BIOS/Raw sizes are variable and depend on the box
+			0
+		}
 	}
 
 	fn default_buildmeta(build_io: Box<dyn BuildIO>) -> BuildMeta {

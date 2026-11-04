@@ -2984,9 +2984,9 @@ fn import_flash_approm(config: &LauncherConfig, selected_box: &String, selected_
 	let is_pal_box = Regex::new(r"^wtv\d+pal$").unwrap().is_match(selected_box.as_str());
 
 	if is_dev_box || is_pal_box {
-		approm_rom_size = 0x400000;
+		approm_rom_size = 4 * 1024 * 1204;
 	} else {
-		approm_rom_size = 0x200000;
+		approm_rom_size = 2 * 1024 * 1204;
 	}
 
 	if approm_directory_path != "" && approm_file_path != "" {
