@@ -26,12 +26,8 @@ export component IconButton {
 				displayed-button.checked = true;
 			} else if event.kind == PointerEventKind.up {
 				displayed-button.checked = false;
-
-				if event.button == PointerEventButton.left {
-					root.clicked();
-				}
 			}
-			
+
 			root.pointer-event(event);
 		}
 
