@@ -1,0 +1,26 @@
+// By: Eric MacDonald (eMac)
+
+export component Collapsible inherits Rectangle {
+	in property <bool> expanded: false;
+
+	out property <length> target-height: (root.expanded) ? content.preferred-height : 0px;
+	out property <length> expanded-height: content.preferred-height;
+
+	clip: true;
+	height: root.target-height;
+	visible: self.height > 0px;
+
+	animate height {
+		duration: 200ms;
+		easing: ease-in-out;
+	}
+
+	content := VerticalLayout {
+		x: 0px;
+		y: 0px;
+		width: root.width;
+		height: self.preferred-height;
+
+		@children
+	}
+}

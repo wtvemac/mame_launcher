@@ -259,8 +259,24 @@ pub struct MAMEOptions {
     pub validate_build_image: Option<bool>,
     pub console_input: Option<bool>,
     pub disable_sound: Option<bool>,
+    pub capture_mame_window: Option<bool>,
+    pub use_decoupled_sound: Option<bool>,
     pub enable_lirc: Option<bool>,
-    pub custom_options: Option<String>
+    pub selected_audio_in_endpoint: Option<String>,
+    pub enable_audio_in: Option<bool>,
+    pub selected_video_in_endpoint: Option<String>,
+    pub enable_video_in: Option<bool>,
+    pub selected_smartcard_endpoint: Option<String>,
+    pub enable_smartcard: Option<bool>,
+    pub selected_cacard_endpoint: Option<String>,
+    pub enable_cacard: Option<bool>,
+    pub selected_wtvport_option: Option<String>,
+    pub enable_wtvport: Option<bool>,
+    pub selected_parallel_option: Option<String>,
+    pub selected_parallel_socket_endpoint: Option<String>,
+    pub enable_parallel: Option<bool>,
+    pub custom_options: Option<String>,
+    pub show_advanced_options: Option<bool>
 }
 
 #[allow(dead_code)]
@@ -682,8 +698,24 @@ impl LauncherConfig {
 				validate_build_image: Some(true),
 				console_input: Some(false),
 				disable_sound: Some(false),
+				capture_mame_window: Some(true),
+				use_decoupled_sound: Some(false),
 				enable_lirc: Some(false),
-				custom_options: Some("".into())
+				selected_audio_in_endpoint: None,
+				enable_audio_in: Some(false),
+				selected_video_in_endpoint: None,
+				enable_video_in: Some(false),
+				selected_smartcard_endpoint: None,
+				enable_smartcard: Some(false),
+				selected_cacard_endpoint: None,
+				enable_cacard: Some(false),
+				selected_wtvport_option: None,
+				enable_wtvport: Some(false),
+				selected_parallel_option: None,
+				selected_parallel_socket_endpoint: None,
+				enable_parallel: Some(false),
+				custom_options: Some("".into()),
+				show_advanced_options: Some(false)
 			},
 			network: Some(NetworkOptions::default_options())
 		}

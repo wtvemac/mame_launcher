@@ -12,7 +12,11 @@ export component LoadingBox inherits Rectangle {
 	background: black;
 	opacity: 0.85;
 	visible: true;
-	in property<length> size: root.width * 0.25;
+	// The spinner shrinks so the spinner and message fit in the box
+	in property<length> size: max(root.min-size, min(root.width * 0.25, root.height - (root.edge-padding * 2) - root.message-spacing - root.message-height));
+	in property<length> min-size: 24px;
+	in property<length> edge-padding: 15px;
+	in property<length> message-height: 32px;
 	in property<percent> progress: 50%;
 	in property<bool> indeterminate: true;
 	in property<string> message: "";
@@ -22,9 +26,12 @@ export component LoadingBox inherits Rectangle {
 	in property<brush> message-color: white;
 	
 
+	// The spinner and message are centered together.
+	property<length> group-height: root.size + root.message-spacing + root.message-height;
+
 	loading-spinner := Spinner {
-		horizontal-stretch: 1;
-		vertical-stretch: 1;
+		x: (root.width - self.width) / 2;
+		y: max(root.edge-padding, (root.height - root.group-height) / 2);
 		width: root.size;
 		height: root.size;
 		opacity: 1.0;
@@ -36,9 +43,10 @@ export component LoadingBox inherits Rectangle {
 		x: 0px;
 		y: loading-spinner.y + loading-spinner.height + root.message-spacing;
 		width: 100%;
-		height: 32px;
+		height: root.message-height;
 		text: root.message;
 		horizontal-alignment: center;
+		vertical-alignment: center;
 		opacity: 1.0;
 		font-weight: root.message-font-weight;
 		font-size: message-font-size;

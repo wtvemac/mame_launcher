@@ -8,6 +8,7 @@
 mod config;
 mod netstack;
 mod wtv;
+mod externalpopup;
 
 use std::{
 	collections::HashMap, 
@@ -129,6 +130,23 @@ const DEFAULT_BOX_ORDER: [&'static str; 20] = [
 const DEFAULT_FLASHDISK_SIZE: u64 = 8 * 1024 * 1024;
 const PUBLIC_TOUCHPP_ADDRESS: &'static str = "wtv.ooguy.com:1122";
 const DEFAULT_DEBUG_ENDPOINT: &'static str = "Launcher Console";
+const DEFAULT_CAPTURE_DEVICE: &'static str = "auto";
+const WTVPORT_BOXES: &[&str] = &[
+	"wtv1bf0",
+	"wtv1sony",
+	"wtv1phil",
+	"wtv1pal",
+	"wtv1dev",
+	"wtv1dv2",
+	"wtv2lc2",
+	"wtv2sony",
+	"wtv2phil"
+	];
+const WTVPORT_SLOT_NAME: &'static str = "wtvport1";
+const PARALLEL_SLOT_NAME: &'static str = "pport";
+const DEFAULT_PARALLEL_SOCKET_ENDPOINT: &'static str = "127.0.0.1:3000";
+const SERIAL_PORT_PREFIX: &'static str = "serial.";
+const DEFAULT_SERIAL_PORT_OPTIONS: &'static str = "b115200,cs8";
 const DEBUG_READ_BUFFER_SIZE: usize = 1024;
 const CONSOLE_READ_BUFFER_SIZE: usize = 1024;
 const CONSOLE_UPDATE_INTERVAL_USEC: u128 = 10000;
@@ -1290,6 +1308,180 @@ fn get_slots(selected_machine: &MAMEMachineNode) -> Result<Vec<MachineSlotItem>,
 	Ok(slots)
 }
 
+fn get_slot_options(config: &LauncherConfig, selected_machine: &MAMEMachineNode, slot_name: &str) -> Vec<(String, String)> {
+	let mut slot_options: Vec<(String, String)> = vec![];
+
+	let config_machines = config.mame.machine.clone().unwrap_or(vec![]);
+
+	for xslot in selected_machine.slot.clone().unwrap_or(vec![]).iter() {
+		if xslot.name.clone().unwrap_or("".into()) != slot_name {
+			continue;
+		}
+
+		for slotoption in xslot.slotoption.clone().unwrap_or(vec![]).iter() {
+			let slotoption_name =
+				slotoption.name
+				.clone()
+				.unwrap_or("".into());
+			let slotoption_devname =
+				slotoption.devname
+				.clone()
+				.unwrap_or("".into());
+			if slotoption_name == "" {
+				continue;
+			}
+
+			let mut slotoption_description = "".to_string();
+			for config_machine in config_machines.iter() {
+				if config_machine.name.clone().unwrap_or("".into()) == slotoption_devname {
+					slotoption_description =
+						config_machine.description
+						.clone()
+						.unwrap_or("".into());
+					break;
+				}
+			}
+
+			slot_options.push((slotoption_name, slotoption_description));
+		}
+
+		break;
+	}
+
+	slot_options.sort_by(|a, b| a.0.cmp(&b.0));
+
+	slot_options
+}
+
+fn get_audio_in_devices() -> Vec<(String, String)> {
+	use rodio::cpal::traits::{DeviceTrait, HostTrait};
+
+	#[allow(unused_mut)]
+	let mut audio_in_devices: Vec<(String, String)> = vec![];
+
+	#[cfg(target_os = "linux")]
+	{
+		audio_in_devices = get_pulse_audio_in_devices();
+	}
+
+	if audio_in_devices.len() == 0 {
+		if let Ok(devices) = rodio::cpal::default_host().input_devices() {
+			for device in devices {
+				if let Ok(description) = device.description() {
+					let is_input_device = if cfg!(target_os = "linux") {
+						description.direction() == rodio::cpal::DeviceDirection::Input
+					} else {
+						description.supports_input()
+					};
+					let device_name = description.name().to_string();
+					if is_input_device && device_name != "" && !audio_in_devices.iter().any(|(_, value)| *value == device_name) {
+						audio_in_devices.push(("".into(), device_name));
+					}
+				}
+			}
+		}
+	}
+
+	audio_in_devices
+}
+
+#[cfg(target_os = "linux")]
+fn get_pulse_audio_in_devices() -> Vec<(String, String)> {
+	let mut audio_in_devices: Vec<(String, String)> = vec![];
+
+	let pactl_output = match Command::new("pactl").env("LC_ALL", "C").arg("list").arg("sources").output() {
+		Ok(pactl_output) if pactl_output.status.success() => String::from_utf8_lossy(&pactl_output.stdout).to_string(),
+		_ => return audio_in_devices
+	};
+
+	// (description, is monitor)
+	let mut sources: Vec<(String, bool)> = vec![];
+	for line in pactl_output.lines() {
+		let line = line.trim();
+		if line.starts_with("Source #") {
+			sources.push(("".into(), false));
+		} else if let Some(source) = sources.last_mut() {
+			if let Some(description) = line.strip_prefix("Description: ") {
+				source.0 = description.trim().to_string();
+			} else if let Some(monitor_of_sink) = line.strip_prefix("Monitor of Sink: ") {
+				source.1 = source.1 || monitor_of_sink.trim() != "n/a";
+			} else if line == "device.class = \"monitor\"" {
+				source.1 = true;
+			}
+		}
+	}
+
+	for (description, is_monitor) in sources.iter() {
+		if !is_monitor && description != "" && !audio_in_devices.iter().any(|(_, value)| value == description) {
+			audio_in_devices.push(("".into(), description.clone()));
+		}
+	}
+
+	audio_in_devices
+}
+
+fn get_video_in_devices() -> Vec<(String, String)> {
+	#[allow(unused_mut)]
+	let mut video_in_devices: Vec<(String, String)> = vec![];
+
+	#[cfg(target_os = "linux")]
+	{
+		use std::os::unix::fs::FileTypeExt;
+
+		let mut video_devices: Vec<std::path::PathBuf> = fs::read_dir("/dev")
+			.into_iter()
+			.flatten()
+			.flatten()
+			.filter(|entry| entry.file_name().to_string_lossy().starts_with("video"))
+			.filter(|entry| entry.file_type().map(|file_type| file_type.is_char_device()).unwrap_or(false))
+			.map(|entry| entry.path())
+			.collect();
+		video_devices.sort();
+
+		for video_device in video_devices.iter() {
+			let device_file_name = video_device.file_name().unwrap_or_default().to_string_lossy().to_string();
+			let device_card_name = fs::read_to_string("/sys/class/video4linux/".to_owned() + &device_file_name + "/name")
+				.unwrap_or("".into())
+				.trim()
+				.to_string();
+
+			video_in_devices.push((device_card_name, video_device.to_string_lossy().to_string()));
+		}
+	}
+
+	video_in_devices
+}
+
+fn get_serial_port_endpoints() -> Vec<HintedItem> {
+	let mut serial_port_endpoints: Vec<HintedItem> = vec![];
+
+	match serialport::available_ports() {
+		Ok(ports) => {
+			for (index, port) in ports.iter().enumerate() {
+				let serial_port_type: String = match port.port_type {
+					serialport::SerialPortType::BluetoothPort => "Bluetooth".into(),
+					serialport::SerialPortType::PciPort => "PCI".into(),
+					serialport::SerialPortType::UsbPort(_) => "USB".into(),
+					_ => "".into()
+				};
+
+				serial_port_endpoints.push(
+					HintedItem {
+						display_hint_only: true,
+						hint: (port.port_name.clone() + ": " + &(if serial_port_type != "" { "[".to_owned() + &serial_port_type + "] " } else { "".into() }) + "Serial Port " + &index.to_string()).into(),
+						tooltip: (if serial_port_type != "" { "Serial Port Type: ".to_owned() + &serial_port_type } else { "".into() }).into(),
+						value: (SERIAL_PORT_PREFIX.to_owned() + &port.port_name + "," + DEFAULT_SERIAL_PORT_OPTIONS).into(),
+						icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
+					}
+				);
+			}
+		},
+		_ => { }
+	}
+
+	serial_port_endpoints
+}
+
 fn populate_selected_box_bootroms(ui_weak: &slint::Weak<MainWindow>, config: &LauncherConfig, selected_machine: &MAMEMachineNode, supress_warnings: bool) -> Result<(usize, BuildStorageType, BuildStorageState), Box<dyn std::error::Error>> {
 	let config_persistent_mame = config.persistent.mame_options.clone();
 
@@ -1343,6 +1535,7 @@ fn populate_selected_box_bootroms(ui_weak: &slint::Weak<MainWindow>, config: &La
 		for available_bootrom in available_bootroms.iter() {
 			selectable_bootroms.push(
 				HintedItem {
+					display_hint_only: false,
 					hint: available_bootrom.hint.clone(),
 					tooltip: available_bootrom.description.clone(),
 					value: available_bootrom.value.clone(),
@@ -1598,6 +1791,7 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 		for available_approm in available_approms.iter() {
 			selectable_approms.push(
 				HintedItem {
+					display_hint_only: false,
 					hint: available_approm.hint.clone(),
 					tooltip: available_approm.description.clone(),
 					value: available_approm.value.clone(),
@@ -1765,6 +1959,7 @@ fn populate_selected_box_ssids(ui_weak: &slint::Weak<MainWindow>, config: &Launc
 		for available_ssid in available_ssids.iter() {
 			selectable_ssids.push(
 				HintedItem {
+					display_hint_only: false,
 					hint: available_ssid.hint.clone(),
 					tooltip: available_ssid.description.clone(),
 					value: available_ssid.value.clone(),
@@ -1874,6 +2069,7 @@ fn populate_selected_box_ssids(ui_weak: &slint::Weak<MainWindow>, config: &Launc
 
 			selectable_ssid_manufactures.push(
 				HintedItem {
+					display_hint_only: false,
 					hint: available_ssid_manufacture.name.clone().into(),
 					tooltip: available_ssid_manufacture.description.clone().into(),
 					value: available_ssid_manufacture.hex_value.clone().into(),
@@ -1895,7 +2091,7 @@ fn populate_selected_box_ssids(ui_weak: &slint::Weak<MainWindow>, config: &Launc
 	Ok(selected_ssid.ssid_storage_state.clone())
 }
 
-fn populate_selected_box_slots(ui_weak: &slint::Weak<MainWindow>, _config: &LauncherConfig, selected_machine: &MAMEMachineNode, supress_warnings: bool) -> Result<bool, Box<dyn std::error::Error>> {
+fn populate_selected_box_slots(ui_weak: &slint::Weak<MainWindow>, config: &LauncherConfig, selected_machine: &MAMEMachineNode, supress_warnings: bool) -> Result<bool, Box<dyn std::error::Error>> {
 	let mut found_modem_slot = false;
 	let mut selected_modem_startpoint: MachineSlotItem  = MachineSlotItem {
 		hint: "".into(),
@@ -1949,6 +2145,22 @@ fn populate_selected_box_slots(ui_weak: &slint::Weak<MainWindow>, _config: &Laun
 		found_modem_slot = true;
 	}
 
+	// WebTV port and parallel port slot options
+	let wtvport_options: Vec<(String, String)> = if WTVPORT_BOXES.contains(&machine_name.as_str()) {
+		get_slot_options(config, selected_machine, WTVPORT_SLOT_NAME)
+	} else {
+		vec![]
+	};
+	let can_use_wtvport = wtvport_options.len() > 0;
+	// wtv1 boxes don't have a parallel port, it's added with the printer adapter.
+	let wtvport_has_parallel = can_use_wtvport && machine_name.starts_with("wtv1");
+	let parallel_options = if machine_name.starts_with("wtv1") || machine_name.starts_with("wtv2") {
+		get_slot_options(config, selected_machine, PARALLEL_SLOT_NAME)
+	} else {
+		vec![]
+	};
+	let has_onboard_parallel = parallel_options.len() > 0 && machine_name.starts_with("wtv2");
+
 	let _ = ui_weak.upgrade_in_event_loop(move |ui| {
 		let ui_mame = ui.global::<UIMAMEOptions>();
 
@@ -1973,6 +2185,7 @@ fn populate_selected_box_slots(ui_weak: &slint::Weak<MainWindow>, _config: &Laun
 				found_modem_slot = true;
 				selectable_modem_bitb_startpoints.push(
 					HintedItem {
+						display_hint_only: false,
 						hint: available_slot.hint.clone().into(),
 						tooltip: "".into(),
 						value: available_slot.value.clone().into(),
@@ -1986,6 +2199,7 @@ fn populate_selected_box_slots(ui_weak: &slint::Weak<MainWindow>, _config: &Laun
 
 				selectable_debug_bitb_startpoints.push(
 					HintedItem {
+						display_hint_only: false,
 						hint: available_slot.hint.clone().into(),
 						tooltip: "".into(),
 						value: available_slot.value.clone().into(),
@@ -2012,6 +2226,47 @@ fn populate_selected_box_slots(ui_weak: &slint::Weak<MainWindow>, _config: &Laun
 
 		// There's only one -lirc startpoint so no need to validate it against a know list. The right value is forced.
 		ui_mame.set_selected_lirc_startpoint(selected_lirc_startpoint.into());
+
+		// WebTV port
+		let selected_wtvport_option = ui_mame.get_selected_wtvport_option().to_string();
+		let mut selectable_wtvport_options: Vec<HintedItem> = vec![];
+		for (option_name, option_description) in wtvport_options.iter() {
+			selectable_wtvport_options.push(
+				HintedItem {
+					display_hint_only: false,
+					hint: option_description.strip_prefix("WebTV Port ").unwrap_or(option_description).to_string().into(),
+					tooltip: "".into(),
+					value: option_name.clone().into(),
+					icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
+				}
+			);
+		}
+		if !wtvport_options.iter().any(|(option_name, _)| *option_name == selected_wtvport_option) {
+			ui_mame.set_selected_wtvport_option(wtvport_options.first().map(|(option_name, _)| option_name.clone()).unwrap_or("".into()).into());
+		}
+		ui_mame.set_selectable_wtvport_options(slint::ModelRc::new(slint::VecModel::from(selectable_wtvport_options)));
+		ui_mame.set_can_use_wtvport(can_use_wtvport);
+		ui_mame.set_wtvport_has_parallel(wtvport_has_parallel);
+
+		// Parallel port
+		let selected_parallel_option = ui_mame.get_selected_parallel_option().to_string();
+		let mut selectable_parallel_options: Vec<HintedItem> = vec![];
+		for (option_name, option_description) in parallel_options.iter() {
+			selectable_parallel_options.push(
+				HintedItem {
+					display_hint_only: false,
+					hint: option_description.clone().into(),
+					tooltip: "".into(),
+					value: option_name.clone().into(),
+					icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
+				}
+			);
+		}
+		if !parallel_options.iter().any(|(option_name, _)| *option_name == selected_parallel_option) {
+			ui_mame.set_selected_parallel_option(parallel_options.first().map(|(option_name, _)| option_name.clone()).unwrap_or("".into()).into());
+		}
+		ui_mame.set_selectable_parallel_options(slint::ModelRc::new(slint::VecModel::from(selectable_parallel_options)));
+		ui_mame.set_has_onboard_parallel(has_onboard_parallel);
 
 		if !supress_warnings {
 			if !found_modem_slot {
@@ -2120,6 +2375,10 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 	let config_persistent_mame = config.persistent.mame_options.clone();
 	let mame_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
 
+	// Host device lookups can be slow so do them before jumping into the UI thread.
+	let audio_in_devices = get_audio_in_devices();
+	let video_in_devices = get_video_in_devices();
+
 	let ui_weak_cpy = ui_weak.clone();
 	let _ = ui_weak.upgrade_in_event_loop(move |ui| {
 		let ui_paths = ui.global::<UIPaths>();
@@ -2175,12 +2434,14 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 
 		let mut selectable_modem_bitb_endpoints: Vec<HintedItem> = vec![
 			HintedItem {
+				display_hint_only: false,
 				hint: "Public TouchPPP Server".into(),
 				tooltip: "".into(),
 				value: PUBLIC_TOUCHPP_ADDRESS.into(),
 				icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
 			},
 			HintedItem {
+				display_hint_only: false,
 				hint: "Local TouchPPP Server".into(),
 				tooltip: "".into(),
 				value: "127.0.0.1:1122".into(),
@@ -2192,6 +2453,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		let mut selectable_modem_moip_box_endpoints = selectable_modem_bitb_endpoints.clone();
 		selectable_modem_moip_box_endpoints.push(
 			HintedItem {
+				display_hint_only: false,
 				hint: "Redialed SIP".into(),
 				tooltip: "".into(),
 				value: "sip:redialed:redialed2@sip.webtv.zone:16555".into(),
@@ -2200,6 +2462,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		);
 		selectable_modem_moip_box_endpoints.push(
 			HintedItem {
+				display_hint_only: false,
 				hint: "eMac's Public SIP".into(),
 				tooltip: "".into(),
 				value: "sip:hacktv:hacktv@moip.mywire.org:16151".into(),
@@ -2207,27 +2470,9 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 			}
 		);
 
-		match serialport::available_ports() {
-			Ok(ports) => {
-				for (index, port) in ports.iter().enumerate() {
-					let serial_port_type: String = match port.port_type {
-						serialport::SerialPortType::BluetoothPort => "Bluetooth".into(),
-						serialport::SerialPortType::PciPort => "PCI".into(),
-						serialport::SerialPortType::UsbPort(_) => "USB".into(),
-						_ => "Unknown".into()
-					};
-
-					let serial_port_item = HintedItem {
-						hint: ("[".to_owned() + &serial_port_type + "] Serial Port " + &index.to_string()).into(),
-						tooltip: ("Serial Port Type: ".to_owned() + &serial_port_type).into(),
-						value: port.port_name.clone().into(),
-						icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
-					};
-					selectable_modem_bitb_endpoints.push(serial_port_item.clone());
-					selectable_modem_moip_box_endpoints.push(serial_port_item);
-				}
-			},
-			_ => { }
+		for serial_port_endpoint in get_serial_port_endpoints().into_iter() {
+			selectable_modem_bitb_endpoints.push(serial_port_endpoint.clone());
+			selectable_modem_moip_box_endpoints.push(serial_port_endpoint);
 		}
 		ui_mame.set_selectable_modem_bitb_endpoints(slint::ModelRc::new(slint::VecModel::from(selectable_modem_bitb_endpoints)));
 		// Restore even if it's not in the list since it could have been typed in manually.
@@ -2250,40 +2495,21 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 
 		let mut selectable_debug_bitb_endpoints: Vec<HintedItem> = vec![
 			HintedItem {
+				display_hint_only: false,
 				hint: "".into(),
 				tooltip: "".into(),
 				value: DEFAULT_DEBUG_ENDPOINT.into(),
 				icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
 			},
 			HintedItem {
+				display_hint_only: false,
 				hint: "Local ser2net".into(),
 				tooltip: "".into(),
 				value: "127.0.0.1:2000".into(),
 				icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
 			}
 		];
-		match serialport::available_ports() {
-			Ok(ports) => {
-				for (index, port) in ports.iter().enumerate() {
-					let serial_port_type: String = match port.port_type {
-						serialport::SerialPortType::BluetoothPort => "Bluetooth".into(),
-						serialport::SerialPortType::PciPort => "PCI".into(),
-						serialport::SerialPortType::UsbPort(_) => "USB".into(),
-						_ => "Unknown".into()
-					};
-
-					selectable_debug_bitb_endpoints.push(
-						HintedItem {
-							hint: ("[".to_owned() + &serial_port_type + "] Serial Port " + &index.to_string()).into(),
-							tooltip: ("Serial Port Type: ".to_owned() + &serial_port_type).into(),
-							value: port.port_name.clone().into(),
-							icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
-						}
-					);
-				}
-			},
-			_ => { }
-		}
+		selectable_debug_bitb_endpoints.extend(get_serial_port_endpoints());
 		ui_mame.set_selectable_debug_bitb_endpoints(slint::ModelRc::new(slint::VecModel::from(selectable_debug_bitb_endpoints.clone())));
 		let selected_debug_bitb_endpoint = config_persistent_mame.selected_debug_bitb_endpoint.unwrap_or("".into());
 		for selectable_debug_bitb_endpoint in selectable_debug_bitb_endpoints.iter() {
@@ -2316,6 +2542,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 			for (index, lirc_device) in lirc_devices.iter().enumerate() {
 				selectable_lirc_endpoints.push(
 					HintedItem {
+						display_hint_only: false,
 						hint: ("LIRC Device ".to_owned() + &index.to_string()).into(),
 						tooltip: "".into(),
 						value: lirc_device.to_string_lossy().to_string().into(),
@@ -2328,6 +2555,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		// A WinLIRC server exists @ 8765 but it does not send MODE2 data.
 		selectable_lirc_endpoints.push(
 			HintedItem {
+				display_hint_only: false,
 				hint: "Local MODE2".into(),
 				tooltip: "".into(),
 				value: "127.0.0.1:8766".to_string().into(),
@@ -2351,6 +2579,87 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 
 		////
 		//
+		// Start->Ports and Devices
+		//
+		////
+
+		// Audio In
+		let mut selectable_audio_in_endpoints: Vec<HintedItem> = vec![
+			HintedItem {
+				display_hint_only: false,
+				hint: "Default Audio Input".into(),
+				tooltip: "".into(),
+				value: DEFAULT_CAPTURE_DEVICE.into(),
+				icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
+			}
+		];
+		for (audio_in_hint, audio_in_value) in audio_in_devices.iter() {
+			selectable_audio_in_endpoints.push(
+				HintedItem {
+					display_hint_only: false,
+					hint: audio_in_hint.clone().into(),
+					tooltip: "".into(),
+					value: audio_in_value.clone().into(),
+					icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
+				}
+			);
+		}
+		ui_mame.set_selectable_audio_in_endpoints(slint::ModelRc::new(slint::VecModel::from(selectable_audio_in_endpoints)));
+		let selected_audio_in_endpoint = config_persistent_mame.selected_audio_in_endpoint.clone().unwrap_or("".into());
+		ui_mame.set_selected_audio_in_endpoint(if selected_audio_in_endpoint != "" { selected_audio_in_endpoint.into() } else { DEFAULT_CAPTURE_DEVICE.into() });
+
+		// Video In
+		let mut selectable_video_in_endpoints: Vec<HintedItem> = vec![
+			HintedItem {
+				display_hint_only: false,
+				hint: "Default Capture Device".into(),
+				tooltip: "".into(),
+				value: DEFAULT_CAPTURE_DEVICE.into(),
+				icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
+			}
+		];
+		for (video_in_hint, video_in_value) in video_in_devices.iter() {
+			selectable_video_in_endpoints.push(
+				HintedItem {
+					display_hint_only: false,
+					hint: video_in_hint.clone().into(),
+					tooltip: "".into(),
+					value: video_in_value.clone().into(),
+					icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
+				}
+			);
+		}
+		ui_mame.set_selectable_video_in_endpoints(slint::ModelRc::new(slint::VecModel::from(selectable_video_in_endpoints)));
+		let selected_video_in_endpoint = config_persistent_mame.selected_video_in_endpoint.clone().unwrap_or("".into());
+		ui_mame.set_selected_video_in_endpoint(if selected_video_in_endpoint != "" { selected_video_in_endpoint.into() } else { DEFAULT_CAPTURE_DEVICE.into() });
+
+		// WebTV SmartCard and CA SmartCard
+		let selectable_smartcard_endpoints: Vec<HintedItem> = get_serial_port_endpoints();
+		let default_card_endpoint: String = selectable_smartcard_endpoints.first().map(|item| item.value.to_string()).unwrap_or("".into());
+		ui_mame.set_selectable_smartcard_endpoints(slint::ModelRc::new(slint::VecModel::from(selectable_smartcard_endpoints)));
+		let selected_smartcard_endpoint = config_persistent_mame.selected_smartcard_endpoint.clone().unwrap_or("".into());
+		ui_mame.set_selected_smartcard_endpoint(if selected_smartcard_endpoint != "" { selected_smartcard_endpoint.into() } else { default_card_endpoint.clone().into() });
+		let selected_cacard_endpoint = config_persistent_mame.selected_cacard_endpoint.clone().unwrap_or("".into());
+		ui_mame.set_selected_cacard_endpoint(if selected_cacard_endpoint != "" { selected_cacard_endpoint.into() } else { default_card_endpoint.clone().into() });
+
+		// WebTV Port and Parallel Port
+		ui_mame.set_selected_wtvport_option(config_persistent_mame.selected_wtvport_option.clone().unwrap_or("".into()).into());
+		ui_mame.set_selected_parallel_option(config_persistent_mame.selected_parallel_option.clone().unwrap_or("".into()).into());
+		let selectable_parallel_socket_endpoints: Vec<HintedItem> = vec![
+			HintedItem {
+				display_hint_only: false,
+				hint: "Local TOOT server".into(),
+				tooltip: "".into(),
+				value: DEFAULT_PARALLEL_SOCKET_ENDPOINT.into(),
+				icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
+			}
+		];
+		ui_mame.set_selectable_parallel_socket_endpoints(slint::ModelRc::new(slint::VecModel::from(selectable_parallel_socket_endpoints)));
+		let selected_parallel_socket_endpoint = config_persistent_mame.selected_parallel_socket_endpoint.clone().unwrap_or("".into());
+		ui_mame.set_selected_parallel_socket_endpoint(if selected_parallel_socket_endpoint != "" { selected_parallel_socket_endpoint.into() } else { DEFAULT_PARALLEL_SOCKET_ENDPOINT.into() });
+
+		////
+		//
 		// Start->Options
 		//
 		////
@@ -2362,9 +2671,18 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		ui_mame.set_validate_build_image(config_persistent_mame.validate_build_image.unwrap_or(true).into());
 		ui_mame.set_console_input(config_persistent_mame.console_input.unwrap_or(false).into());
 		ui_mame.set_disable_sound(config_persistent_mame.disable_sound.unwrap_or(false).into());
+		ui_mame.set_capture_mame_window(config_persistent_mame.capture_mame_window.unwrap_or(true).into());
+		ui_mame.set_use_decoupled_sound(config_persistent_mame.use_decoupled_sound.unwrap_or(false).into());
 		ui_mame.set_enable_lirc(config_persistent_mame.enable_lirc.unwrap_or(false).into());
+		ui_mame.set_enable_audio_in(config_persistent_mame.enable_audio_in.unwrap_or(false).into());
+		ui_mame.set_enable_video_in(config_persistent_mame.enable_video_in.unwrap_or(false).into());
+		ui_mame.set_enable_smartcard(config_persistent_mame.enable_smartcard.unwrap_or(false).into());
+		ui_mame.set_enable_cacard(config_persistent_mame.enable_cacard.unwrap_or(false).into());
+		ui_mame.set_enable_wtvport(config_persistent_mame.enable_wtvport.unwrap_or(false).into());
+		ui_mame.set_enable_parallel(config_persistent_mame.enable_parallel.unwrap_or(false).into());
 
 		ui_mame.set_custom_options(config_persistent_mame.custom_options.unwrap_or("".into()).into());
+		ui_mame.set_show_advanced_options(config_persistent_mame.show_advanced_options.unwrap_or(false).into());
 	});
 
 	////
@@ -2511,6 +2829,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 			for selectable_box in boxes.iter() {
 				selectable_boxes.push(
 					HintedItem {
+						display_hint_only: false,
 						hint: selectable_box.hint.clone(),
 						tooltip: selectable_box.tooltip.clone(),
 						value: selectable_box.value.clone(),
@@ -3416,8 +3735,24 @@ fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool, new_bootroms: Opt
 				validate_build_image: Some(ui_mame.get_validate_build_image().into()),
 				console_input: Some(ui_mame.get_console_input().into()),
 				disable_sound: Some(ui_mame.get_disable_sound().into()),
+				capture_mame_window: Some(ui_mame.get_capture_mame_window().into()),
+				use_decoupled_sound: Some(ui_mame.get_use_decoupled_sound().into()),
 				enable_lirc: Some(ui_mame.get_enable_lirc().into()),
-				custom_options: Some(ui_mame.get_custom_options().into())
+				selected_audio_in_endpoint: Some(ui_mame.get_selected_audio_in_endpoint().into()),
+				enable_audio_in: Some(ui_mame.get_enable_audio_in().into()),
+				selected_video_in_endpoint: Some(ui_mame.get_selected_video_in_endpoint().into()),
+				enable_video_in: Some(ui_mame.get_enable_video_in().into()),
+				selected_smartcard_endpoint: Some(ui_mame.get_selected_smartcard_endpoint().into()),
+				enable_smartcard: Some(ui_mame.get_enable_smartcard().into()),
+				selected_cacard_endpoint: Some(ui_mame.get_selected_cacard_endpoint().into()),
+				enable_cacard: Some(ui_mame.get_enable_cacard().into()),
+				selected_wtvport_option: Some(ui_mame.get_selected_wtvport_option().into()),
+				enable_wtvport: Some(ui_mame.get_enable_wtvport().into()),
+				selected_parallel_option: Some(ui_mame.get_selected_parallel_option().into()),
+				selected_parallel_socket_endpoint: Some(ui_mame.get_selected_parallel_socket_endpoint().into()),
+				enable_parallel: Some(ui_mame.get_enable_parallel().into()),
+				custom_options: Some(ui_mame.get_custom_options().into()),
+				show_advanced_options: Some(ui_mame.get_show_advanced_options().into())
 			},
 			network: network
 		};
@@ -4450,8 +4785,9 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 			mame_command.arg("-bios").arg(selected_bootrom);
 		}
 
-		let network_stack = if ui_mame.get_selected_box().as_str() == "msntv2" {
-			start_netstack(ui_weak.clone(), &mame_executable_path, &mame_directory_path, &mut mame_command)
+		let selected_box = ui_mame.get_selected_box().to_string();
+		let network_stack = if selected_box == "msntv2" {
+			start_netstack(ui_weak.clone(), &mame_executable_path, &mame_directory_path, &mut mame_command, &selected_box)
 		} else {
 			None
 		};
@@ -4571,7 +4907,7 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 	Ok(())
 }
 
-fn start_netstack(ui_weak: slint::Weak<MainWindow>, mame_executable_path: &String, mame_directory_path: &String, mame_command: &mut Command) -> Option<NetworkStack> {
+fn start_netstack(ui_weak: slint::Weak<MainWindow>, mame_executable_path: &String, mame_directory_path: &String, mame_command: &mut Command, selected_box: &str) -> Option<NetworkStack> {
 	let network_options = match LauncherConfig::get_persistent_config() {
 		Ok(config) => config.network,
 		_ => None
@@ -4587,7 +4923,8 @@ fn start_netstack(ui_weak: slint::Weak<MainWindow>, mame_executable_path: &Strin
 		return None;
 	}
 
-	if let Err(e) = LauncherConfig::set_mame_network_interface(mame_directory_path, "msntv2", MSNTV2_ETHERNET_DEVICE_TAG, 0) {
+	let network_device = if selected_box == "msntv2" { MSNTV2_ETHERNET_DEVICE_TAG } else { ":wtvnet" };
+	if let Err(e) = LauncherConfig::set_mame_network_interface(mame_directory_path, selected_box, network_device, 0) {
 		let _ = add_console_text(ui_weak.clone(), "WARNING: Couldn't select the ethernet network device in MAME's config. Ethernet may not work.\n".to_owned() + &e.to_string() + "\n", MAMEConsoleScrollMode::ForceScroll, 0);
 	}
 
@@ -4921,8 +5258,38 @@ fn send_keypess_macos(ui_weak: slint::Weak<MainWindow>, text: String, shiftmod: 
 	}
 }
 
+// Saving the config can block the UI thread long enough to drop frames, so wait for show/hide animations (200ms) to finish.
+fn save_config_after_animation(ui_weak: slint::Weak<MainWindow>) {
+	slint::Timer::single_shot(std::time::Duration::from_millis(300), move || {
+		let _ = save_config(ui_weak, false, None, None, None);
+	});
+}
+
+// Calls on_ready once the window is at least target_height tall (checked every 10ms).
+// Gives up waiting after tries_left checks (the window manager may not allow the size) and calls on_ready anyway.
+fn wait_for_window_height(ui_weak: slint::Weak<MainWindow>, target_height: f32, tries_left: u32, on_ready: impl FnOnce(MainWindow) + 'static) {
+	slint::Timer::single_shot(std::time::Duration::from_millis(10), move || {
+		let Some(ui) = ui_weak.upgrade() else { return };
+
+		let window_height = ui.window().size().to_logical(ui.window().scale_factor()).height;
+		if window_height + 1.0 >= target_height || tries_left == 0 {
+			on_ready(ui);
+		} else {
+			wait_for_window_height(ui_weak, target_height, tries_left - 1, on_ready);
+		}
+	});
+}
+
 fn start_ui() -> Result<(), slint::PlatformError> {
+	// The hook only changes the dropdown list window
+	let _ = slint::BackendSelector::new()
+		.with_winit_window_attributes_hook(externalpopup::window_attributes_hook)
+		.select();
+
 	let ui = MainWindow::new().unwrap();
+
+	// Lets the selected box dropdown extend outside the window (but not on Wayland since it's broken on there)
+	let _ = externalpopup::setup(&ui);
 
 	let (dtx, drx) = bounded(10);
 
@@ -4939,6 +5306,41 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 		ui_mame.set_selected_lirc_startpoint("".into());
 
 		let _ = save_config(ui_weak.clone(), true, None, None, None);
+	});
+
+	ui_weak = ui.as_weak();
+	let advanced_options_opening = std::rc::Rc::new(std::cell::Cell::new(false));
+	ui.global::<UIMAMEOptions>().on_toggle_advanced_options(move || {
+		let ui = ui_weak.unwrap();
+		let ui_mame = ui.global::<UIMAMEOptions>();
+
+		// Ignore clicks while waiting for the window to grow.
+		if advanced_options_opening.get() {
+			return;
+		}
+
+		if ui_mame.get_show_advanced_options() {
+			// (Closing) the window keeps its height while the options slide closed then shrinks once (see launcher-height).
+			ui_mame.set_show_advanced_options(false);
+			save_config_after_animation(ui_weak.clone());
+			return;
+		}
+
+		// (Opening) grow the window first then slide the options open inside it.
+		// Resizing and the first paint at the new size can take a while, starting the animation at the same time would skip most of it.
+		let target_height = ui.get_advanced_expanded_content_height();
+		ui.set_launcher_height_hold(target_height);
+		advanced_options_opening.set(true);
+
+		let advanced_options_opening = advanced_options_opening.clone();
+		wait_for_window_height(ui_weak.clone(), target_height, 50, move |ui| {
+			ui.global::<UIMAMEOptions>().set_show_advanced_options(true);
+			// The window can't shrink while the options are animating so the hold isn't needed anymore.
+			ui.set_launcher_height_hold(0.0);
+			advanced_options_opening.set(false);
+
+			save_config_after_animation(ui.as_weak());
+		});
 	});
 
 	ui_weak = ui.as_weak();

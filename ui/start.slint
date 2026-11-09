@@ -20,6 +20,9 @@ import {
 import {
 	IconButton
 } from "./widgets/iconbutton.slint";
+import {
+	Collapsible
+} from "./widgets/collapsible.slint";
 
 export enum BuildImportState {
 	ImportUnavailable,
@@ -116,6 +119,44 @@ export global UIMAMEOptions {
 	in-out property<string> selected_lirc_endpoint: "";
 	in-out property<string> selected_lirc_startpoint: "";
 
+	// Audio In
+	in-out property<[HintedItem]> selectable_audio_in_endpoints: [];
+	in-out property<string> selected_audio_in_endpoint: "";
+	out property<bool> can_use_audio_in: (selected_box != "msntv2");
+	in-out property<bool> enable_audio_in: false;
+
+	// Video In
+	in-out property<[HintedItem]> selectable_video_in_endpoints: [];
+	in-out property<string> selected_video_in_endpoint: "";
+	out property<bool> can_use_video_in: (selected_box != "msntv2");
+	in-out property<bool> enable_video_in: false;
+
+	// WebTV SmartCard and CA SmartCard (both list serial devices)
+	in-out property<[HintedItem]> selectable_smartcard_endpoints: [];
+	in-out property<string> selected_smartcard_endpoint: "";
+	out property<bool> can_use_smartcard: (selected_box != "msntv2");
+	in-out property<bool> enable_smartcard: false;
+	in-out property<string> selected_cacard_endpoint: "";
+	out property<bool> can_use_cacard: (selected_box == "wtv2utv" || selected_box == "wtv2uvd");
+	in-out property<bool> enable_cacard: false;
+
+	// WebTV Port
+	in-out property<[HintedItem]> selectable_wtvport_options: [];
+	in-out property<string> selected_wtvport_option: "";
+	in-out property<bool> can_use_wtvport: false;
+	in-out property<bool> enable_wtvport: false;
+
+	// Parallel Port
+	in-out property<[HintedItem]> selectable_parallel_options: [];
+	in-out property<string> selected_parallel_option: "";
+	in-out property<bool> has_onboard_parallel: false; // wtv2xx boxes have an on-board printer port
+	in-out property<bool> wtvport_has_parallel: false; // wtv1 boxes get a printer port through the printer adapter
+	out property<bool> can_use_parallel: (has_onboard_parallel || (wtvport_has_parallel && can_use_wtvport && enable_wtvport && selected_wtvport_option == "printer"));
+	in-out property<bool> enable_parallel: false;
+	out property<bool> parallel_socket_selected: (can_use_parallel && enable_parallel && selected_parallel_option == "socket");
+	in-out property<[HintedItem]> selectable_parallel_socket_endpoints: [];
+	in-out property<string> selected_parallel_socket_endpoint: "";
+
 	// Other Options
 	in-out property<bool> verbose_mode: false;
 	in-out property<bool> windowed_mode: true;
@@ -124,8 +165,14 @@ export global UIMAMEOptions {
 	in-out property<bool> validate_build_image: true;
 	in-out property<bool> console_input: false;
 	in-out property<bool> disable_sound: false;
+	in-out property<bool> capture_mame_window: true;
+	in-out property<bool> use_decoupled_sound: false;
+	out property<bool> can_use_decoupled_sound: (selected_box == "msntv2");
 	in-out property<bool> can_use_lirc: (selected_lirc_startpoint != "");
 	in-out property<bool> enable_lirc: false;
+
+	// Shows everything between the selected box and the Start MAME button
+	in-out property<bool> show_advanced_options: false;
 
 	// Custom options
 	in-out property<string> custom_options: "";
@@ -140,15 +187,31 @@ export global UIMAMEOptions {
 	callback unset-hdimg();
 	callback generate-ssid();
 	callback start-mame();
+	callback toggle-advanced-options();
 }
 
 export component StartPage inherits Page {
 	z: 1;
 
+	// A warning is showing, the details are usually in the advanced options.
+	in property <bool> has-warning: false;
+
+	// Used to grow the window before the advanced options start opening.
+	out property <length> advanced-expanded-height: advanced-collapsible.expanded-height;
+
+	// How much the page's height will change once the show/hide animations finish.
+	out property <length> pending-height-change:
+		(advanced-collapsible.target-height - advanced-collapsible.height)
+		+ ((advanced-collapsible.expanded) ? (
+			(ports-collapsible.target-height - ports-collapsible.height)
+			+ ((ports-collapsible.expanded) ? (socket-collapsible.target-height - socket-collapsible.height) : 0px)
+		) : 0px);
+
 	TitledHorizontalBox {
 		title: @tr("Selected Box");
 
 		EditableComboBox {
+			use-external-popup: true;
 			hintedmodel: UIMAMEOptions.selectable_boxes;
 			current-value <=> UIMAMEOptions.selected_box;
 			selection-changed => {
@@ -157,279 +220,519 @@ export component StartPage inherits Page {
 		}
 	}
 
-	TitledHorizontalBox {
-		title: @tr("Selected System Data");
-		box-spacing: 5px;
-		z: 1;
+	// Everything between the selected box and the Start MAME button is hidden unless advanced options are shown.
+	advanced-toggle := Rectangle {
+		height: 30px;
 
-		bootrom-section := VerticalLayout {
-			width: 30%;
-			spacing: 2px;
-			z: 2;
+		HorizontalLayout {
+			alignment: start;
+			spacing: 6px;
+
+			VerticalLayout {
+				alignment: center;
+				Image {
+					source: @image-url("widgets/images/chevron-down.svg");
+					width: 14px;
+					height: 14px;
+					transform-rotation: (UIMAMEOptions.show_advanced_options) ? 0deg : -90deg;
+					colorize: (advanced-toggle-area.has-hover) ? Palette.accent-background : Palette.foreground;
+					image-fit: contain;
+				}
+			}
 			Text {
-				text: (UIMAMEOptions.selected_box == "msntv2") ? @tr("BIOS Build") : @tr("BootROM Build");
-			}
-			EditableComboBox {
-				hintedmodel: UIMAMEOptions.selectable_bootroms;
-				current-value <=> UIMAMEOptions.selected_bootrom;
-				height: 34px;
-				selection-changed => {
-					UIMAMEOptions.select-bootrom();
-				}
-			}
-			Button {
-				visible: UIMAMEOptions.bootrom_import_state != BuildImportState.ImportUnavailable;
-				text: (UIMAMEOptions.bootrom_import_state == BuildImportState.WillCreate) ? @tr("Import Build") : @tr("Replace Build");
-				height: 34px;
-				clicked => {
-					UIMAMEOptions.import-bootrom();
-				}
+				text: (root.has-warning && !UIMAMEOptions.show_advanced_options) ? @tr("Advanced Options (correct error here)") : @tr("Advanced Options");
+				font-size: 14px;
+				font-weight: 700;
+				vertical-alignment: center;
+				color: (advanced-toggle-area.has-hover) ? Palette.accent-background : Palette.foreground;
 			}
 		}
 
-		approm-section := VerticalLayout {
-			width: 30%;
-			spacing: 2px;
-			z: 1;
-			Text {
-				text: (UIMAMEOptions.selected_box == "msntv2") ? @tr("OS Build") : @tr("AppROM Build");
+		advanced-toggle-area := TouchArea {
+			mouse-cursor: pointer;
+			clicked => {
+				UIMAMEOptions.toggle-advanced-options();
 			}
-			HorizontalLayout {
-				spacing: 2px;
-				IconButton {
-					width: (UIMAMEOptions.can_choose_hdimg) ? 32px : 0px;
-					height: 34px;
-					z: 3;
-					icon: (UIMAMEOptions.selected_hdimg_path == "") ? @image-url("images/hd-img-inactive.svg") : @image-url("images/hd-img-active.svg");
-					tooltip: (UIMAMEOptions.selected_hdimg_path == "") ? "Choose Disk Image" : "\{UIMAMEOptions.selected_hdimg_path}\nRight click to remove";
-					pointer-event(event) => {
-						if event.kind == PointerEventKind.up {
-							if event.button == PointerEventButton.left {
-								UIMAMEOptions.choose-hdimg();
-							} else if event.button == PointerEventButton.right {
-								UIMAMEOptions.unset-hdimg();
+		}
+	}
+
+	advanced-collapsible := Collapsible {
+		z: 1;
+		expanded: UIMAMEOptions.show_advanced_options;
+		VerticalLayout {
+			padding: 0px;
+			spacing: 0px;
+
+			TitledHorizontalBox {
+				title: @tr("Selected System Data");
+				box-spacing: 5px;
+				z: 1;
+
+				bootrom-section := VerticalLayout {
+					width: 30%;
+					spacing: 2px;
+					z: 2;
+					Text {
+						text: (UIMAMEOptions.selected_box == "msntv2") ? @tr("BIOS Build") : @tr("BootROM Build");
+					}
+					EditableComboBox {
+						hintedmodel: UIMAMEOptions.selectable_bootroms;
+						current-value <=> UIMAMEOptions.selected_bootrom;
+						height: 34px;
+						selection-changed => {
+							UIMAMEOptions.select-bootrom();
+						}
+					}
+					Button {
+						visible: UIMAMEOptions.bootrom_import_state != BuildImportState.ImportUnavailable;
+						text: (UIMAMEOptions.bootrom_import_state == BuildImportState.WillCreate) ? @tr("Import Build") : @tr("Replace Build");
+						height: 34px;
+						clicked => {
+							UIMAMEOptions.import-bootrom();
+						}
+					}
+				}
+
+				approm-section := VerticalLayout {
+					width: 30%;
+					spacing: 2px;
+					z: 1;
+					Text {
+						text: (UIMAMEOptions.selected_box == "msntv2") ? @tr("OS Build") : @tr("AppROM Build");
+					}
+					HorizontalLayout {
+						spacing: 2px;
+						IconButton {
+							width: (UIMAMEOptions.can_choose_hdimg) ? 32px : 0px;
+							height: 34px;
+							z: 3;
+							icon: (UIMAMEOptions.selected_hdimg_path == "") ? @image-url("images/hd-img-inactive.svg") : @image-url("images/hd-img-active.svg");
+							tooltip: (UIMAMEOptions.selected_hdimg_path == "") ? "Choose Disk Image" : "\{UIMAMEOptions.selected_hdimg_path}\nRight click to remove";
+							pointer-event(event) => {
+								if event.kind == PointerEventKind.up {
+									if event.button == PointerEventButton.left {
+										UIMAMEOptions.choose-hdimg();
+									} else if event.button == PointerEventButton.right {
+										UIMAMEOptions.unset-hdimg();
+									}
+								}
+							}
+						}
+						EditableComboBox {
+							hintedmodel: UIMAMEOptions.selectable_approms;
+							current-value <=> UIMAMEOptions.selected_approm;
+							height: 34px;
+							selection-changed => {
+								UIMAMEOptions.select-approm();
+							}
+						}
+						IconButton {
+							width: (UIMAMEOptions.can_revert_approm) ? 32px : 0px;
+							height: 34px;
+							icon: @image-url("images/revert-approm.svg");
+							tooltip: "Revert Preset Image";
+							clicked => {
+								UIMAMEOptions.revert-approm();
+							}
+						}
+					}
+					Button {
+						visible: UIMAMEOptions.approm_import_state != BuildImportState.ImportUnavailable;
+						text: (UIMAMEOptions.approm_import_state == BuildImportState.WillCreate) ? @tr("Import Build") : @tr("Replace Build");
+						height: 34px;
+						clicked => {
+							UIMAMEOptions.import-approm();
+						}
+					}
+				}
+
+				ssid-section := VerticalLayout {
+					width: (parent.width * 0.4) - 10px;
+					spacing: 2px;
+					Text {
+						text: (UIMAMEOptions.selected_box == "msntv2") ? @tr("BoxID (Ethernet EEPROM)") : @tr("SSID (DS2401 ROM)");
+					}
+					EditableComboBox {
+						hintedmodel: UIMAMEOptions.selectable_ssids;
+						current-value <=> UIMAMEOptions.selected_ssid;
+						editable: true;
+						height: 34px;
+					}
+					HorizontalLayout {
+						width: 100%;
+						spacing: 2px;
+						if UIMAMEOptions.selected_box != "msntv2" : EditableComboBox {
+							visible: (UIMAMEOptions.selected_box != "msntv2");
+							hintedmodel: UIMAMEOptions.selectable_ssid_manufactures;
+							current-value <=> UIMAMEOptions.selected_ssid_manufacture;
+							width: 60%;
+							height: 34px;
+						}
+						Button {
+							text: @tr("Generate");
+							width: (UIMAMEOptions.selected_box != "msntv2") ? ((parent.width * 0.4) - 4px) : parent.width;
+							height: 34px;
+							clicked => {
+								UIMAMEOptions.generate-ssid();
 							}
 						}
 					}
 				}
-				EditableComboBox {
-					hintedmodel: UIMAMEOptions.selectable_approms;
-					current-value <=> UIMAMEOptions.selected_approm;
-					height: 34px;
-					selection-changed => {
-						UIMAMEOptions.select-approm();
-					}
-				}
-				IconButton {
-					width: (UIMAMEOptions.can_revert_approm) ? 32px : 0px;
-					height: 34px;
-					icon: @image-url("images/revert-approm.svg");
-					tooltip: "Revert Preset Image";
-					clicked => {
-						UIMAMEOptions.revert-approm();
-					}
-				}
 			}
-			Button {
-				visible: UIMAMEOptions.approm_import_state != BuildImportState.ImportUnavailable;
-				text: (UIMAMEOptions.approm_import_state == BuildImportState.WillCreate) ? @tr("Import Build") : @tr("Replace Build");
-				height: 34px;
-				clicked => {
-					UIMAMEOptions.import-approm();
-				}
-			}
-		}
 
-		ssid-section := VerticalLayout {
-			width: (parent.width * 0.4) - 10px;
-			spacing: 2px;
-			Text {
-				text: (UIMAMEOptions.selected_box == "msntv2") ? @tr("BoxID (Ethernet EEPROM)") : @tr("SSID (DS2401 ROM)");
-			}
-			EditableComboBox {
-				hintedmodel: UIMAMEOptions.selectable_ssids;
-				current-value <=> UIMAMEOptions.selected_ssid;
-				editable: true;
-				height: 34px;
-			}
-			HorizontalLayout {
-				width: 100%;
-				spacing: 2px;
-				if UIMAMEOptions.selected_box != "msntv2" : EditableComboBox {
-					visible: (UIMAMEOptions.selected_box != "msntv2");
-					hintedmodel: UIMAMEOptions.selectable_ssid_manufactures;
-					current-value <=> UIMAMEOptions.selected_ssid_manufacture;
-					width: 60%;
-					height: 34px;
-				}
-				Button {
-					text: @tr("Generate");
-					width: (UIMAMEOptions.selected_box != "msntv2") ? ((parent.width * 0.4) - 4px) : parent.width;
-					height: 34px;
-					clicked => {
-						UIMAMEOptions.generate-ssid();
-					}
-				}
-			}
-		}
-	}
+			TitledHorizontalBox {
+				title: (UIMAMEOptions.modem_moip_available) ? @tr("Selected Modem (TouchPPP, SIP or serial port)") : @tr("Selected Modem (TouchPPP or serial port)");
 
-	TitledHorizontalBox {
-		title: (UIMAMEOptions.modem_moip_available) ? @tr("Selected Modem (TouchPPP, SIP or serial port)") : @tr("Selected Modem (TouchPPP or serial port)");
-
-		HorizontalLayout {
-			EditableComboBox {
-				visible: (UIMAMEOptions.selectable_modem_bitb_startpoints.length > 1);
-				width: (UIMAMEOptions.selectable_modem_bitb_startpoints.length > 1) ? 30% : 0%;
-				enabled: UIMAMEOptions.selectable_modem_bitb_startpoints.length > 1 && !UIMAMEOptions.modem_moip_selected;
-				editable: false;
-				hintedmodel: UIMAMEOptions.selectable_modem_bitb_startpoints;
-				current-value <=> UIMAMEOptions.selected_modem_bitb_startpoint;
-
-			}
-			if !UIMAMEOptions.modem_moip_available: EditableComboBox {
-				editable: true;
-				hintedmodel: UIMAMEOptions.selectable_modem_bitb_endpoints;
-				current-value <=> UIMAMEOptions.selected_modem_bitb_endpoint;
-			}
-			if UIMAMEOptions.modem_moip_available: EditableComboBox {
-				editable: true;
-				hintedmodel: UIMAMEOptions.selectable_modem_moip_box_endpoints;
-				current-value <=> UIMAMEOptions.selected_modem_moip_endpoint;
-			}
-		}
-	}
-
-	TitledVerticalBox {
-		title: @tr("Other Options");
-	
-		GridLayout {
-			width: 100%;
-			padding-bottom: 7px;
-			spacing-vertical: 5px;
-			Row {
 				HorizontalLayout {
-					width: 50%;
-					alignment: start;
-					Switch {
-						text: @tr("Windowed Mode");
-						width: 180px;
-						height: 28px;
-						checked <=> UIMAMEOptions.windowed_mode;
-					}
-				}
-				HorizontalLayout {
-					width: 50%;
-					alignment: start;
-					Switch {
-						text: @tr("Verbose Mode");
-						width: 180px;
-						height: 28px;
-						checked <=> UIMAMEOptions.verbose_mode;
-					}
-				}
-			}
-			Row {
-				HorizontalLayout {
-					width: 50%;
-					alignment: start;
-					Switch {
-						text: @tr("Validate Build Image");
-						width: 180px;
-						height: 28px;
-						checked <=> UIMAMEOptions.validate_build_image;
-					}
-				}
-				HorizontalLayout {
-					width: 50%;
-					spacing: 0px;
-					Switch {
-						text: @tr("Console Input");
-						width: 180px;
-						height: 28px;
-						checked <=> UIMAMEOptions.console_input;
-					}
 					EditableComboBox {
-						visible: UIMAMEOptions.console_input && UIMAMEOptions.selectable_debug_bitb_startpoints.length > 0;
-						enabled: UIMAMEOptions.console_input && UIMAMEOptions.selectable_debug_bitb_startpoints.length > 0;
-						height: 33px;
-						editable: true;
-						hintedmodel: UIMAMEOptions.selectable_debug_bitb_endpoints;
-						current-value <=> UIMAMEOptions.selected_debug_bitb_endpoint;
-						
-					}
-				}
-			}
-			Row {
-				HorizontalLayout {
-					width: 50%;
-					alignment: start;
-					Switch {
-						text: @tr("Disable Sound");
-						width: 180px;
-						height: 28px;
-						checked <=> UIMAMEOptions.disable_sound;
-					}
-				}
-				HorizontalLayout {
-					width: 50%;
-					spacing: 0px;
-					Switch {
-						text: @tr("Debug Mode");
-						width: 180px;
-						height: 28px;
-						checked <=> UIMAMEOptions.debug_mode;
-					}
-					EditableComboBox {
-						visible: UIMAMEOptions.console_input && UIMAMEOptions.selectable_debug_bitb_startpoints.length > 1;
-						enabled: UIMAMEOptions.console_input && UIMAMEOptions.selectable_debug_bitb_startpoints.length > 1;
-						height: 33px;
+						visible: (UIMAMEOptions.selectable_modem_bitb_startpoints.length > 1);
+						width: (UIMAMEOptions.selectable_modem_bitb_startpoints.length > 1) ? 30% : 0%;
+						enabled: UIMAMEOptions.selectable_modem_bitb_startpoints.length > 1 && !UIMAMEOptions.modem_moip_selected;
 						editable: false;
-						hintedmodel: UIMAMEOptions.selectable_debug_bitb_startpoints;
-						current-value <=> UIMAMEOptions.selected_debug_bitb_startpoint;
-						
-					}
-				}
-			}
-			Row {
-				HorizontalLayout {
-					width: 50%;
-					spacing: 0px;
-					padding-right: 10px;
-					Switch {
-						text: @tr("Enable LIRC");
-						width: 180px;
-						height: 28px;
-						enabled: UIMAMEOptions.can_use_lirc; // if the "Enable LIRC" toggle is available, not if LIRC is enabled. enabled=false when MAME doesn't support -lirc
-						checked <=> UIMAMEOptions.enable_lirc;
-					}
-					EditableComboBox {
-						visible: UIMAMEOptions.enable_lirc;
-						enabled: UIMAMEOptions.can_use_lirc;
-						height: 33px;
-						editable: true;
-						hintedmodel: UIMAMEOptions.selectable_lirc_endpoints;
-						current-value <=> UIMAMEOptions.selected_lirc_endpoint;
-						
-					}
-				}
-				HorizontalLayout {
-					width: 50%;
-					alignment: start;
-					Switch {
-						text: @tr("Use Dynamic Recompiler");
-						width: 180px;
-						height: 28px;
-						checked <=> UIMAMEOptions.use_drc;
-					}
-				}
-			}
-		}
+						hintedmodel: UIMAMEOptions.selectable_modem_bitb_startpoints;
+						current-value <=> UIMAMEOptions.selected_modem_bitb_startpoint;
 
-		EditableComboBox {
-			editable: true;
-			current-value <=> UIMAMEOptions.custom_options;
-			placeholder-text: @tr("Add custom options here");
+					}
+					if !UIMAMEOptions.modem_moip_available: EditableComboBox {
+						editable: true;
+						hintedmodel: UIMAMEOptions.selectable_modem_bitb_endpoints;
+						current-value <=> UIMAMEOptions.selected_modem_bitb_endpoint;
+					}
+					if UIMAMEOptions.modem_moip_available: EditableComboBox {
+						editable: true;
+						hintedmodel: UIMAMEOptions.selectable_modem_moip_box_endpoints;
+						current-value <=> UIMAMEOptions.selected_modem_moip_endpoint;
+					}
+				}
+			}
+
+			// None of the ports and devices are usable with msntv2
+			ports-collapsible := Collapsible {
+				expanded: UIMAMEOptions.selected_box != "msntv2";
+				TitledVerticalBox {
+					title: @tr("Ports and Devices");
+
+					GridLayout {
+						width: 100%;
+						padding-bottom: 7px;
+						spacing-vertical: 5px;
+						Row {
+							HorizontalLayout {
+								width: 50%;
+								spacing: 0px;
+								padding-right: 10px;
+								Switch {
+									text: @tr("Use Audio In");
+									width: 180px;
+									height: 28px;
+									enabled: UIMAMEOptions.can_use_audio_in;
+									checked <=> UIMAMEOptions.enable_audio_in;
+								}
+								EditableComboBox {
+									visible: UIMAMEOptions.enable_audio_in && UIMAMEOptions.can_use_audio_in;
+									enabled: UIMAMEOptions.can_use_audio_in;
+									height: 33px;
+									editable: true;
+									hintedmodel: UIMAMEOptions.selectable_audio_in_endpoints;
+									current-value <=> UIMAMEOptions.selected_audio_in_endpoint;
+								}
+							}
+							HorizontalLayout {
+								width: 50%;
+								spacing: 0px;
+								padding-right: 10px;
+								Switch {
+									text: @tr("Use Video In");
+									width: 180px;
+									height: 28px;
+									enabled: UIMAMEOptions.can_use_video_in;
+									checked <=> UIMAMEOptions.enable_video_in;
+								}
+								EditableComboBox {
+									visible: UIMAMEOptions.enable_video_in && UIMAMEOptions.can_use_video_in;
+									enabled: UIMAMEOptions.can_use_video_in;
+									height: 33px;
+									editable: true;
+									hintedmodel: UIMAMEOptions.selectable_video_in_endpoints;
+									current-value <=> UIMAMEOptions.selected_video_in_endpoint;
+						
+								}
+							}
+						}
+						Row {
+							HorizontalLayout {
+								width: 50%;
+								spacing: 0px;
+								padding-right: 10px;
+								Switch {
+									text: @tr("Attach SmartCard");
+									width: 180px;
+									height: 28px;
+									enabled: UIMAMEOptions.can_use_smartcard;
+									checked <=> UIMAMEOptions.enable_smartcard;
+								}
+								EditableComboBox {
+									visible: UIMAMEOptions.enable_smartcard && UIMAMEOptions.can_use_smartcard;
+									enabled: UIMAMEOptions.can_use_smartcard;
+									height: 33px;
+									editable: true;
+									hintedmodel: UIMAMEOptions.selectable_smartcard_endpoints;
+									current-value <=> UIMAMEOptions.selected_smartcard_endpoint;
+						
+								}
+							}
+							HorizontalLayout {
+								width: 50%;
+								spacing: 0px;
+								padding-right: 10px;
+								Switch {
+									text: @tr("Attach CA Card");
+									width: 180px;
+									height: 28px;
+									enabled: UIMAMEOptions.can_use_cacard;
+									checked <=> UIMAMEOptions.enable_cacard;
+								}
+								EditableComboBox {
+									visible: UIMAMEOptions.enable_cacard && UIMAMEOptions.can_use_cacard;
+									enabled: UIMAMEOptions.can_use_cacard;
+									height: 33px;
+									editable: true;
+									hintedmodel: UIMAMEOptions.selectable_smartcard_endpoints;
+									current-value <=> UIMAMEOptions.selected_cacard_endpoint;
+								}
+							}
+						}
+						Row {
+							HorizontalLayout {
+								width: 50%;
+								spacing: 0px;
+								padding-right: 10px;
+								Switch {
+									text: @tr("Use WebTV Port");
+									width: 180px;
+									height: 28px;
+									enabled: UIMAMEOptions.can_use_wtvport;
+									checked <=> UIMAMEOptions.enable_wtvport;
+								}
+								EditableComboBox {
+									visible: UIMAMEOptions.enable_wtvport && UIMAMEOptions.can_use_wtvport;
+									enabled: UIMAMEOptions.can_use_wtvport;
+									height: 33px;
+									editable: false;
+									hintedmodel: UIMAMEOptions.selectable_wtvport_options;
+									current-value <=> UIMAMEOptions.selected_wtvport_option;
+								}
+							}
+							HorizontalLayout {
+								width: 50%;
+								spacing: 0px;
+								padding-right: 10px;
+								Switch {
+									text: @tr("Use Parallel Port");
+									width: 180px;
+									height: 28px;
+									enabled: UIMAMEOptions.can_use_parallel;
+									checked <=> UIMAMEOptions.enable_parallel;
+								}
+								VerticalLayout {
+									EditableComboBox {
+										visible: UIMAMEOptions.enable_parallel && UIMAMEOptions.can_use_parallel;
+										enabled: UIMAMEOptions.can_use_parallel;
+										height: 33px;
+										editable: false;
+										hintedmodel: UIMAMEOptions.selectable_parallel_options;
+										current-value <=> UIMAMEOptions.selected_parallel_option;
+							
+									}
+									socket-collapsible := Collapsible {
+										expanded: UIMAMEOptions.parallel_socket_selected;
+										GridLayout {
+											VerticalLayout {
+												Text {
+													text: @tr("Socket Endpoint");
+													height: 28px;
+													vertical-alignment: center;
+													horizontal-alignment: left;
+												}
+												EditableComboBox {
+													height: 33px;
+													editable: true;
+													hintedmodel: UIMAMEOptions.selectable_parallel_socket_endpoints;
+													current-value <=> UIMAMEOptions.selected_parallel_socket_endpoint;
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+
+			TitledVerticalBox {
+				title: @tr("Other Options");
+	
+				GridLayout {
+					width: 100%;
+					padding-bottom: 7px;
+					spacing-vertical: 5px;
+					Row {
+						HorizontalLayout {
+							width: 50%;
+							spacing: 0px;
+							padding-right: 10px;
+							Switch {
+								text: @tr("Windowed Mode");
+								width: 180px;
+								height: 28px;
+								checked <=> UIMAMEOptions.windowed_mode;
+							}
+						}
+						HorizontalLayout {
+							width: 50%;
+							spacing: 0px;
+							padding-right: 10px;
+							Switch {
+								text: @tr("Capture MAME Window");
+								width: 180px;
+								height: 28px;
+								checked <=> UIMAMEOptions.capture_mame_window;
+							}
+						}
+					}
+					Row {
+						HorizontalLayout {
+							width: 50%;
+							spacing: 0px;
+							padding-right: 10px;
+							Switch {
+								text: @tr("Disable Sound");
+								width: 180px;
+								height: 28px;
+								checked <=> UIMAMEOptions.disable_sound;
+							}
+						}
+						HorizontalLayout {
+							width: 50%;
+							spacing: 0px;
+							padding-right: 10px;
+							Switch {
+								text: @tr("Verbose Mode");
+								width: 180px;
+								height: 28px;
+								checked <=> UIMAMEOptions.verbose_mode;
+							}
+						}
+					}
+					Row {
+						HorizontalLayout {
+							width: 50%;
+							spacing: 0px;
+							padding-right: 10px;
+							Switch {
+								text: @tr("Use Decoupled Sound");
+								width: 180px;
+								height: 28px;
+								enabled: UIMAMEOptions.can_use_decoupled_sound;
+								checked <=> UIMAMEOptions.use_decoupled_sound;
+							}
+						}
+						HorizontalLayout {
+							width: 50%;
+							spacing: 0px;
+							Switch {
+								text: @tr("Console Input");
+								width: 180px;
+								height: 28px;
+								checked <=> UIMAMEOptions.console_input;
+							}
+							EditableComboBox {
+								visible: UIMAMEOptions.console_input && UIMAMEOptions.selectable_debug_bitb_startpoints.length > 0;
+								enabled: UIMAMEOptions.console_input && UIMAMEOptions.selectable_debug_bitb_startpoints.length > 0;
+								height: 33px;
+								editable: true;
+								hintedmodel: UIMAMEOptions.selectable_debug_bitb_endpoints;
+								current-value <=> UIMAMEOptions.selected_debug_bitb_endpoint;
+						
+							}
+						}
+					}
+					Row {
+						HorizontalLayout {
+							width: 50%;
+							spacing: 0px;
+							padding-right: 10px;
+							Switch {
+								text: @tr("Enable LIRC");
+								width: 180px;
+								height: 28px;
+								enabled: UIMAMEOptions.can_use_lirc; // if the "Enable LIRC" toggle is available, not if LIRC is enabled. enabled=false when MAME doesn't support -lirc
+								checked <=> UIMAMEOptions.enable_lirc;
+							}
+							EditableComboBox {
+								visible: UIMAMEOptions.enable_lirc && UIMAMEOptions.can_use_lirc;
+								enabled: UIMAMEOptions.can_use_lirc;
+								height: 33px;
+								editable: true;
+								hintedmodel: UIMAMEOptions.selectable_lirc_endpoints;
+								current-value <=> UIMAMEOptions.selected_lirc_endpoint;
+						
+							}
+						}
+						HorizontalLayout {
+							width: 50%;
+							spacing: 0px;
+							padding-right: 10px;
+							Switch {
+								text: @tr("Debug Mode");
+								width: 180px;
+								height: 28px;
+								checked <=> UIMAMEOptions.debug_mode;
+							}
+							EditableComboBox {
+								visible: UIMAMEOptions.console_input && UIMAMEOptions.selectable_debug_bitb_startpoints.length > 1;
+								enabled: UIMAMEOptions.console_input && UIMAMEOptions.selectable_debug_bitb_startpoints.length > 1;
+								height: 33px;
+								editable: false;
+								hintedmodel: UIMAMEOptions.selectable_debug_bitb_startpoints;
+								current-value <=> UIMAMEOptions.selected_debug_bitb_startpoint;
+						
+							}
+						}
+					}
+					Row {
+						HorizontalLayout {
+							width: 50%;
+							spacing: 0px;
+							padding-right: 10px;
+							Switch {
+								text: @tr("Validate Build Image");
+								width: 180px;
+								height: 28px;
+								checked <=> UIMAMEOptions.validate_build_image;
+							}
+						}
+						HorizontalLayout {
+							width: 50%;
+							spacing: 0px;
+							padding-right: 10px;
+							Switch {
+								text: @tr("Use Dynamic Recompiler");
+								width: 180px;
+								height: 28px;
+								checked <=> UIMAMEOptions.use_drc;
+							}
+						}
+					}
+				}
+
+				EditableComboBox {
+					editable: true;
+					current-value <=> UIMAMEOptions.custom_options;
+					placeholder-text: @tr("Add custom options here");
+				}
+			}
 		}
 	}
 
@@ -440,6 +743,7 @@ export component StartPage inherits Page {
 		
 		Button {
 			text: @tr("Start MAME");
+			min-height: 64px;
 			vertical-stretch: 1;
 			primary: true;
 			clicked => {

@@ -1,0 +1,73 @@
+// By: Eric MacDonald (eMac)
+
+import { 
+	Palette,
+	ScrollView
+} from "std-widgets.slint";
+import {
+	HintedItem
+} from "./editablecombobox.slint";
+
+export component PopupListWindow inherits Window {
+	title: "WebTV MAME Launcher Dropdown";
+	no-frame: true;
+	always-on-top: true;
+	default-font-family: "MLHelvetica";
+	default-font-size: 13px;
+	default-font-weight: 400;
+	background: Palette.alternate-background;
+
+	in property <[HintedItem]> items: [];
+	in property <string> current-value: "";
+	in property <bool> hint-before: false;
+	in property <bool> display-hint-only: false;
+	in property <length> row-height: 32px;
+
+	callback item-selected(int);
+
+	Rectangle {
+		background: Palette.alternate-background;
+		border-width: 2px;
+		border-radius: 3px;
+		border-color: Palette.background;
+	}
+
+	ScrollView {
+		width: parent.width;
+		height: parent.height;
+		content-width: parent.width;
+		content-height: root.row-height * root.items.length;
+
+		VerticalLayout {
+			spacing: 0px;
+			for value[index] in root.items: Rectangle {
+				height: root.row-height;
+				background: (itemsel-area.has-hover) ? Palette.foreground : Palette.alternate-background;
+				border-width: 2px;
+				border-color: (itemsel-area.has-hover) ? Palette.foreground : ((root.current-value == value.value) ? Palette.accent-background : Palette.alternate-background);
+				HorizontalLayout {
+					padding: 6px;
+					spacing: 5px;
+					if value.icon.width != 0: Image {
+						source: value.icon;
+						y: ((parent.height - self.height) / 2);
+						width: 24px;
+						height: 24px;
+						image-fit: contain;
+					}
+					Text {
+						text: (value.hint != "" && (root.display-hint-only || value.display_hint_only)) ? value.hint : (root.hint-before) ? (((value.hint!= "") ? value.hint + ": " : "") + value.value) : (value.value + ((value.hint!= "") ? ": " + value.hint : ""));
+						color: (itemsel-area.has-hover) ? Palette.alternate-background : Palette.foreground;
+						font-size: 14px;
+						vertical-alignment: center;
+					}
+				}
+				itemsel-area := TouchArea {
+					clicked => {
+						root.item-selected(index);
+					}
+				}
+			}
+		}
+	}
+}

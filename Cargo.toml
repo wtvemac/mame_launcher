@@ -28,7 +28,7 @@ rsa = { version = "0.9.10" }
 serde = { version = "1.0.229", features = ["derive"] }
 serialport = "4.10.1"
 sha1 = { version = "0.10.7", features = ["oid"] }
-slint = "1.18.1"
+slint = { version = "1.18.1", features = ["unstable-winit-030"] } # unstable-winit-030 is used for the external dropdown window (see externalpopup.rs)
 smoltcp = { version = "0.14.0", default-features = false, features = ["std", "medium-ethernet", "proto-ipv4", "socket-tcp", "socket-tcp-pause-synack", "auto-icmp-echo-reply"] }
 strum = "0.28.0"
 strum_macros = "0.28.0"

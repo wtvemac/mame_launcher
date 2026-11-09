@@ -18,8 +18,16 @@ import {
 import { 
 	LoadingBox
 } from "./widgets/loadingbox.slint";
+import {
+	ComboBoxWindow
+} from "./widgets/editablecombobox.slint";
+import {
+	PopupListWindow
+} from "./widgets/popuplistwindow.slint";
 
 export { 
+	ComboBoxWindow,
+	PopupListWindow,
 	UIMAMEOptions,
 	UIPaths,
 	UIAbout
@@ -45,10 +53,22 @@ export enum MAMEConsoleScrollMode {
 export component MainWindow inherits Window {
 	title: @tr("WebTV MAME Launcher");
 	// might be a good idea to save window sizes in the config file.
-	preferred-width: 800px;
-	preferred-height: 610px;
-	min-width: self.preferred-width;
-	min-height: self.preferred-height;
+	preferred-width: 880px;
+	// Launcher by default can't be resized by the user unless it's in MAME console mode
+	min-width: (root.mame-console-enabled) ? root.console-min-width : self.preferred-width;
+	max-width: (root.mame-console-enabled) ? 1000000px : self.preferred-width;
+	min-height: (root.mame-console-enabled) ? root.console-min-height : root.launcher-height;
+	max-height: (root.mame-console-enabled) ? 1000000px : root.launcher-height;
+	property<length> console-min-width: 480px;
+	property<length> console-min-height: 200px;
+	property<length> tab-bar-height: tab-widget.min-height - max(start-page.min-height, setup-page.min-height, about-page.min-height);
+	property<length> current-page-min-height: (tab-widget.current-index == 1) ? setup-page.min-height : ((tab-widget.current-index == 2) ? about-page.min-height : start-page.min-height);
+	out property<length> content-min-height: tab-widget.y + root.tab-bar-height + root.current-page-min-height;
+	property<length> content-final-height: root.content-min-height + ((tab-widget.current-index == 0) ? start-page.pending-height-change : 0px);
+	property<bool> content-animating: abs(root.content-final-height - root.content-min-height) > 0.5px;
+	property<length> launcher-height: max(root.launcher-height-hold, (root.content-animating) ? max(root.content-final-height, root.height) : root.content-final-height);
+	in-out property<length> launcher-height-hold: 0px;
+	out property<length> advanced-expanded-content-height: root.content-min-height + start-page.advanced-expanded-height;
 	icon: @image-url("images/icon.png");
 	default-font-family: (mame-console-enabled) ? "MLMonaco" : "MLHelvetica";
 	default-font-size: 13px;
@@ -190,6 +210,13 @@ export component MainWindow inherits Window {
 			mame-console-focus.focus();
 		}
 	}
+	// Lets dropdowns fit inside the window.
+	init => {
+		ComboBoxWindow.height = root.height;
+	}
+	changed height => {
+		ComboBoxWindow.height = root.height;
+	}
 
 	callback send-key-to-mame(string, bool);
 	callback copy-console-range(int, int, int, int);
@@ -223,22 +250,25 @@ export component MainWindow inherits Window {
 		x: 0px;
 		y: (root.launcher-state-message != "") ? status-message.height + 3px : 3px;
 		width: 100%;
-		height: ((root.launcher-state-message != "") ? (root.height - status-message.height) : root.height);
+		// Sized to the content (not the window) so the content doesn't stretch while the window is a different size during show/hide animations.
+		height: (root.mame-console-enabled) ? ((root.launcher-state-message != "") ? (root.height - status-message.height) : root.height) : (root.content-min-height - self.y);
 		current-index: (root.mame-broken) ? 1 : 0;
 
 		Tab {
 			title: @tr("Start MAME");
-			StartPage {
+			start-page := StartPage {
+				// Yellow warnings (red means MAME is broken, which switches to the setup tab).
+				has-warning: root.launcher-state-message != "" && !root.mame-broken;
 				opacity: (root.mame-broken) ? 0.2 : 1.0;
 			}
 		}
 		Tab {
 			title: @tr("Set me up");
-			SetupPage {}
+			setup-page := SetupPage {}
 		}
 		Tab {
 			title: @tr("About");
-			AboutPage {}
+			about-page := AboutPage {}
 		}
 	}
 	// This rectangle is line across the bottom of the tabs.

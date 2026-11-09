@@ -10,7 +10,20 @@ export struct HintedItem {
 	hint: string,
 	tooltip: string,
 	value: string,
-	icon: image
+	icon: image,
+	display_hint_only: bool // Only display the hint instead of "value: hint" (the value is still what's selected and edited).
+}
+
+export global ComboBoxWindow {
+	in-out property <length> height: 0px;
+
+	// This is enabled for a separate (borderless) window that can be drawn outside the main window. Useful for combobox's on small windows.
+	in-out property <bool> external-popups-supported: false;
+	callback show-external-popup(length, length, length, length, length, length, [HintedItem], string, bool, bool);
+	in-out property <int> external-popup-serial: 0;
+	in-out property <int> external-popup-selected-index: -1;
+	callback close-external-popup();
+	callback close-external-popup-if-unfocused();
 }
 
 global TooltipState {
@@ -27,6 +40,8 @@ export component EditableComboBox inherits Rectangle {
 	in property <string> placeholder-text: "";
 	in property <bool> use-border-style: false;
 	in property <bool> hint-before: false;
+	in property <bool> display-hint-only: false;
+	in property <bool> use-external-popup: false;
 	
 	property <bool> i-ishinted: (hintedmodel.length > 0);
 	property <int> i-index: 0;
@@ -41,7 +56,46 @@ export component EditableComboBox inherits Rectangle {
 	out property <image> current-icon: (i-ishinted) ? hintedmodel[i-index].icon : @image-url("");
 	out property <int> item-count: ((i-ishinted) ? hintedmodel.length : model.length);
 
+	property <bool> i-current-hint-only: (current-hint != "" && i-value == current-value && (display-hint-only || (i-ishinted && hintedmodel.length > i-index && hintedmodel[i-index].display_hint_only)));
+
 	property <length> popup-item-height-adjust: 6px;
+
+	property <bool> i-use-external-popup: (root.use-external-popup && root.i-ishinted && ComboBoxWindow.external-popups-supported);
+	property <bool> i-external-popup-requested: false;
+	property <int> i-external-popup-serial: ComboBoxWindow.external-popup-serial;
+	changed i-external-popup-serial => {
+		if (root.i-external-popup-requested) {
+			root.i-external-popup-requested = false;
+			if (ComboBoxWindow.external-popup-selected-index >= 0 && ComboBoxWindow.external-popup-selected-index < root.hintedmodel.length) {
+				root.select-hinted-index(ComboBoxWindow.external-popup-selected-index);
+			}
+		}
+	}
+
+	function select-hinted-index(index: int) {
+		root.i-index = index;
+		root.current-value = root.hintedmodel[index].value;
+		root.current-hint = root.hintedmodel[index].hint;
+		root.current-tooltip = root.hintedmodel[index].tooltip;
+		root.current-icon = root.hintedmodel[index].icon;
+
+		// Don't focus hint-only items so the hint stays displayed instead of the full value.
+		if(root.editable && !(root.hintedmodel[index].hint != "" && (root.display-hint-only || root.hintedmodel[index].display_hint_only))) {
+			editbox.focus();
+			editbox.clear-selection();
+			editbox.set-selection-offsets(500, 500);
+		}
+
+		root.selection-changed();
+	}
+
+	// The popup opens below the combobox unless there's more room above. Either way it's limited to the space available in the window
+	property <length> i-popup-margin: 4px;
+	property <length> i-popup-full-height: (root.height - root.popup-item-height-adjust) * ((root.item-count > 10) ? 10 : root.item-count);
+	property <length> i-popup-space-below: (ComboBoxWindow.height > 0px) ? (ComboBoxWindow.height - (root.absolute-position.y + root.height) - root.i-popup-margin) : root.i-popup-full-height;
+	property <length> i-popup-space-above: root.absolute-position.y - root.i-popup-margin;
+	property <bool> i-popup-above: (root.i-popup-space-below < root.i-popup-full-height && root.i-popup-space-above > root.i-popup-space-below);
+	property <length> i-popup-height: max(root.height - root.popup-item-height-adjust, min(root.i-popup-full-height, (root.i-popup-above) ? root.i-popup-space-above : root.i-popup-space-below));
 
 	callback selection-changed;
 	callback close-popup-window;
@@ -101,7 +155,7 @@ export component EditableComboBox inherits Rectangle {
 		image-fit: contain;
 	}
 	nonedit-label := Text {
-		text: (root.current-value == "") ? "" : ((root.hint-before) ? (((root.current-hint != "") ? current-hint + ": " : "") + root.current-value) : (root.current-value + ((root.current-hint != "") ? ": " + current-hint : "")));
+		text: (root.current-value == "") ? "" : (root.i-current-hint-only) ? root.current-hint : ((root.hint-before) ? (((root.current-hint != "") ? current-hint + ": " : "") + root.current-value) : (root.current-value + ((root.current-hint != "") ? ": " + current-hint : "")));
 		x: (root.current-icon.width == 0) ? 10px : 35px;
 		width: parent.width - self.x - 2px;
 		height: (!root.editable) ? (parent.height) : 0px;
@@ -134,6 +188,36 @@ export component EditableComboBox inherits Rectangle {
 		border-color: (use-border-style) ? Palette.alternate-background : transparent;
 		background: transparent;
 	}
+	if root.editable && root.i-current-hint-only && !editbox.has-focus: Rectangle {
+		x: editbox.x + 1px;
+		y: editbox.y + 1px;
+		width: editbox.width - 2px;
+		height: editbox.height - 3px;
+		border-radius: 4px;
+		background: root.background;
+		Rectangle {
+			border-radius: parent.border-radius;
+			background: Palette.control-background;
+		}
+		Text {
+			text: root.current-hint;
+			x: 11px;
+			width: parent.width - self.x - 2px;
+			height: parent.height;
+			vertical-alignment: center;
+			horizontal-alignment: left;
+			font-size: nonedit-label.font-size;
+			color: (root.enabled) ? Palette.foreground : Palette.foreground.transparentize(50%);
+			overflow: elide;
+			wrap: no-wrap;
+		}
+		TouchArea {
+			enabled: root.enabled;
+			clicked => {
+				editbox.focus();
+			}
+		}
+	}
 	down-arrow := Image {
 		source: @image-url("images/chevron-down.svg");
 		x: (parent.width - self.width - 4px);
@@ -153,7 +237,23 @@ export component EditableComboBox inherits Rectangle {
 
 		clicked => {
 			if (root.enabled && (model.length > 1 || hintedmodel.length > 1 || (hintedmodel.length == 1 && root.current-value != hintedmodel[0].value) || (model.length == 1 && root.current-value != model[0]))) {
-				popup.show();
+				if (root.i-use-external-popup) {
+					root.i-external-popup-requested = true;
+					ComboBoxWindow.show-external-popup(
+						root.absolute-position.x,
+						root.absolute-position.y,
+						root.absolute-position.y + root.height,
+						root.width,
+						root.i-popup-full-height,
+						root.height - root.popup-item-height-adjust,
+						root.hintedmodel,
+						root.current-value,
+						root.hint-before,
+						root.display-hint-only
+					);
+				} else {
+					popup.show();
+				}
 			}
 		}
 
@@ -197,9 +297,9 @@ export component EditableComboBox inherits Rectangle {
 	// https://github.com/slint-ui/slint/issues/4209
 	popup := PopupWindow {
 		x: 0px;
-		y: root.height;
+		y: (root.i-popup-above) ? -root.i-popup-height : root.height;
 		width: root.width;
-		height: (root.height - root.popup-item-height-adjust) * ((root.item-count > 10) ? 10 : root.item-count);
+		height: root.i-popup-height;
 		close-policy: close-on-click-outside;
 
 		Rectangle {
@@ -234,7 +334,7 @@ export component EditableComboBox inherits Rectangle {
 							image-fit: contain;
 						}
 						Text {
-							text: (root.hint-before) ? (((value.hint!= "") ? value.hint + ": " : "") + value.value) : (value.value + ((value.hint!= "") ? ": " + value.hint : ""));
+							text: (value.hint != "" && (root.display-hint-only || value.display_hint_only)) ? value.hint : (root.hint-before) ? (((value.hint!= "") ? value.hint + ": " : "") + value.value) : (value.value + ((value.hint!= "") ? ": " + value.hint : ""));
 							color: (itemsel-area.has-hover) ? Palette.alternate-background : Palette.foreground;
 							font-size: nonedit-label.font-size;
 							vertical-alignment: center;
@@ -242,19 +342,7 @@ export component EditableComboBox inherits Rectangle {
 					}
 					itemsel-area := TouchArea {
 						clicked => {
-							root.i-index = index;
-							root.current-value = value.value;
-							root.current-hint = value.hint;
-							root.current-tooltip = value.tooltip;
-							root.current-icon = value.icon;
-	
-							if(root.editable) {
-								editbox.focus();
-								editbox.clear-selection();
-								editbox.set-selection-offsets(500, 500);
-							}
-
-							root.selection-changed();
+							root.select-hinted-index(index);
 
 							popup.close();
 						}
