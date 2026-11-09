@@ -3950,15 +3950,10 @@ fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool, new_bootroms: Opt
 			}
 		};
 
-		let default_network = NetworkOptions::default_options();
 		let network = match LauncherConfig::get_persistent_config() {
 			Ok(config) => config.network,
 			_ => None
-		}.map(|network| NetworkOptions {
-			ethernet_enabled: network.ethernet_enabled.or(default_network.ethernet_enabled.clone()),
-			dns0000_target: network.dns0000_target.or(default_network.dns0000_target.clone()),
-			dns_overrides: network.dns_overrides.or(default_network.dns_overrides.clone())
-		}).or(Some(default_network));
+		}.map(NetworkOptions::with_defaults).or(Some(NetworkOptions::default_options()));
 
 		let new_config = PersistentConfig {
 			paths: Paths {
@@ -5377,7 +5372,7 @@ fn start_netstack(ui_weak: slint::Weak<MainWindow>, mame_executable_path: &Strin
 	let network_options = match LauncherConfig::get_persistent_config() {
 		Ok(config) => config.network,
 		_ => None
-	}.unwrap_or(NetworkOptions::default_options());
+	}.map(NetworkOptions::with_defaults).unwrap_or(NetworkOptions::default_options());
 
 	if !network_options.ethernet_enabled.unwrap_or(true) {
 		return None;
@@ -5410,12 +5405,23 @@ fn start_netstack(ui_weak: slint::Weak<MainWindow>, mame_executable_path: &Strin
 		})
 		.collect();
 
+	let ip_overrides: Vec<(String, Vec<String>)> = network_options.ip_overrides.unwrap_or_default()
+		.into_iter()
+		.map(|(target, guest_ips)| {
+			if target.trim() == "0.0.0.0" {
+				(dns0000_target.clone(), guest_ips)
+			} else {
+				(target, guest_ips)
+			}
+		})
+		.collect();
+
 	let ui_weak_cpy = ui_weak.clone();
 	let network_log = Box::new(move |text: String| {
 		let _ = add_console_text(ui_weak_cpy.clone(), text, MAMEConsoleScrollMode::ConditionalScroll, 0);
 	});
 
-	match NetworkStack::start(dns_overrides, network_log) {
+	match NetworkStack::start(dns_overrides, ip_overrides, network_log) {
 		Ok(network_stack) => {
 			mame_command.arg("-networkprovider").arg("socket");
 			mame_command.arg("-network_socket").arg("127.0.0.1:".to_owned() + &network_stack.port().to_string());

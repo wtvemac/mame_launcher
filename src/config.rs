@@ -26,6 +26,47 @@ const DEFAULT_DNS_OVERRIDE_DOMAINS: [&'static str; 2] = [
 	"sg2.trusted.msntv.msn.com",
 	"headwaiter.trusted.msntv.msn.com"
 ];
+// An IP override target set to 0.0.0.0 also points to dns0000_target
+const DEFAULT_IP_OVERRIDE_ADDRESS: &'static str = "wtvsvr.mywire.org";
+const DEFAULT_IP_OVERRIDE_IPS: [&'static str; 37] = [
+	"10.0.0.1",        // Appears in many builds (including production)
+	"10.0.0.2",        // ^ same, secondary server after first one fails
+	"10.0.1.1",        // Appears in many internal (and export) builds
+	"10.0.1.2",        // ^ same, secondary server after first one fails
+	"10.0.1.3",        // Appears in many LC2 3426+ internal builds
+	"10.0.1.4",        // ^ same, secondary server after first one fails
+	"10.0.3.1",        // Only in internal UTV builds
+	"10.0.128.1",      // Several internal builds
+	"10.0.128.2",      // ^ same, secondary server after first one fails
+	"10.0.129.1",      // Several internal builds
+	"10.0.129.2",      // ^ same, secondary server after first one fails
+	"10.0.130.1",      // No idea, referenced in community code. Probably just to cover the bases
+	"10.0.130.2",      // ^ same
+	"10.0.131.1",      // ^ same
+	"10.0.131.2",      // ^ same
+	"10.0.132.1",      // Several internal/weekly builds
+	"10.0.132.2",      // ^ same, secondary server after first one fails
+	"192.168.102.1",   // Internal builds
+	"192.168.102.2",   // ^ same, secondary server after first one fails
+	"204.254.74.126",  // Internal builds
+	"207.76.180.1",    // No idea, referenced in community code.
+	"207.76.180.2",    // No idea, referenced in community code.
+	"207.76.180.12",   // No idea, referenced in community code.
+	"207.76.180.13",   // No idea, referenced in community code.
+	"207.76.180.96",   // Internal builds LC2 up to 7352. Not in 7658+ builds
+	"210.150.22.37",   // Internal builds LC2 3426+
+	"210.150.22.58",   // Internal builds LC2 3426+
+	"210.150.22.73",   // No idea, referenced in community code.
+	"210.150.22.74",   // No idea, referenced in community code.
+	"209.240.194.40",  // No idea, referenced in community code.
+	"209.240.194.41",  // Internal builds 3454+, bf0app 1228+
+	"209.240.194.42",  // ^ same
+	"209.240.194.43",  // Internal builds LC2/Echostar pre 7151. Also found in UTV internal builds
+	"209.240.194.70",  // Internal builds. Replaced 209.240.194.43 LC2 7151+
+	"209.240.194.71",  // ^ same
+	"209.240.194.72",  // ^ same
+	"209.240.194.73"   // ^ same
+];
 
 static MAME_CONFIG_CACHE: once_cell::sync::Lazy<Mutex<Option<(String, MAMEDocument)>>> = once_cell::sync::Lazy::new(|| {
 	Mutex::new(None)
@@ -291,9 +332,13 @@ pub struct MAMEOptions {
 #[allow(dead_code)]
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct NetworkOptions {
-    pub ethernet_enabled: Option<bool>,
-    pub dns0000_target: Option<String>,
-    pub dns_overrides: Option<HashMap<String, String>>
+	pub ethernet_enabled: Option<bool>,
+	// When the DNS override is mapped to 0.0.0.0 then resolve this host/IP to get the IP
+	pub dns0000_target: Option<String>,
+	// For the MSNTV2 we need this so we can redirect some names to a reachable server. A host => 0.0.0.0 will use the resolved IP from dns0000_target (above)
+	pub dns_overrides: Option<HashMap<String, String>>,
+	// The WebTV OS tries to connect to some unreachable IPs, this allows you to map IPs to a reachable server IP. Same rules with the resolve target as dns_overrides.
+	pub ip_overrides: Option<HashMap<String, Vec<String>>>
 }
 
 impl NetworkOptions {
@@ -306,7 +351,25 @@ impl NetworkOptions {
 					.iter()
 					.map(|domain| (domain.to_string(), DEFAULT_DNS_OVERRIDE_ADDRESS.to_string()))
 					.collect()
-			)
+			),
+			ip_overrides: Some(HashMap::from([(
+				DEFAULT_IP_OVERRIDE_ADDRESS.to_string(),
+				DEFAULT_IP_OVERRIDE_IPS
+					.iter()
+					.map(|ip| ip.to_string())
+					.collect()
+			)]))
+		}
+	}
+
+	pub fn with_defaults(self) -> NetworkOptions {
+		let default_network = NetworkOptions::default_options();
+
+		NetworkOptions {
+			ethernet_enabled: self.ethernet_enabled.or(default_network.ethernet_enabled),
+			dns0000_target: self.dns0000_target.or(default_network.dns0000_target),
+			dns_overrides: self.dns_overrides.or(default_network.dns_overrides),
+			ip_overrides: self.ip_overrides.or(default_network.ip_overrides)
 		}
 	}
 }

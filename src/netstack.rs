@@ -1,5 +1,5 @@
 use std::{
-	collections::{hash_map::Entry, HashMap, VecDeque},
+	collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
 	io::{self, Read, Write},
 	net::{Ipv4Addr, Shutdown, SocketAddr, SocketAddrV4, TcpListener, TcpStream, ToSocketAddrs, UdpSocket},
 	sync::{
@@ -50,14 +50,17 @@ pub struct NetworkStack {
 }
 
 impl NetworkStack {
-	pub fn start(dns_overrides: Vec<(String, String)>, log: NetworkLogger) -> io::Result<NetworkStack> {
+	pub fn start(dns_overrides: Vec<(String, String)>, ip_overrides: Vec<(String, Vec<String>)>, log: NetworkLogger) -> io::Result<NetworkStack> {
 		let listener = TcpListener::bind("127.0.0.1:0")?;
 		listener.set_nonblocking(true)?;
 
 		let port = listener.local_addr()?.port();
 		let shutdown = Arc::new(AtomicBool::new(false));
 		let shutdown_cpy = shutdown.clone();
-		let dns_overrides = normalize_dns_overrides(dns_overrides);
+		let rules = NetworkRules {
+			dns_overrides: normalize_dns_overrides(dns_overrides),
+			ip_overrides: normalize_ip_overrides(ip_overrides, &log)
+		};
 
 		std::thread::spawn(move || {
 			while !shutdown_cpy.load(Relaxed) {
@@ -65,7 +68,7 @@ impl NetworkStack {
 					Ok((stream, _)) => {
 						log("Ethernet: MAME connected to the launcher network.\n".into());
 
-						match Session::new(stream, &dns_overrides, &log, &shutdown_cpy) {
+						match Session::new(stream, &rules, &log, &shutdown_cpy) {
 							Ok(mut session) => {
 								if let Err(e) = session.run() {
 									log(format!("Ethernet: network session ended with an error: {}\n", e));
@@ -116,12 +119,67 @@ fn normalize_dns_overrides(dns_overrides: Vec<(String, String)>) -> Vec<(String,
 		.collect()
 }
 
-fn host_ip_for(guest_dst_ip: Ipv4Addr) -> Ipv4Addr {
-	if guest_dst_ip == GATEWAY_IP {
-		Ipv4Addr::LOCALHOST
-	} else {
-		guest_dst_ip
+fn normalize_ip_overrides(ip_overrides: Vec<(String, Vec<String>)>, log: &NetworkLogger) -> HashMap<Ipv4Addr, HostTarget> {
+	let mut normalized: HashMap<Ipv4Addr, HostTarget> = HashMap::new();
+
+	for (target, guest_ips) in ip_overrides {
+		let target = target.trim().trim_matches('.').to_lowercase();
+		if target == "" {
+			continue;
+		}
+
+		let host_target = match target.parse::<Ipv4Addr>() {
+			Ok(ip) => HostTarget::Ip(ip),
+			Err(_) => HostTarget::Name(target.clone())
+		};
+
+		for guest_ip in guest_ips {
+			match guest_ip.trim().parse::<Ipv4Addr>() {
+				Ok(guest_ip) => {
+					normalized.insert(guest_ip, host_target.clone());
+				},
+				Err(_) => {
+					log(format!("Ethernet: ignoring invalid IP override '{}' for {}\n", guest_ip, target));
+				}
+			}
+		}
 	}
+
+	normalized
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum HostTarget {
+	Ip(Ipv4Addr),
+	Name(String)
+}
+
+impl std::fmt::Display for HostTarget {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match self {
+			HostTarget::Ip(ip) => write!(f, "{}", ip),
+			HostTarget::Name(name) => write!(f, "{}", name)
+		}
+	}
+}
+
+struct NetworkRules {
+	dns_overrides: Vec<(String, String)>,
+	ip_overrides: HashMap<Ipv4Addr, HostTarget>
+}
+
+fn resolve_ipv4s(name: &str, port: u16) -> Vec<Ipv4Addr> {
+	(name, port)
+		.to_socket_addrs()
+		.map(|addrs| {
+			addrs
+				.filter_map(|addr| match addr {
+					SocketAddr::V4(addr) => Some(*addr.ip()),
+					_ => None
+				})
+				.collect()
+		})
+		.unwrap_or_default()
 }
 
 struct FrameQueue {
@@ -185,6 +243,7 @@ struct TcpFlow {
 struct UdpFlow {
 	socket: UdpSocket,
 	guest_ip: Ipv4Addr,
+	translated: HashMap<SocketAddrV4, Ipv4Addr>,
 	last_used: std::time::Instant
 }
 
@@ -200,8 +259,9 @@ struct DnsQuery {
 }
 
 enum HostEvent {
-	Connected(FlowKey, io::Result<TcpStream>),
-	DnsAnswer(DnsQuery, Option<Vec<Ipv4Addr>>)
+	Connected(FlowKey, String, io::Result<TcpStream>),
+	DnsAnswer(DnsQuery, Option<Vec<Ipv4Addr>>),
+	TargetResolved(String, Option<Ipv4Addr>)
 }
 
 enum GuestFrameAction {
@@ -223,13 +283,15 @@ struct Session<'a> {
 	guest_mac: Option<EthernetAddress>,
 	events_tx: Sender<HostEvent>,
 	events_rx: Receiver<HostEvent>,
-	dns_overrides: &'a Vec<(String, String)>,
+	rules: &'a NetworkRules,
+	resolved_targets: HashMap<String, Ipv4Addr>,
+	resolving_targets: HashSet<String>,
 	log: &'a NetworkLogger,
 	shutdown: &'a AtomicBool
 }
 
 impl<'a> Session<'a> {
-	fn new(mame: TcpStream, dns_overrides: &'a Vec<(String, String)>, log: &'a NetworkLogger, shutdown: &'a AtomicBool) -> io::Result<Session<'a>> {
+	fn new(mame: TcpStream, rules: &'a NetworkRules, log: &'a NetworkLogger, shutdown: &'a AtomicBool) -> io::Result<Session<'a>> {
 		mame.set_nonblocking(true)?;
 		let _ = mame.set_nodelay(true);
 
@@ -262,7 +324,9 @@ impl<'a> Session<'a> {
 			guest_mac: None,
 			events_tx: events_tx,
 			events_rx: events_rx,
-			dns_overrides: dns_overrides,
+			rules: rules,
+			resolved_targets: HashMap::new(),
+			resolving_targets: HashSet::new(),
 			log: log,
 			shutdown: shutdown
 		})
@@ -470,6 +534,16 @@ impl<'a> Session<'a> {
 
 	// NAT
 
+	fn host_target_for(&self, guest_dst_ip: Ipv4Addr) -> HostTarget {
+		if let Some(target) = self.rules.ip_overrides.get(&guest_dst_ip) {
+			target.clone()
+		} else if guest_dst_ip == GATEWAY_IP {
+			HostTarget::Ip(Ipv4Addr::LOCALHOST)
+		} else {
+			HostTarget::Ip(guest_dst_ip)
+		}
+	}
+
 	fn open_tcp_flow(&mut self, key: FlowKey) {
 		if self.tcp_flows.contains_key(&key) {
 			return;
@@ -497,12 +571,28 @@ impl<'a> Session<'a> {
 			host_write_closed: false
 		});
 
-		let host_addr = SocketAddr::V4(SocketAddrV4::new(host_ip_for(remote_ip), remote_port));
+		let host_target = self.host_target_for(remote_ip);
+		if self.rules.ip_overrides.contains_key(&remote_ip) {
+			(self.log)(format!("Ethernet: IP override {}:{} -> {}:{}\n", remote_ip, remote_port, host_target, remote_port));
+		}
+
+		let host_description = format!("{}:{}", host_target, remote_port);
 		let events_tx = self.events_tx.clone();
 		std::thread::spawn(move || {
-			let result = TcpStream::connect_timeout(&host_addr, HOST_CONNECT_TIMEOUT);
+			let host_ips = match host_target {
+				HostTarget::Ip(ip) => vec![ip],
+				HostTarget::Name(name) => resolve_ipv4s(&name, remote_port)
+			};
 
-			let _ = events_tx.send(HostEvent::Connected(key, result));
+			let mut result = Err(io::Error::new(io::ErrorKind::NotFound, "couldn't resolve host"));
+			for host_ip in host_ips {
+				result = TcpStream::connect_timeout(&SocketAddr::V4(SocketAddrV4::new(host_ip, remote_port)), HOST_CONNECT_TIMEOUT);
+				if result.is_ok() {
+					break;
+				}
+			}
+
+			let _ = events_tx.send(HostEvent::Connected(key, host_description, result));
 		});
 	}
 
@@ -614,6 +704,29 @@ impl<'a> Session<'a> {
 			return;
 		}
 
+		let host_ip = match self.host_target_for(dst_ip) {
+			HostTarget::Ip(ip) => ip,
+			HostTarget::Name(name) => {
+				match self.resolved_targets.get(&name) {
+					Some(ip) => *ip,
+					None => {
+						// Drop the datagram until the name is resolved; the guest will retry.
+						if self.resolving_targets.insert(name.clone()) {
+							let events_tx = self.events_tx.clone();
+							std::thread::spawn(move || {
+								let ip = resolve_ipv4s(&name, 0).into_iter().next();
+
+								let _ = events_tx.send(HostEvent::TargetResolved(name, ip));
+							});
+						}
+
+						return;
+					}
+				}
+			}
+		};
+		let host_addr = SocketAddrV4::new(host_ip, dst_port);
+
 		let flow = match self.udp_flows.entry(src_port) {
 			Entry::Occupied(entry) => entry.into_mut(),
 			Entry::Vacant(entry) => {
@@ -628,6 +741,7 @@ impl<'a> Session<'a> {
 				entry.insert(UdpFlow {
 					socket: socket,
 					guest_ip: src_ip,
+					translated: HashMap::new(),
 					last_used: std::time::Instant::now()
 				})
 			}
@@ -636,7 +750,11 @@ impl<'a> Session<'a> {
 		flow.guest_ip = src_ip;
 		flow.last_used = std::time::Instant::now();
 
-		let _ = flow.socket.send_to(&payload, SocketAddrV4::new(host_ip_for(dst_ip), dst_port));
+		if host_ip != dst_ip {
+			flow.translated.insert(host_addr, dst_ip);
+		}
+
+		let _ = flow.socket.send_to(&payload, host_addr);
 	}
 
 	fn pump_udp(&mut self) -> bool {
@@ -647,7 +765,11 @@ impl<'a> Session<'a> {
 		self.udp_flows.retain(|guest_port, flow| {
 			while let Ok((bytes_read, from)) = flow.socket.recv_from(&mut buf) {
 				if let SocketAddr::V4(from) = from {
-					let src_ip = if from.ip().is_loopback() { GATEWAY_IP } else { *from.ip() };
+					let src_ip = match flow.translated.get(&from) {
+						Some(guest_dst_ip) => *guest_dst_ip,
+						None if from.ip().is_loopback() => GATEWAY_IP,
+						None => *from.ip()
+					};
 
 					replies.push((src_ip, from.port(), flow.guest_ip, *guest_port, buf[0..bytes_read].to_vec()));
 				}
@@ -780,7 +902,7 @@ impl<'a> Session<'a> {
 	// DNS handling
 
 	fn find_dns_override(&self, name: &str) -> Option<String> {
-		self.dns_overrides
+		self.rules.dns_overrides
 			.iter()
 			.filter(|(domain, _)| name == domain || name.ends_with(&(".".to_owned() + domain)))
 			.max_by_key(|(domain, _)| domain.len())
@@ -866,7 +988,7 @@ impl<'a> Session<'a> {
 			busy = true;
 
 			match event {
-				HostEvent::Connected(key, result) => {
+				HostEvent::Connected(key, host_description, result) => {
 					if let Some(flow) = self.tcp_flows.get_mut(&key) {
 						let socket = self.sockets.get_mut::<tcp::Socket>(flow.handle);
 
@@ -881,7 +1003,7 @@ impl<'a> Session<'a> {
 								}
 							},
 							Err(e) => {
-								(self.log)(format!("Ethernet: couldn't connect to {}:{}: {}\n", host_ip_for(key.1), key.2, e));
+								(self.log)(format!("Ethernet: couldn't connect to {}: {}\n", host_description, e));
 								socket.abort();
 							}
 						}
@@ -893,6 +1015,18 @@ impl<'a> Session<'a> {
 					}
 
 					self.send_dns_answer(query, addrs);
+				},
+				HostEvent::TargetResolved(name, ip) => {
+					self.resolving_targets.remove(&name);
+
+					match ip {
+						Some(ip) => {
+							self.resolved_targets.insert(name, ip);
+						},
+						None => {
+							(self.log)(format!("Ethernet: couldn't resolve IP override target {}\n", name));
+						}
+					}
 				}
 			}
 		}
