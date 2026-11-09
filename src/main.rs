@@ -1821,6 +1821,17 @@ fn populate_selected_box_bootroms(ui_weak: &slint::Weak<MainWindow>, config: &La
 	Ok((selected_bootrom_index, selected_bootrom.build_storage_type.clone(), selected_bootrom.build_storage_state.clone()))
 }
 
+fn get_approm_build_flags(approm: &VerifiableBuildItem) -> u32 {
+	approm.build_info.as_ref().map(|build_info| build_info.build_header.build_flags).unwrap_or(0)
+}
+
+fn set_selected_approm_build_flags(ui_mame: &UIMAMEOptions, selected_box: &str, build_flags: u32) {
+	let is_msntv2 = selected_box == "msntv2";
+
+	ui_mame.set_build_supports_wtvpointer(!is_msntv2 && (build_flags & BuildFlag::FARTAPIPointer) != 0x00);
+	ui_mame.set_build_supports_wtvnet(!is_msntv2 && (build_flags & BuildFlag::FARTAPINet) != 0x00);
+}
+
 fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &LauncherConfig, selected_machine: &MAMEMachineNode, supress_warnings: bool, selected_bootrom_index: usize, selected_bootrom_type: BuildStorageType) -> Result<BuildStorageState, Box<dyn std::error::Error>> {
 	let config_persistent_mame = config.persistent.mame_options.clone();
 	let config_persistent_paths = config.persistent.paths.clone();
@@ -1971,6 +1982,12 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 		selected_approm.build_storage_state = BuildStorageState::BuildLooksGood;
 	}
 
+	let selected_approm_build_flags = if available_approms.iter().count() > 0 {
+		get_approm_build_flags(&selected_approm)
+	} else {
+		0
+	};
+
 	let _ = ui_weak.upgrade_in_event_loop(move |ui| {
 
 		let ui_mame = ui.global::<UIMAMEOptions>();
@@ -2010,6 +2027,9 @@ fn populate_selected_box_approms(ui_weak: &slint::Weak<MainWindow>, config: &Lau
 		let pc_msntv2_disk = selected_box == "msntv2" && (selected_bootrom_type == BuildStorageType::PCBIOSBuild || selected_approm.build_storage_type == BuildStorageType::PCDiskOSBuild);
 
 		ui_mame.set_selectable_approms(slint::ModelRc::new(slint::VecModel::from(selectable_approms)));
+		let selectable_approm_build_flags: Vec<i32> = available_approms.iter().map(|available_approm| get_approm_build_flags(available_approm) as i32).collect();
+		ui_mame.set_selectable_approm_build_flags(slint::ModelRc::new(slint::VecModel::from(selectable_approm_build_flags)));
+		set_selected_approm_build_flags(&ui_mame, &selected_box, selected_approm_build_flags);
 		if available_approms.iter().count() > 0 {
 			ui_mame.set_selected_approm(selected_approm.value.clone().into());
 			if selected_approm.value == "WinCE" || pc_msntv2_disk {
@@ -2574,6 +2594,9 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 	let audio_in_sound_module = get_audio_in_sound_module(&mame_path);
 	// Older MAME versions don't have -parent_window
 	let mame_supports_parent_window = LauncherConfig::mame_supports_option(&mame_path, "parent_window");
+	// wtvmame FART API options
+	let mame_supports_wtvpointer = LauncherConfig::mame_supports_option(&mame_path, "wtvpointer");
+	let mame_supports_wtvnet = LauncherConfig::mame_supports_option(&mame_path, "wtvnet");
 	let audio_in_devices = get_audio_in_devices(audio_in_sound_module.as_deref().unwrap_or(""));
 	let video_in_devices = get_video_in_devices();
 
@@ -2784,6 +2807,8 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		// Audio In
 		ui_mame.set_audio_in_available(audio_in_sound_module.is_some());
 		ui_mame.set_mame_supports_parent_window(mame_supports_parent_window);
+		ui_mame.set_mame_supports_wtvpointer(mame_supports_wtvpointer);
+		ui_mame.set_mame_supports_wtvnet(mame_supports_wtvnet);
 		ui_mame.set_audio_in_sound_module(audio_in_sound_module.clone().unwrap_or("".into()).into());
 		let mut selectable_audio_in_endpoints: Vec<HintedItem> = vec![
 			HintedItem {
@@ -2896,6 +2921,8 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		ui_mame.set_captured_window_width(config_persistent_mame.captured_window_width.unwrap_or(0.0));
 		ui_mame.set_captured_window_height(config_persistent_mame.captured_window_height.unwrap_or(0.0));
 		ui_mame.set_use_decoupled_sound(config_persistent_mame.use_decoupled_sound.unwrap_or(false).into());
+		ui_mame.set_enable_wtvpointer(config_persistent_mame.enable_wtvpointer.unwrap_or(true).into());
+		ui_mame.set_enable_wtvnet(config_persistent_mame.enable_wtvnet.unwrap_or(true).into());
 		ui_mame.set_enable_lirc(config_persistent_mame.enable_lirc.unwrap_or(false).into());
 		ui_mame.set_enable_audio_in(config_persistent_mame.enable_audio_in.unwrap_or(false).into());
 		ui_mame.set_enable_video_in(config_persistent_mame.enable_video_in.unwrap_or(false).into());
@@ -3963,6 +3990,8 @@ fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool, new_bootroms: Opt
 				captured_window_width: if ui_mame.get_captured_window_width() > 0.0 { Some(ui_mame.get_captured_window_width()) } else { None },
 				captured_window_height: if ui_mame.get_captured_window_height() > 0.0 { Some(ui_mame.get_captured_window_height()) } else { None },
 				use_decoupled_sound: Some(ui_mame.get_use_decoupled_sound().into()),
+				enable_wtvpointer: Some(ui_mame.get_enable_wtvpointer().into()),
+				enable_wtvnet: Some(ui_mame.get_enable_wtvnet().into()),
 				enable_lirc: Some(ui_mame.get_enable_lirc().into()),
 				selected_audio_in_endpoint: Some(ui_mame.get_selected_audio_in_endpoint().into()),
 				enable_audio_in: Some(ui_mame.get_enable_audio_in().into()),
@@ -4129,6 +4158,17 @@ fn start_bootrom_import(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn 
 
 fn start_approm_select(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error::Error>> {
 	let selected_approm = ui_weak.unwrap().global::<UIMAMEOptions>().get_selected_approm();
+
+	{
+		let ui = ui_weak.unwrap();
+		let ui_mame = ui.global::<UIMAMEOptions>();
+		let build_flags = ui_mame.get_selectable_approms().iter()
+			.position(|approm| approm.value == selected_approm)
+			.and_then(|index| ui_mame.get_selectable_approm_build_flags().row_data(index))
+			.map(|build_flags| build_flags as u32)
+			.unwrap_or(0);
+		set_selected_approm_build_flags(&ui_mame, &ui_mame.get_selected_box(), build_flags);
+	}
 
 	let _ = std::thread::spawn(move || {
 		enable_loading(&ui_weak, "Selecting Approm".into());
@@ -5051,7 +5091,17 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 		}
 
 		let selected_box = ui_mame.get_selected_box().to_string();
-		let network_stack = if selected_box == "msntv2" {
+
+		if ui_mame.get_can_use_wtvpointer() && ui_mame.get_enable_wtvpointer() {
+			mame_command.arg("-wtvpointer");
+		}
+
+		let use_wtvnet = ui_mame.get_can_use_wtvnet() && ui_mame.get_enable_wtvnet();
+		if use_wtvnet {
+			mame_command.arg("-wtvnet");
+		}
+
+		let network_stack = if selected_box == "msntv2" || use_wtvnet {
 			start_netstack(ui_weak.clone(), &mame_executable_path, &mame_directory_path, &mut mame_command, &selected_box)
 		} else {
 			None
@@ -5836,6 +5886,11 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 				//
 			}
 		}
+	});
+
+	ui_weak = ui.as_weak();
+	ui.global::<UIMAMEOptions>().on_fart_options_changed(move || {
+		let _ = save_config(ui_weak.clone(), false, None, None, None);
 	});
 
 	ui_weak = ui.as_weak();

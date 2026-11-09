@@ -251,6 +251,10 @@ pub mod BuildFlag {
 	pub const WinCE:          u32 = 0x10;
 	#[allow(non_snake_case, non_upper_case_globals)]
 	pub const Satellite:      u32 = 0x20;
+	#[allow(non_snake_case, non_upper_case_globals)]
+	pub const FARTAPINet:         u32 = 0x40000000;
+	#[allow(non_snake_case, non_upper_case_globals)]
+	pub const FARTAPIPointer:     u32 = 0x80000000;
 }
 
 

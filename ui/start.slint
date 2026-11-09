@@ -53,6 +53,17 @@ export global UIMAMEOptions {
 	in-out property<bool> selected_hdimg_enabled: false;
 	in-out property<bool> can_revert_approm: false;
 	in-out property<BuildImportState> approm_import_state: BuildImportState.ImportUnavailable;
+	in-out property<[int]> selectable_approm_build_flags: []; // Build header flags for each selectable approm (same order as selectable_approms).
+
+	// Selected ROM->AppROM->FART API
+	in-out property<bool> mame_supports_wtvpointer: false;
+	in-out property<bool> mame_supports_wtvnet: false;
+	in-out property<bool> build_supports_wtvpointer: false;
+	in-out property<bool> build_supports_wtvnet: false;
+	out property<bool> can_use_wtvpointer: (mame_supports_wtvpointer && build_supports_wtvpointer);
+	out property<bool> can_use_wtvnet: (mame_supports_wtvnet && build_supports_wtvnet);
+	in-out property<bool> enable_wtvpointer: true;
+	in-out property<bool> enable_wtvnet: true;
 
 	// Selected ROM->SSID->Manufacture
 	in-out property<string> ssid-in-file: ""; // used to detect if someone typed a custom SSID. Custom SSIDs are only saved to file when someone starts MAME.
@@ -198,6 +209,7 @@ export global UIMAMEOptions {
 	callback generate-ssid();
 	callback start-mame();
 	callback toggle-advanced-options();
+	callback fart-options-changed();
 }
 
 export component StartPage inherits Page {
@@ -284,6 +296,7 @@ export component StartPage inherits Page {
 					z: 2;
 					Text {
 						text: (UIMAMEOptions.selected_box == "msntv2") ? @tr("BIOS Build") : @tr("BootROM Build");
+						vertical-alignment: bottom;
 					}
 					EditableComboBox {
 						hintedmodel: UIMAMEOptions.selectable_bootroms;
@@ -307,8 +320,34 @@ export component StartPage inherits Page {
 					width: 30%;
 					spacing: 2px;
 					z: 1;
-					Text {
-						text: (UIMAMEOptions.selected_box == "msntv2") ? @tr("OS Build") : @tr("AppROM Build");
+					HorizontalLayout {
+						spacing: 4px;
+						Text {
+							text: (UIMAMEOptions.selected_box == "msntv2") ? @tr("OS Build") : @tr("AppROM Build");
+							vertical-alignment: bottom;
+						}
+						if UIMAMEOptions.can_use_wtvpointer : IconButton {
+							width: 24px;
+							height: 24px;
+							z: 3;
+							icon: (UIMAMEOptions.enable_wtvpointer) ? @image-url("images/wtvpointer-enabled.svg") : @image-url("images/wtvpointer-disabled.svg");
+							tooltip: (UIMAMEOptions.enable_wtvpointer) ? "Disable FART API Pointer" : "Enable FART API Pointer";
+							clicked => {
+								UIMAMEOptions.enable_wtvpointer = !UIMAMEOptions.enable_wtvpointer;
+								UIMAMEOptions.fart-options-changed();
+							}
+						}
+						if UIMAMEOptions.can_use_wtvnet : IconButton {
+							width: 24px;
+							height: 24px;
+							z: 3;
+							icon: (UIMAMEOptions.enable_wtvnet) ? @image-url("images/wtvnet-enabled.svg") : @image-url("images/wtvnet-disabled.svg");
+							tooltip: (UIMAMEOptions.enable_wtvnet) ? "Disable FART API Networking" : "Enable FART API Networking";
+							clicked => {
+								UIMAMEOptions.enable_wtvnet = !UIMAMEOptions.enable_wtvnet;
+								UIMAMEOptions.fart-options-changed();
+							}
+						}
 					}
 					HorizontalLayout {
 						spacing: 2px;
@@ -361,6 +400,7 @@ export component StartPage inherits Page {
 					spacing: 2px;
 					Text {
 						text: (UIMAMEOptions.selected_box == "msntv2") ? @tr("BoxID (Ethernet EEPROM)") : @tr("SSID (DS2401 ROM)");
+						vertical-alignment: bottom;
 					}
 					EditableComboBox {
 						hintedmodel: UIMAMEOptions.selectable_ssids;
