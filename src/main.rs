@@ -131,6 +131,13 @@ const DEFAULT_FLASHDISK_SIZE: u64 = 8 * 1024 * 1024;
 const PUBLIC_TOUCHPP_ADDRESS: &'static str = "wtv.ooguy.com:1122";
 const DEFAULT_DEBUG_ENDPOINT: &'static str = "Launcher Console";
 const DEFAULT_CAPTURE_DEVICE: &'static str = "auto";
+const LINUX_AUDIO_IN_SOUND_MODULES: [&'static str; 2] = [
+	"pipewire",
+	"portaudio"
+];
+// MAME names output audio devices as "o:<name>" and input audio devices as "i:<name>"
+const MAME_AUDIO_OUTPUT_NODE_PREFIX: &'static str = "o:";
+const MAME_AUDIO_INPUT_NODE_PREFIX: &'static str = "i:";
 const WTVPORT_BOXES: &[&str] = &[
 	"wtv1bf0",
 	"wtv1sony",
@@ -141,7 +148,7 @@ const WTVPORT_BOXES: &[&str] = &[
 	"wtv2lc2",
 	"wtv2sony",
 	"wtv2phil"
-	];
+];
 const WTVPORT_SLOT_NAME: &'static str = "wtvport1";
 const PARALLEL_SLOT_NAME: &'static str = "pport";
 const DEFAULT_PARALLEL_SOCKET_ENDPOINT: &'static str = "127.0.0.1:3000";
@@ -1353,18 +1360,142 @@ fn get_slot_options(config: &LauncherConfig, selected_machine: &MAMEMachineNode,
 	slot_options
 }
 
-fn get_audio_in_devices() -> Vec<(String, String)> {
+fn to_mame_endpoint_path(endpoint: &str) -> String {
+	if Regex::new(r"^[^\:]+\:\d+$").unwrap().is_match(endpoint) {
+		"socket.".to_owned() + endpoint
+	} else {
+		endpoint.to_string()
+	}
+}
+
+// How many bitbangers a slot option adds, including the ones its own slots add with their default options (for example pekoe2 adds 2).
+fn get_slot_option_bitbanger_count(config_machines: &Vec<MAMEMachineNode>, devname: &str, depth: u32) -> usize {
+	if depth > 8 {
+		return 0;
+	}
+
+	let Some(option_machine) = config_machines.iter().find(|machine| machine.name.as_deref() == Some(devname)) else {
+		return 0;
+	};
+
+	let mut count = option_machine.device_ref.clone().unwrap_or(vec![]).iter()
+		.filter(|device_ref| device_ref.name.as_deref() == Some("bitbanger"))
+		.count();
+
+	for xslot in option_machine.slot.clone().unwrap_or(vec![]).iter() {
+		for slotoption in xslot.slotoption.clone().unwrap_or(vec![]).iter() {
+			if slotoption.default.as_deref() == Some("yes") {
+				count += get_slot_option_bitbanger_count(config_machines, &slotoption.devname.clone().unwrap_or("".into()), depth + 1);
+			}
+		}
+	}
+
+	count
+}
+
+fn get_bitbanger_brief_names(config_machines: &Vec<MAMEMachineNode>, selected_machine: &MAMEMachineNode, selected_slot_options: &Vec<(String, String)>) -> (HashMap<String, String>, HashMap<String, Vec<String>>) {
+	let mut bitbangers: Vec<(Option<String>, Option<String>)> = vec![];
+
+	let device_refs = selected_machine.device_ref.clone().unwrap_or(vec![]);
+	let slot_tags: Vec<(String, String)> = selected_slot_options.iter()
+		.map(|(slot_name, option_name)| (":".to_owned() + slot_name.trim_start_matches(':'), option_name.clone()))
+		.collect();
+
+	let in_slot = |tag: &str, slot_tag: &str| tag == slot_tag || tag.starts_with(&(slot_tag.to_owned() + ":"));
+
+	for (index, device_ref) in device_refs.iter().enumerate() {
+		let tag = device_ref.tag.clone().unwrap_or("".into());
+
+		// Bitbangers from the slot's default option are replaced by the selected option's.
+		let replaced = slot_tags.iter().any(|(slot_tag, _)| in_slot(&tag, slot_tag));
+		if !replaced && device_ref.name.as_deref() == Some("bitbanger") {
+			bitbangers.push((Some(tag.clone()), None));
+		}
+
+		for (slot_tag, option_name) in slot_tags.iter() {
+			let next_tag = device_refs.get(index + 1).and_then(|next| next.tag.clone()).unwrap_or("".into());
+			if in_slot(&tag, slot_tag) && !in_slot(&next_tag, slot_tag) {
+				let devname = selected_machine.slot.clone().unwrap_or(vec![]).iter()
+					.filter(|xslot| ":".to_owned() + xslot.name.clone().unwrap_or("".into()).trim_start_matches(':') == *slot_tag)
+					.flat_map(|xslot| xslot.slotoption.clone().unwrap_or(vec![]))
+					.find(|slotoption| slotoption.name.as_deref() == Some(option_name.as_str()))
+					.and_then(|slotoption| slotoption.devname);
+
+				if let Some(devname) = devname {
+					for _ in 0..get_slot_option_bitbanger_count(config_machines, &devname, 0) {
+						bitbangers.push((None, Some(slot_tag.clone())));
+					}
+				}
+			}
+		}
+	}
+
+	// MAME numbers them when there is more than one.
+	let brief_name = |index: usize| if bitbangers.len() > 1 { format!("bitb{}", index + 1) } else { "bitb".to_string() };
+
+	let mut box_bitbangers: HashMap<String, String> = HashMap::new();
+	let mut added_bitbangers: HashMap<String, Vec<String>> = HashMap::new();
+	for (index, (tag, slot_tag)) in bitbangers.iter().enumerate() {
+		if let Some(tag) = tag {
+			box_bitbangers.insert(tag.clone(), brief_name(index));
+		} else if let Some(slot_tag) = slot_tag {
+			added_bitbangers.entry(slot_tag.clone()).or_default().push(brief_name(index));
+		}
+	}
+
+	(box_bitbangers, added_bitbangers)
+}
+
+fn find_bitbanger_brief_name(box_bitbangers: &HashMap<String, String>, tag_suffix: &str) -> Option<String> {
+	box_bitbangers.iter()
+		.find(|(tag, _)| tag.ends_with(tag_suffix))
+		.map(|(_, brief_name)| brief_name.clone())
+}
+
+fn find_device_brief_name(selected_machine: &MAMEMachineNode, device_type: &str) -> Option<String> {
+	selected_machine.device.clone().unwrap_or(vec![]).iter()
+		.filter(|device| device.dtype.as_deref() == Some(device_type))
+		.flat_map(|device| device.instance.clone().unwrap_or(vec![]))
+		.find_map(|instance| instance.briefname.filter(|briefname| briefname != ""))
+}
+
+fn find_audio_input_tags(selected_machine: &MAMEMachineNode) -> Vec<String> {
+	selected_machine.device_ref.clone().unwrap_or(vec![]).iter()
+		.filter(|device_ref| device_ref.name.as_deref() == Some("microphone"))
+		.filter_map(|device_ref| device_ref.tag.clone())
+		.filter(|tag| tag.ends_with(":audio_input") || tag.ends_with(":div_audio_input"))
+		.collect()
+}
+
+fn get_audio_in_sound_module(mame_path: &String) -> Option<String> {
+	if cfg!(target_os = "linux") {
+		let sound_modules = LauncherConfig::mame_sound_modules(mame_path);
+		LINUX_AUDIO_IN_SOUND_MODULES.iter()
+			.find(|sound_module| sound_modules.iter().any(|available| available == *sound_module))
+			.map(|sound_module| sound_module.to_string())
+	} else {
+		Some("".to_string())
+	}
+}
+
+// (hint, value) for the audio in devices the sound module can use. The value is MAME's node name for the device.
+#[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
+fn get_audio_in_devices(sound_module: &str) -> Vec<(String, String)> {
 	use rodio::cpal::traits::{DeviceTrait, HostTrait};
 
 	#[allow(unused_mut)]
 	let mut audio_in_devices: Vec<(String, String)> = vec![];
 
-	#[cfg(target_os = "linux")]
-	{
-		audio_in_devices = get_pulse_audio_in_devices();
+	if cfg!(target_os = "linux") {
+		#[cfg(target_os = "linux")]
+		if sound_module == "pipewire" {
+			audio_in_devices = get_pulse_audio_in_devices();
+		}
+
+		return audio_in_devices;
 	}
 
-	if audio_in_devices.len() == 0 {
+	{
 		if let Ok(devices) = rodio::cpal::default_host().input_devices() {
 			for device in devices {
 				if let Ok(description) = device.description() {
@@ -1374,8 +1505,22 @@ fn get_audio_in_devices() -> Vec<(String, String)> {
 						description.supports_input()
 					};
 					let device_name = description.name().to_string();
-					if is_input_device && device_name != "" && !audio_in_devices.iter().any(|(_, value)| *value == device_name) {
-						audio_in_devices.push(("".into(), device_name));
+					if !is_input_device || device_name == "" {
+						continue;
+					}
+
+					let node_prefix = if description.supports_output() { MAME_AUDIO_OUTPUT_NODE_PREFIX } else { MAME_AUDIO_INPUT_NODE_PREFIX };
+					let (hint, value) = if cfg!(any(target_os = "macos", target_os = "windows")) {
+						match device.id() {
+							Ok(device_id) => (device_name, node_prefix.to_owned() + device_id.id()),
+							Err(_) => continue
+						}
+					} else {
+						(device_name.clone(), node_prefix.to_owned() + &device_name)
+					};
+
+					if !audio_in_devices.iter().any(|(_, existing_value)| *existing_value == value) {
+						audio_in_devices.push((hint, value));
 					}
 				}
 			}
@@ -1412,8 +1557,9 @@ fn get_pulse_audio_in_devices() -> Vec<(String, String)> {
 	}
 
 	for (description, is_monitor) in sources.iter() {
-		if !is_monitor && description != "" && !audio_in_devices.iter().any(|(_, value)| value == description) {
-			audio_in_devices.push(("".into(), description.clone()));
+		let node_name = MAME_AUDIO_INPUT_NODE_PREFIX.to_owned() + description;
+		if !is_monitor && description != "" && !audio_in_devices.iter().any(|(_, value)| *value == node_name) {
+			audio_in_devices.push((description.clone(), node_name));
 		}
 	}
 
@@ -2376,7 +2522,8 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 	let mame_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
 
 	// Host device lookups can be slow so do them before jumping into the UI thread.
-	let audio_in_devices = get_audio_in_devices();
+	let audio_in_sound_module = get_audio_in_sound_module(&mame_path);
+	let audio_in_devices = get_audio_in_devices(audio_in_sound_module.as_deref().unwrap_or(""));
 	let video_in_devices = get_video_in_devices();
 
 	let ui_weak_cpy = ui_weak.clone();
@@ -2584,6 +2731,8 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		////
 
 		// Audio In
+		ui_mame.set_audio_in_available(audio_in_sound_module.is_some());
+		ui_mame.set_audio_in_sound_module(audio_in_sound_module.clone().unwrap_or("".into()).into());
 		let mut selectable_audio_in_endpoints: Vec<HintedItem> = vec![
 			HintedItem {
 				display_hint_only: false,
@@ -2596,7 +2745,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		for (audio_in_hint, audio_in_value) in audio_in_devices.iter() {
 			selectable_audio_in_endpoints.push(
 				HintedItem {
-					display_hint_only: false,
+					display_hint_only: true,
 					hint: audio_in_hint.clone().into(),
 					tooltip: "".into(),
 					value: audio_in_value.clone().into(),
@@ -2605,7 +2754,13 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 			);
 		}
 		ui_mame.set_selectable_audio_in_endpoints(slint::ModelRc::new(slint::VecModel::from(selectable_audio_in_endpoints)));
-		let selected_audio_in_endpoint = config_persistent_mame.selected_audio_in_endpoint.clone().unwrap_or("".into());
+		let mut selected_audio_in_endpoint = config_persistent_mame.selected_audio_in_endpoint.clone().unwrap_or("".into());
+		if !audio_in_devices.iter().any(|(_, value)| *value == selected_audio_in_endpoint) {
+			let prefixed_endpoint = MAME_AUDIO_INPUT_NODE_PREFIX.to_owned() + &selected_audio_in_endpoint;
+			if audio_in_devices.iter().any(|(_, value)| *value == prefixed_endpoint) {
+				selected_audio_in_endpoint = prefixed_endpoint;
+			}
+		}
 		ui_mame.set_selected_audio_in_endpoint(if selected_audio_in_endpoint != "" { selected_audio_in_endpoint.into() } else { DEFAULT_CAPTURE_DEVICE.into() });
 
 		// Video In
@@ -4792,6 +4947,121 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 			None
 		};
 
+		let config_machines = LauncherConfig::get_mame_config(&mame_executable_path).ok().and_then(|config_mame| config_mame.machine).unwrap_or(vec![]);
+		let selected_machine = config_machines.iter().find(|machine| machine.name.as_deref() == Some(selected_box.as_str())).cloned();
+
+		let console_warning = |message: &str| {
+			let _ = add_console_text(ui_weak.clone(), " \nWARNING: ".to_owned() + message + "\n", MAMEConsoleScrollMode::ForceScroll, 0);
+		};
+
+		let mut selected_slot_options: Vec<(String, String)> = vec![];
+		let selected_wtvport_option = ui_mame.get_selected_wtvport_option().to_string();
+		if ui_mame.get_can_use_wtvport() && ui_mame.get_enable_wtvport() && selected_wtvport_option != "" {
+			selected_slot_options.push((WTVPORT_SLOT_NAME.to_string(), selected_wtvport_option));
+		}
+		let selected_parallel_option = ui_mame.get_selected_parallel_option().to_string();
+		let use_parallel = ui_mame.get_can_use_parallel() && ui_mame.get_enable_parallel() && selected_parallel_option != "";
+		if use_parallel {
+			selected_slot_options.push((PARALLEL_SLOT_NAME.to_string(), selected_parallel_option.clone()));
+		}
+		for (slot_name, option_name) in selected_slot_options.iter() {
+			mame_command.arg("-".to_owned() + slot_name).arg(option_name);
+		}
+
+		let (box_bitbangers, added_bitbangers) = match &selected_machine {
+			Some(selected_machine) => get_bitbanger_brief_names(&config_machines, selected_machine, &selected_slot_options),
+			None => (HashMap::new(), HashMap::new())
+		};
+
+		if use_parallel && selected_parallel_option == "socket" {
+			let selected_parallel_socket_endpoint = ui_mame.get_selected_parallel_socket_endpoint().to_string();
+			match added_bitbangers.get(&(":".to_owned() + PARALLEL_SLOT_NAME)).and_then(|brief_names| brief_names.first()) {
+				Some(brief_name) if selected_parallel_socket_endpoint != "" => {
+					mame_command.arg("-".to_owned() + brief_name).arg(to_mame_endpoint_path(&selected_parallel_socket_endpoint));
+				},
+				Some(_) => console_warning("No parallel port socket endpoint selected. The parallel port socket won't connect."),
+				None => console_warning("Couldn't find the parallel port socket in MAME. The parallel port socket won't connect.")
+			}
+		}
+
+		let selected_smartcard_endpoint = ui_mame.get_selected_smartcard_endpoint().to_string();
+		if ui_mame.get_can_use_smartcard() && ui_mame.get_enable_smartcard() && selected_smartcard_endpoint != "" {
+			match find_bitbanger_brief_name(&box_bitbangers, ":mainsc:bitb") {
+				Some(brief_name) => {
+					mame_command.arg("-".to_owned() + &brief_name).arg(to_mame_endpoint_path(&selected_smartcard_endpoint));
+				},
+				None => console_warning("This box doesn't have a SmartCard reader in MAME. The SmartCard won't be attached.")
+			}
+		}
+		let selected_cacard_endpoint = ui_mame.get_selected_cacard_endpoint().to_string();
+		if ui_mame.get_can_use_cacard() && ui_mame.get_enable_cacard() && selected_cacard_endpoint != "" {
+			match find_bitbanger_brief_name(&box_bitbangers, ":utvsc:bitb") {
+				Some(brief_name) => {
+					mame_command.arg("-".to_owned() + &brief_name).arg(to_mame_endpoint_path(&selected_cacard_endpoint));
+				},
+				None => console_warning("This box doesn't have a CA card reader in MAME. The CA card won't be attached.")
+			}
+		}
+
+		let selected_video_in_endpoint = ui_mame.get_selected_video_in_endpoint().to_string();
+		if ui_mame.get_can_use_video_in() && ui_mame.get_enable_video_in() {
+			match selected_machine.as_ref().and_then(|selected_machine| find_device_brief_name(selected_machine, "videocapture")) {
+				Some(brief_name) => {
+					let video_in_endpoint = if selected_video_in_endpoint != "" { selected_video_in_endpoint } else { DEFAULT_CAPTURE_DEVICE.to_string() };
+					mame_command.arg("-".to_owned() + &brief_name).arg(video_in_endpoint);
+				},
+				None => console_warning("This box doesn't have video in in MAME. Video in won't be used.")
+			}
+		}
+
+		let use_audio_in = ui_mame.get_can_use_audio_in() && ui_mame.get_enable_audio_in();
+		let audio_input_tags = selected_machine.as_ref().map(|selected_machine| find_audio_input_tags(selected_machine)).unwrap_or(vec![]);
+		match audio_input_tags.len() {
+			count if count > 0 => {
+				let selected_audio_in_endpoint = ui_mame.get_selected_audio_in_endpoint().to_string();
+				let audio_in_node = if selected_audio_in_endpoint == DEFAULT_CAPTURE_DEVICE || selected_audio_in_endpoint == "" || ui_mame.get_audio_in_sound_module() == "portaudio" {
+					"".to_string()
+				} else if selected_audio_in_endpoint.starts_with(MAME_AUDIO_INPUT_NODE_PREFIX) || selected_audio_in_endpoint.starts_with(MAME_AUDIO_OUTPUT_NODE_PREFIX) {
+					selected_audio_in_endpoint
+				} else {
+					MAME_AUDIO_INPUT_NODE_PREFIX.to_owned() + &selected_audio_in_endpoint
+				};
+				let node_name = if use_audio_in { Some(audio_in_node.as_str()) } else { None };
+
+				for audio_input_tag in audio_input_tags.iter() {
+					if let Err(e) = LauncherConfig::set_mame_audio_input(&mame_directory_path, &selected_box, audio_input_tag, node_name) {
+						console_warning(&("Couldn't set the audio in device in MAME's config. Audio in may not work as expected.\n".to_owned() + &e.to_string()));
+					}
+				}
+
+				let audio_in_sound_module = ui_mame.get_audio_in_sound_module().to_string();
+				if use_audio_in && audio_in_sound_module != "" && !ui_mame.get_disable_sound() && !ui_mame.get_custom_options().split_whitespace().any(|custom_option| custom_option == "-sound") {
+					mame_command.arg("-sound").arg(&audio_in_sound_module);
+				}
+			},
+			_ => {
+				if use_audio_in {
+					console_warning("This box doesn't have audio in in MAME. Audio in won't be used.");
+				}
+			}
+		}
+
+		if ui_mame.get_can_use_decoupled_sound() && ui_mame.get_use_decoupled_sound() {
+			if LauncherConfig::mame_supports_option(&mame_executable_path, "decoupled_sound") {
+				mame_command.arg("-decoupled_sound");
+			} else {
+				console_warning("This MAME doesn't support decoupled sound. Using the default audio timer.");
+			}
+		}
+
+		let bitbanger_for_slot = |slot_select: &str, bitb_select: &str| -> String {
+			let slot_prefix = ":".to_owned() + slot_select.trim_start_matches(':') + ":";
+			box_bitbangers.iter()
+				.find(|(tag, _)| tag.starts_with(&slot_prefix))
+				.map(|(_, brief_name)| brief_name.clone())
+				.unwrap_or(bitb_select.to_string())
+		};
+
 		// Custom options come after the launcher's options so they can override them.
 		let custom_options: String = ui_mame.get_custom_options().to_string();
 		if custom_options != "" {
@@ -4822,10 +5092,11 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 						_ => selected_debug_bitb_endpoint.as_str()
 					};
 
+					let debug_bitb_select = bitbanger_for_slot(&matches["slot_select"], &matches["bitb_select"]);
 					if Regex::new(r"^[^\:]+\:\d+$").unwrap().is_match(usable_debug_bitb_endpoint) {
-						mame_command.arg("-".to_owned() + &matches["bitb_select"]).arg("socket.".to_owned() + &usable_debug_bitb_endpoint.to_string());
+						mame_command.arg("-".to_owned() + &debug_bitb_select).arg("socket.".to_owned() + &usable_debug_bitb_endpoint.to_string());
 					} else {
-						mame_command.arg("-".to_owned() + &matches["bitb_select"]).arg(usable_debug_bitb_endpoint);
+						mame_command.arg("-".to_owned() + &debug_bitb_select).arg(usable_debug_bitb_endpoint);
 					}
 
 					true
@@ -4874,10 +5145,11 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 				Some(matches) => {
 					//mame_command.arg("-".to_owned() + &matches["slot_select"]).arg("null_modem");
 		
+					let modem_bitb_select = bitbanger_for_slot(&matches["slot_select"], &matches["bitb_select"]);
 					if Regex::new(r"^[^\:]+\:\d+$").unwrap().is_match(selected_modem_bitb_endpoint.as_str()) {
-						mame_command.arg("-".to_owned() + &matches["bitb_select"]).arg(&("socket.".to_owned() + &selected_modem_bitb_endpoint));
+						mame_command.arg("-".to_owned() + &modem_bitb_select).arg(&("socket.".to_owned() + &selected_modem_bitb_endpoint));
 					} else {
-						mame_command.arg("-".to_owned() + &matches["bitb_select"]).arg(selected_modem_bitb_endpoint);
+						mame_command.arg("-".to_owned() + &modem_bitb_select).arg(selected_modem_bitb_endpoint);
 					}
 				}
 				None => {

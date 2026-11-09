@@ -122,13 +122,17 @@ export global UIMAMEOptions {
 	// Audio In
 	in-out property<[HintedItem]> selectable_audio_in_endpoints: [];
 	in-out property<string> selected_audio_in_endpoint: "";
-	out property<bool> can_use_audio_in: (selected_box != "msntv2");
+	// wtv1 boxes and msntv2 don't have audio in.
+	out property<bool> can_use_audio_in: (selected_box != "msntv2" && !selected_box.starts-with("wtv1") && audio_in_available);
+	in-out property<bool> audio_in_available: true;
+	in-out property<string> audio_in_sound_module: "";
 	in-out property<bool> enable_audio_in: false;
 
 	// Video In
 	in-out property<[HintedItem]> selectable_video_in_endpoints: [];
 	in-out property<string> selected_video_in_endpoint: "";
-	out property<bool> can_use_video_in: (selected_box != "msntv2");
+	// wtv1 boxes and msntv2 don't have video in.
+	out property<bool> can_use_video_in: (selected_box != "msntv2" && !selected_box.starts-with("wtv1"));
 	in-out property<bool> enable_video_in: false;
 
 	// WebTV SmartCard and CA SmartCard (both list serial devices)
