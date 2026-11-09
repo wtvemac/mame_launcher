@@ -3127,6 +3127,7 @@ dependencies = [
  "which 8.0.6",
  "winapi",
  "winresource",
+ "x11-dl",
 ]
 
 [[package]]

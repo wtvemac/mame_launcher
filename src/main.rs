@@ -9,6 +9,7 @@ mod config;
 mod netstack;
 mod wtv;
 mod externalpopup;
+mod mamecapture;
 
 use std::{
 	collections::HashMap, 
@@ -131,6 +132,8 @@ const DEFAULT_FLASHDISK_SIZE: u64 = 8 * 1024 * 1024;
 const PUBLIC_TOUCHPP_ADDRESS: &'static str = "wtv.ooguy.com:1122";
 const DEFAULT_DEBUG_ENDPOINT: &'static str = "Launcher Console";
 const DEFAULT_CAPTURE_DEVICE: &'static str = "auto";
+// The divider between a captured MAME window and the console
+const CAPTURED_DIVIDER_HEIGHT: f32 = 6.0;
 const LINUX_AUDIO_IN_SOUND_MODULES: [&'static str; 2] = [
 	"pipewire",
 	"portaudio"
@@ -2563,6 +2566,8 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 
 	// Host device lookups can be slow so do them before jumping into the UI thread.
 	let audio_in_sound_module = get_audio_in_sound_module(&mame_path);
+	// Older MAME versions don't have -parent_window
+	let mame_supports_parent_window = LauncherConfig::mame_supports_option(&mame_path, "parent_window");
 	let audio_in_devices = get_audio_in_devices(audio_in_sound_module.as_deref().unwrap_or(""));
 	let video_in_devices = get_video_in_devices();
 
@@ -2772,6 +2777,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 
 		// Audio In
 		ui_mame.set_audio_in_available(audio_in_sound_module.is_some());
+		ui_mame.set_mame_supports_parent_window(mame_supports_parent_window);
 		ui_mame.set_audio_in_sound_module(audio_in_sound_module.clone().unwrap_or("".into()).into());
 		let mut selectable_audio_in_endpoints: Vec<HintedItem> = vec![
 			HintedItem {
@@ -2867,6 +2873,11 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		ui_mame.set_console_input(config_persistent_mame.console_input.unwrap_or(false).into());
 		ui_mame.set_disable_sound(config_persistent_mame.disable_sound.unwrap_or(false).into());
 		ui_mame.set_capture_mame_window(config_persistent_mame.capture_mame_window.unwrap_or(true).into());
+		if let Some(captured_console_height) = config_persistent_mame.captured_console_height {
+			ui_mame.set_captured_console_height(captured_console_height);
+		}
+		ui_mame.set_captured_window_width(config_persistent_mame.captured_window_width.unwrap_or(0.0));
+		ui_mame.set_captured_window_height(config_persistent_mame.captured_window_height.unwrap_or(0.0));
 		ui_mame.set_use_decoupled_sound(config_persistent_mame.use_decoupled_sound.unwrap_or(false).into());
 		ui_mame.set_enable_lirc(config_persistent_mame.enable_lirc.unwrap_or(false).into());
 		ui_mame.set_enable_audio_in(config_persistent_mame.enable_audio_in.unwrap_or(false).into());
@@ -3931,6 +3942,9 @@ fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool, new_bootroms: Opt
 				console_input: Some(ui_mame.get_console_input().into()),
 				disable_sound: Some(ui_mame.get_disable_sound().into()),
 				capture_mame_window: Some(ui_mame.get_capture_mame_window().into()),
+				captured_console_height: Some(ui_mame.get_captured_console_height()),
+				captured_window_width: if ui_mame.get_captured_window_width() > 0.0 { Some(ui_mame.get_captured_window_width()) } else { None },
+				captured_window_height: if ui_mame.get_captured_window_height() > 0.0 { Some(ui_mame.get_captured_window_height()) } else { None },
 				use_decoupled_sound: Some(ui_mame.get_use_decoupled_sound().into()),
 				enable_lirc: Some(ui_mame.get_enable_lirc().into()),
 				selected_audio_in_endpoint: Some(ui_mame.get_selected_audio_in_endpoint().into()),
@@ -4906,6 +4920,18 @@ fn spawn_mame_from_command(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u1
 
 		let _ = add_console_text(ui_weak.clone(), " \nMAME Ended\n".into(), MAMEConsoleScrollMode::ForceScroll, 0);
 
+		// MAME's window is gone
+		// The window size is remembered for next time
+		let ui_weak_capture = ui_weak.clone();
+		let _ = ui_weak.clone().upgrade_in_event_loop(move |ui| {
+			if ui.get_mame_captured() {
+				let _ = save_config(ui_weak_capture, false, None, None, None);
+			}
+
+			mamecapture::stop();
+			ui.set_mame_captured(false);
+		});
+
 		if !process_has_error {
 			let _ = ui_weak.clone().upgrade_in_event_loop(move |ui| {
 				let ui_mame = ui.global::<UIMAMEOptions>();
@@ -4950,7 +4976,33 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 		mame_command.arg("-nomouse");
 		mame_command.arg("-skip_gameinfo");
 
-		if ui_mame.get_windowed_mode().into() {
+		// MAME draws inside the launcher above the console
+		let capture_mame_window = ui_mame.get_capture_mame_window() && ui_mame.get_can_capture_mame_window();
+		if capture_mame_window {
+			ui.set_mame_captured(true);
+
+			match mamecapture::start(&ui) {
+				Some(host_window_id) => {
+					mame_command.arg("-window");
+					mame_command.arg("-parent_window").arg(host_window_id);
+
+					// Use the window size from last time or make room for wtvmame (4:3 at the current width)
+					let window_size = ui.window().size().to_logical(ui.window().scale_factor());
+					let (width, height) = if ui_mame.get_captured_window_width() > 0.0 && ui_mame.get_captured_window_height() > 0.0 {
+						(ui_mame.get_captured_window_width(), ui_mame.get_captured_window_height())
+					} else {
+						(window_size.width, (window_size.width * 3.0 / 4.0) + CAPTURED_DIVIDER_HEIGHT + ui_mame.get_captured_console_height())
+					};
+					resize_window_when_allowed(ui_weak.clone(), width, height, 20);
+				},
+				None => {
+					ui.set_mame_captured(false);
+					let _ = add_console_text(ui_weak.clone(), " \nWARNING: Couldn't make a place for MAME's window in the launcher. MAME will open in its own window.\n".into(), MAMEConsoleScrollMode::ForceScroll, 0);
+				}
+			}
+		}
+
+		if !ui.get_mame_captured() && ui_mame.get_windowed_mode().into() {
 			mame_command.arg("-window");
 			mame_command.arg("-nomaximize");
 		}
@@ -5573,6 +5625,45 @@ fn save_config_after_animation(ui_weak: slint::Weak<MainWindow>) {
 	});
 }
 
+fn resize_window_when_allowed(ui_weak: slint::Weak<MainWindow>, width: f32, height: f32, tries: u32) {
+	slint::Timer::single_shot(std::time::Duration::from_millis(50), move || {
+		let Some(ui) = ui_weak.upgrade() else { return };
+
+		let window_size = ui.window().size().to_logical(ui.window().scale_factor());
+		if (window_size.width - width).abs() <= 1.0 && (window_size.height - height).abs() <= 1.0 {
+			restore_window_size_limits(&ui);
+			return;
+		}
+
+		ui.window().set_size(slint::LogicalSize::new(width, height));
+		restore_window_size_limits(&ui);
+		if tries > 0 {
+			resize_window_when_allowed(ui_weak, width, height, tries - 1);
+		}
+	});
+}
+
+fn restore_window_size_limits(ui: &MainWindow) {
+	use slint::winit_030::{winit, WinitWindowAccessor};
+
+	// Too large a maximum = no maximum.
+	let max_size = |width: f32, height: f32| -> Option<winit::dpi::Size> {
+		if width >= 100000.0 && height >= 100000.0 {
+			None
+		} else {
+			Some(winit::dpi::LogicalSize::new(width as f64, height as f64).into())
+		}
+	};
+
+	let min_size: winit::dpi::Size = winit::dpi::LogicalSize::new(ui.get_window_min_width() as f64, ui.get_window_min_height() as f64).into();
+	let max_size = max_size(ui.get_window_max_width(), ui.get_window_max_height());
+
+	ui.window().with_winit_window(|winit_window| {
+		winit_window.set_min_inner_size(Some(min_size));
+		winit_window.set_max_inner_size(max_size);
+	});
+}
+
 // Calls on_ready once the window is at least target_height tall (checked every 10ms).
 // Gives up waiting after tries_left checks (the window manager may not allow the size) and calls on_ready anyway.
 fn wait_for_window_height(ui_weak: slint::Weak<MainWindow>, target_height: f32, tries_left: u32, on_ready: impl FnOnce(MainWindow) + 'static) {
@@ -5598,6 +5689,22 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 
 	// Lets the selected box dropdown extend outside the window (but not on Wayland since it's broken on there)
 	let _ = externalpopup::setup(&ui);
+
+	mamecapture::setup(&ui);
+	let ui_weak_capture = ui.as_weak();
+	ui.on_mame_area_changed(move || {
+		if let Some(ui) = ui_weak_capture.upgrade() {
+			mamecapture::update_geometry(&ui);
+
+			// Remember the captured window size for next time
+			if ui.get_mame_captured() && ui.get_mame_console_enabled() {
+				let ui_mame = ui.global::<UIMAMEOptions>();
+				let window_size = ui.window().size().to_logical(ui.window().scale_factor());
+				ui_mame.set_captured_window_width(window_size.width);
+				ui_mame.set_captured_window_height(window_size.height);
+			}
+		}
+	});
 
 	let (dtx, drx) = bounded(10);
 
@@ -5889,6 +5996,17 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 
 	ui_weak = ui.as_weak();
 	ui.window().on_close_requested(move || {
+		// Stop MAME before the launcher exits, important if MAME was drawn inside the launcher.
+		let mame_pid = get_mame_pid(ui_weak.clone()).unwrap_or(0);
+		if mame_pid > 0 {
+			if let Ok(sys) = System::new_all() {
+				if let Some(process) = sys.process(Pid::from(mame_pid as usize)) {
+					process.kill();
+				}
+			}
+		}
+		mamecapture::stop();
+
 		end_mame(ui_weak.clone());
 
 		slint::CloseRequestResponse::HideWindow

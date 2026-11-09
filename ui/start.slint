@@ -170,6 +170,12 @@ export global UIMAMEOptions {
 	in-out property<bool> console_input: false;
 	in-out property<bool> disable_sound: false;
 	in-out property<bool> capture_mame_window: true;
+	in-out property<bool> capture_platform_supported: false;
+	in-out property<bool> mame_supports_parent_window: false;
+	out property<bool> can_capture_mame_window: (capture_platform_supported && mame_supports_parent_window);
+	in-out property<length> captured_console_height: 220px;
+	in-out property<length> captured_window_width: 0px;
+	in-out property<length> captured_window_height: 0px;
 	in-out property<bool> use_decoupled_sound: false;
 	out property<bool> can_use_decoupled_sound: (selected_box == "msntv2");
 	in-out property<bool> can_use_lirc: (selected_lirc_startpoint != "");
@@ -601,6 +607,7 @@ export component StartPage inherits Page {
 								text: @tr("Capture MAME Window");
 								width: 180px;
 								height: 28px;
+								enabled: UIMAMEOptions.can_capture_mame_window;
 								checked <=> UIMAMEOptions.capture_mame_window;
 							}
 						}

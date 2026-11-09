@@ -59,10 +59,35 @@ export component MainWindow inherits Window {
 	// Launcher by default can't be resized by the user unless it's in MAME console mode
 	min-width: (root.mame-console-enabled) ? root.console-min-width : self.preferred-width;
 	max-width: (root.mame-console-enabled) ? 1000000px : self.preferred-width;
-	min-height: (root.mame-console-enabled) ? root.console-min-height : root.launcher-height;
+	min-height: (root.mame-console-enabled) ? ((root.mame-captured) ? (root.captured-mame-min-height + root.captured-divider-height + root.captured-console-min-height) : root.console-min-height) : root.launcher-height;
 	max-height: (root.mame-console-enabled) ? 1000000px : root.launcher-height;
+	out property<length> window-min-width: self.min-width;
+	out property<length> window-max-width: self.max-width;
+	out property<length> window-min-height: self.min-height;
+	out property<length> window-max-height: self.max-height;
 	property<length> console-min-width: 480px;
 	property<length> console-min-height: 200px;
+
+	// Captured wtvmame window
+	in-out property<bool> mame-captured: false;
+	property<bool> captured-layout: root.mame-console-enabled && root.mame-captured;
+	property<length> captured-mame-min-height: 240px;
+	property<length> captured-console-min-height: 100px;
+	property<length> captured-divider-height: 6px;
+	out property<length> captured-default-console-height: 220px;
+	// The console height limited so wtvmame and the console both stay above their minimums.
+	property<length> captured-console-height: max(root.captured-console-min-height, min(UIMAMEOptions.captured_console_height, root.height - root.captured-mame-min-height - root.captured-divider-height));
+	out property<length> mame-area-x: 0px;
+	out property<length> mame-area-y: 0px;
+	out property<length> mame-area-width: (root.captured-layout) ? root.width : 0px;
+	out property<length> mame-area-height: (root.captured-layout) ? max(0px, root.height - root.captured-console-height - root.captured-divider-height) : 0px;
+	changed mame-area-width => {
+		root.mame-area-changed();
+	}
+	changed mame-area-height => {
+		root.mame-area-changed();
+	}
+	callback mame-area-changed();
 	property<length> tab-bar-height: 32px;
 	// The selected tab 0 = Start MAME, 1 = Set Me Up, 2 = About
 	in-out property<int> current-tab: (root.mame-broken) ? 1 : 0;
@@ -333,6 +358,58 @@ export component MainWindow inherits Window {
 		background: Palette.alternate-background;
 	}
 
+	// Black behind a captured wtvmame window so we don't see the window/desktop underneath as we resize the launcher window (right before wtvmame catches up and resizes it's window)
+	Rectangle {
+		visible: root.captured-layout;
+		x: root.mame-area-x;
+		y: root.mame-area-y;
+		width: root.mame-area-width;
+		height: root.mame-area-height;
+		background: black;
+		// Keeps clicks from reaching the launcher page underneath
+		TouchArea {}
+	}
+
+	property<bool> divider-dragging: false;
+	property<length> divider-drag-y: 0px;
+	property<bool> divider-hover: false;
+	Rectangle {
+		visible: root.captured-layout;
+		x: 0px;
+		y: root.mame-area-height;
+		width: root.width;
+		height: root.captured-divider-height;
+		background: (root.divider-dragging || root.divider-hover) ? Palette.accent-background : Palette.alternate-background;
+	}
+	TouchArea {
+		enabled: root.captured-layout;
+		visible: root.captured-layout;
+		x: 0px;
+		y: (root.divider-dragging) ? root.divider-drag-y : root.mame-area-height;
+		width: root.width;
+		height: root.captured-divider-height;
+		mouse-cursor: row-resize;
+		changed has-hover => {
+			root.divider-hover = self.has-hover;
+		}
+		pointer-event(event) => {
+			if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+				root.divider-drag-y = root.mame-area-height;
+				root.divider-dragging = true;
+			} else if (event.button == PointerEventButton.left && (event.kind == PointerEventKind.up || event.kind == PointerEventKind.cancel)) {
+				root.divider-dragging = false;
+			}
+		}
+		moved => {
+			if (self.pressed && root.divider-dragging) {
+				UIMAMEOptions.captured_console_height = max(root.captured-console-min-height, min(root.height - (root.divider-drag-y + self.mouse-y), root.height - root.captured-mame-min-height - root.captured-divider-height));
+			}
+		}
+		double-clicked => {
+			UIMAMEOptions.captured_console_height = root.captured-default-console-height;
+		}
+	}
+
 	LoadingBox { 
 		message: root.loading_message;
 		visible: (root.loading-depth > 0);
@@ -342,9 +419,9 @@ export component MainWindow inherits Window {
 	// TouchArea is used to capture click events so they don't bubble to the bottom layers. The console is an overlay over the main window.
 	TouchArea {
 		x: 0px;
-		y: 0px;
+		y: (root.captured-layout) ? (root.mame-area-height + root.captured-divider-height) : 0px;
 		width: root.width;
-		height: root.height;
+		height: root.height - self.y;
 		enabled: root.mame-console-enabled;
 		Rectangle {
 			x: 0px;
