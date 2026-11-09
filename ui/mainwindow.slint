@@ -4,7 +4,6 @@ import "./fonts/MLhelvetica.ttf";
 import "./fonts/MLmonaco.ttf";
 import { 
 	Palette,
-	TabWidget,
 	VerticalBox,
 	ListView,
 	Spinner,
@@ -21,6 +20,9 @@ import {
 import {
 	ComboBoxWindow
 } from "./widgets/editablecombobox.slint";
+import {
+	LauncherTab
+} from "./widgets/tabbar.slint";
 import {
 	PopupListWindow
 } from "./widgets/popuplistwindow.slint";
@@ -61,10 +63,20 @@ export component MainWindow inherits Window {
 	max-height: (root.mame-console-enabled) ? 1000000px : root.launcher-height;
 	property<length> console-min-width: 480px;
 	property<length> console-min-height: 200px;
-	property<length> tab-bar-height: tab-widget.min-height - max(start-page.min-height, setup-page.min-height, about-page.min-height);
-	property<length> current-page-min-height: (tab-widget.current-index == 1) ? setup-page.min-height : ((tab-widget.current-index == 2) ? about-page.min-height : start-page.min-height);
+	property<length> tab-bar-height: 32px;
+	// The selected tab 0 = Start MAME, 1 = Set Me Up, 2 = About
+	in-out property<int> current-tab: (root.mame-broken) ? 1 : 0;
+	// The setup tab only shows advanced options expanded or on a fatal error
+	property<bool> setup-tab-visible: UIMAMEOptions.show_advanced_options || root.mame-broken;
+	property<int> shown-tab: (root.current-tab == 1 && !root.setup-tab-visible) ? 0 : root.current-tab;
+	changed setup-tab-visible => {
+		if (!root.setup-tab-visible && root.current-tab == 1) {
+			root.current-tab = 0;
+		}
+	}
+	property<length> current-page-min-height: (root.shown-tab == 1) ? setup-page.min-height : ((root.shown-tab == 2) ? about-page.min-height : start-page.min-height);
 	out property<length> content-min-height: tab-widget.y + root.tab-bar-height + root.current-page-min-height;
-	property<length> content-final-height: root.content-min-height + ((tab-widget.current-index == 0) ? start-page.pending-height-change : 0px);
+	property<length> content-final-height: root.content-min-height + ((root.shown-tab == 0) ? start-page.pending-height-change : 0px);
 	property<bool> content-animating: abs(root.content-final-height - root.content-min-height) > 0.5px;
 	property<length> launcher-height: max(root.launcher-height-hold, (root.content-animating) ? max(root.content-final-height, root.height) : root.content-final-height);
 	in-out property<length> launcher-height-hold: 0px;
@@ -246,29 +258,70 @@ export component MainWindow inherits Window {
 		}
 	}
 
-	tab-widget := TabWidget {
+	// 0 = Start MAME, 1 = Set Me Up, 2 = About
+	tab-widget := Rectangle {
 		x: 0px;
 		y: (root.launcher-state-message != "") ? status-message.height + 3px : 3px;
 		width: 100%;
 		// Sized to the content (not the window) so the content doesn't stretch while the window is a different size during show/hide animations.
 		height: (root.mame-console-enabled) ? ((root.launcher-state-message != "") ? (root.height - status-message.height) : root.height) : (root.content-min-height - self.y);
-		current-index: (root.mame-broken) ? 1 : 0;
 
-		Tab {
-			title: @tr("Start MAME");
-			start-page := StartPage {
-				// Yellow warnings (red means MAME is broken, which switches to the setup tab).
-				has-warning: root.launcher-state-message != "" && !root.mame-broken;
-				opacity: (root.mame-broken) ? 0.2 : 1.0;
+		tab-bar := HorizontalLayout {
+			x: 0px;
+			y: 0px;
+			width: 100%;
+			height: root.tab-bar-height;
+			spacing: 0px;
+
+			LauncherTab {
+				title: @tr("Start MAME");
+				is-current: root.shown-tab == 0;
+				hide-right-border: root.shown-tab == 1 || (!root.setup-tab-visible && root.shown-tab == 2);
+				clicked => {
+					root.current-tab = 0;
+				}
+			}
+			if root.setup-tab-visible: LauncherTab {
+				title: @tr("Set me up");
+				is-current: root.shown-tab == 1;
+				hide-right-border: root.shown-tab == 2;
+				clicked => {
+					root.current-tab = 1;
+				}
+			}
+			LauncherTab {
+				title: @tr("About");
+				is-current: root.shown-tab == 2;
+				hide-right-border: true;
+				clicked => {
+					root.current-tab = 2;
+				}
 			}
 		}
-		Tab {
-			title: @tr("Set me up");
-			setup-page := SetupPage {}
+
+		start-page := StartPage {
+			x: 0px;
+			y: root.tab-bar-height;
+			width: 100%;
+			height: parent.height - self.y;
+			visible: root.shown-tab == 0;
+			// Yellow warnings (red means MAME is broken, which switches to the setup tab).
+			has-warning: root.launcher-state-message != "" && !root.mame-broken;
+			opacity: (root.mame-broken) ? 0.2 : 1.0;
 		}
-		Tab {
-			title: @tr("About");
-			about-page := AboutPage {}
+		setup-page := SetupPage {
+			x: 0px;
+			y: root.tab-bar-height;
+			width: 100%;
+			height: parent.height - self.y;
+			visible: root.shown-tab == 1;
+		}
+		about-page := AboutPage {
+			x: 0px;
+			y: root.tab-bar-height;
+			width: 100%;
+			height: parent.height - self.y;
+			visible: root.shown-tab == 2;
 		}
 	}
 	// This rectangle is line across the bottom of the tabs.
@@ -563,7 +616,7 @@ export component MainWindow inherits Window {
 		y: tab-widget.y + 31px + 2px;
 		width: 100%;
 		height: root.height - self.y;
-		enabled: root.mame-broken && tab-widget.current-index == 0;
+		enabled: root.mame-broken && root.shown-tab == 0;
 	}
 
 	tooltip := Rectangle {

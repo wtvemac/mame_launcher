@@ -1,0 +1,68 @@
+// By: Eric MacDonald (eMac)
+
+import { 
+	Palette
+} from "std-widgets.slint";
+
+export component LauncherTab inherits Rectangle {
+	in property <string> title;
+	in property <bool> is-current: false;
+	// Hides the divider on the right
+	in property <bool> hide-right-border: false;
+
+	callback clicked();
+
+	min-width: max(32px, i-text.min-width + 24px);
+	height: 32px;
+	horizontal-stretch: 1;
+	accessible-role: tab;
+	accessible-label: root.title;
+	accessible-item-selectable: true;
+	accessible-item-selected: root.is-current;
+	accessible-action-default => {
+		root.clicked();
+	}
+
+	Rectangle {
+		clip: true;
+		width: 100%;
+		height: 100%;
+		i-background := Rectangle {
+			y: 1px;
+			width: 100%;
+			height: parent.height + self.border-radius;
+			border-radius: 7px;
+			border-width: root.is-current ? 1px : 0px;
+			border-color: Palette.border;
+			background: (i-touch-area.pressed || root.is-current) ? Palette.alternate-background : (i-touch-area.has-hover ? Palette.alternate-background.transparentize(50%) : transparent);
+		}
+	}
+
+	i-touch-area := TouchArea {
+		mouse-cursor: pointer;
+		clicked => {
+			root.clicked();
+		}
+	}
+
+	HorizontalLayout {
+		padding-left: 12px;
+		padding-right: 12px;
+		i-text := Text {
+			text: root.title;
+			vertical-alignment: center;
+			horizontal-alignment: left;
+			font-weight: root.is-current ? 600 : 400;
+			color: root.is-current ? Palette.foreground : Palette.foreground.transparentize(25%);
+			accessible-role: none;
+		}
+	}
+
+	if (!root.is-current && !root.hide-right-border && !i-touch-area.has-hover && !i-touch-area.pressed): Rectangle {
+		x: (parent.width - self.width);
+		y: (parent.height - self.height) / 2;
+		width: 2px;
+		height: 16px;
+		background: Palette.border;
+	}
+}
