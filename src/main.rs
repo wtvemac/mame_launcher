@@ -1360,6 +1360,46 @@ fn get_slot_options(config: &LauncherConfig, selected_machine: &MAMEMachineNode,
 	slot_options
 }
 
+fn split_custom_options(custom_options: &str) -> Vec<String> {
+	let mut arguments: Vec<String> = vec![];
+	let mut argument = String::new();
+	// Quoted text can make an empty argument ("") so track if there's an argument separately.
+	let mut in_argument = false;
+	let mut quote: Option<char> = None;
+
+	for character in custom_options.chars() {
+		match quote {
+			Some(quote_character) => {
+				if character == quote_character {
+					quote = None;
+				} else {
+					argument.push(character);
+				}
+			},
+			None => {
+				if character == '"' || character == '\'' {
+					quote = Some(character);
+					in_argument = true;
+				} else if character.is_whitespace() {
+					if in_argument {
+						arguments.push(std::mem::take(&mut argument));
+						in_argument = false;
+					}
+				} else {
+					argument.push(character);
+					in_argument = true;
+				}
+			}
+		}
+	}
+
+	if in_argument {
+		arguments.push(argument);
+	}
+
+	arguments
+}
+
 fn to_mame_endpoint_path(endpoint: &str) -> String {
 	if Regex::new(r"^[^\:]+\:\d+$").unwrap().is_match(endpoint) {
 		"socket.".to_owned() + endpoint
@@ -5035,7 +5075,7 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 				}
 
 				let audio_in_sound_module = ui_mame.get_audio_in_sound_module().to_string();
-				if use_audio_in && audio_in_sound_module != "" && !ui_mame.get_disable_sound() && !ui_mame.get_custom_options().split_whitespace().any(|custom_option| custom_option == "-sound") {
+				if use_audio_in && audio_in_sound_module != "" && !ui_mame.get_disable_sound() && !split_custom_options(&ui_mame.get_custom_options()).iter().any(|custom_option| custom_option == "-sound") {
 					mame_command.arg("-sound").arg(&audio_in_sound_module);
 				}
 			},
@@ -5063,11 +5103,7 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 		};
 
 		// Custom options come after the launcher's options so they can override them.
-		let custom_options: String = ui_mame.get_custom_options().to_string();
-		if custom_options != "" {
-			// EMAC: should acocunt for quoted arguments but this is good "for now"
-			mame_command.args(custom_options.split(" "));
-		}
+		mame_command.args(split_custom_options(&ui_mame.get_custom_options()));
 
 		let mut debug_bitb_port= 0;
 		if ui_mame.get_console_input().into() {
