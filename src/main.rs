@@ -10,6 +10,8 @@ mod netstack;
 mod wtv;
 mod externalpopup;
 mod mamecapture;
+#[cfg(webtv_bridge)]
+mod webtvbridge;
 
 use std::{
 	collections::HashMap, 
@@ -155,6 +157,10 @@ const WTVPORT_BOXES: &[&str] = &[
 const WTVPORT_SLOT_NAME: &'static str = "wtvport1";
 const PARALLEL_SLOT_NAME: &'static str = "pport";
 const DEFAULT_PARALLEL_SOCKET_ENDPOINT: &'static str = "127.0.0.1:3000";
+// Parallel port socket endpoint value for the launcher's built-in WebTV Bridge (the "webtv-bridge" feature).
+const WEBTV_BRIDGE_SOCKET_ENDPOINT: &'static str = "webtv-bridge";
+#[cfg(webtv_bridge)]
+const WEBTV_BRIDGE_STATE_DIR: &'static str = "webtv-bridge";
 const SERIAL_PORT_PREFIX: &'static str = "serial.";
 const DEFAULT_SERIAL_PORT_OPTIONS: &'static str = "b115200,cs8";
 const DEBUG_READ_BUFFER_SIZE: usize = 1024;
@@ -2846,7 +2852,8 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		// WebTV Port and Parallel Port
 		ui_mame.set_selected_wtvport_option(config_persistent_mame.selected_wtvport_option.clone().unwrap_or("".into()).into());
 		ui_mame.set_selected_parallel_option(config_persistent_mame.selected_parallel_option.clone().unwrap_or("".into()).into());
-		let selectable_parallel_socket_endpoints: Vec<HintedItem> = vec![
+		#[allow(unused_mut)]
+		let mut selectable_parallel_socket_endpoints: Vec<HintedItem> = vec![
 			HintedItem {
 				display_hint_only: false,
 				hint: "Local TOOT server".into(),
@@ -2855,6 +2862,16 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 				icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
 			}
 		];
+		#[cfg(webtv_bridge)]
+		selectable_parallel_socket_endpoints.push(
+			HintedItem {
+				display_hint_only: false,
+				hint: "JoeB bridge (builtin)".into(),
+				tooltip: "Runs the WebTV Bridge firmware in the launcher. The box goes online through this computer's network.".into(),
+				value: WEBTV_BRIDGE_SOCKET_ENDPOINT.into(),
+				icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
+			}
+		);
 		ui_mame.set_selectable_parallel_socket_endpoints(slint::ModelRc::new(slint::VecModel::from(selectable_parallel_socket_endpoints)));
 		let selected_parallel_socket_endpoint = config_persistent_mame.selected_parallel_socket_endpoint.clone().unwrap_or("".into());
 		ui_mame.set_selected_parallel_socket_endpoint(if selected_parallel_socket_endpoint != "" { selected_parallel_socket_endpoint.into() } else { DEFAULT_PARALLEL_SOCKET_ENDPOINT.into() });
@@ -4880,7 +4897,7 @@ fn output_mame_stdio(ui_weak: slint::Weak<MainWindow>, stdout: Option<ChildStdou
 	Ok(process_has_error.load(Relaxed))
 }
 
-fn spawn_mame_from_command(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx: Receiver<String>, mut mame_command: Command, network_stack: Option<NetworkStack>) -> Result<(), Box<dyn std::error::Error>> {
+fn spawn_mame_from_command(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx: Receiver<String>, mut mame_command: Command, network_stack: Option<NetworkStack>, mame_services: Vec<Box<dyn Send>>) -> Result<(), Box<dyn std::error::Error>> {
 	let _ = std::thread::spawn(move || {
 		let mut full_mame_command_line: String;
 
@@ -4915,8 +4932,9 @@ fn spawn_mame_from_command(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u1
 
 		let _= set_mame_pid(ui_weak.clone(), 0);
 
-		// Stops the launcher network.
+		// Stops the launcher network and the other services that ran with MAME.
 		drop(network_stack);
+		drop(mame_services);
 
 		let _ = add_console_text(ui_weak.clone(), " \nMAME Ended\n".into(), MAMEConsoleScrollMode::ForceScroll, 0);
 
@@ -5065,9 +5083,21 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 			None => (HashMap::new(), HashMap::new())
 		};
 
+		// Services that run alongside MAME and stop when it ends.
+		let mut mame_services: Vec<Box<dyn Send>> = vec![];
+
 		if use_parallel && selected_parallel_option == "socket" {
 			let selected_parallel_socket_endpoint = ui_mame.get_selected_parallel_socket_endpoint().to_string();
 			match added_bitbangers.get(&(":".to_owned() + PARALLEL_SLOT_NAME)).and_then(|brief_names| brief_names.first()) {
+				Some(brief_name) if selected_parallel_socket_endpoint == WEBTV_BRIDGE_SOCKET_ENDPOINT => {
+					match start_webtv_bridge(ui_weak.clone()) {
+						Ok((port, bridge)) => {
+							mame_command.arg("-".to_owned() + brief_name).arg("socket.127.0.0.1:".to_owned() + &port.to_string());
+							mame_services.push(bridge);
+						},
+						Err(message) => console_warning(&message)
+					}
+				},
 				Some(brief_name) if selected_parallel_socket_endpoint != "" => {
 					mame_command.arg("-".to_owned() + brief_name).arg(to_mame_endpoint_path(&selected_parallel_socket_endpoint));
 				},
@@ -5261,10 +5291,36 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 			mame_command.arg("-hard").arg(selected_hdimg_path);
 		}
 
-		let _ = spawn_mame_from_command(ui_weak, debug_bitb_port, drx, mame_command, network_stack);
+		let _ = spawn_mame_from_command(ui_weak, debug_bitb_port, drx, mame_command, network_stack, mame_services);
 	}
 
 	Ok(())
+}
+
+// Starts the built-in WebTV Bridge for the parallel port socket: the port MAME connects to, and the bridge (stops when dropped).
+#[cfg(webtv_bridge)]
+fn start_webtv_bridge(ui_weak: slint::Weak<MainWindow>) -> Result<(u16, Box<dyn Send>), String> {
+	let executable_dir = env::current_exe().ok().and_then(|path| LauncherConfig::get_parent_from_pathbuf(path).ok()).unwrap_or(".".into());
+	let state_dir = Path::new(&executable_dir).join(WEBTV_BRIDGE_STATE_DIR);
+
+	let log_ui_weak = ui_weak.clone();
+	let log: webtvbridge::LogFn = std::sync::Arc::new(move |line: &str| {
+		let _ = add_console_text(log_ui_weak.clone(), line.to_owned() + "\n", MAMEConsoleScrollMode::ConditionalScroll, 0);
+	});
+
+	match webtvbridge::WebTVBridge::start(webtvbridge::BridgeOptions::new(state_dir, log)) {
+		Ok(bridge) => {
+			let port = bridge.port();
+			let _ = add_console_text(ui_weak, " \nWebTV Bridge started for the parallel port (127.0.0.1:".to_owned() + &port.to_string() + ")\n", MAMEConsoleScrollMode::ForceScroll, 0);
+			Ok((port, Box::new(bridge)))
+		},
+		Err(error) => Err("Couldn't start the WebTV Bridge (".to_owned() + &error.to_string() + "). The parallel port socket won't connect.")
+	}
+}
+
+#[cfg(not(webtv_bridge))]
+fn start_webtv_bridge(_ui_weak: slint::Weak<MainWindow>) -> Result<(u16, Box<dyn Send>), String> {
+	Err("This launcher was built without the WebTV Bridge (the \"webtv-bridge\" feature). The parallel port socket won't connect.".into())
 }
 
 fn start_netstack(ui_weak: slint::Weak<MainWindow>, mame_executable_path: &String, mame_directory_path: &String, mame_command: &mut Command, selected_box: &str) -> Option<NetworkStack> {
