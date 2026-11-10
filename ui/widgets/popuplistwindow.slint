@@ -5,7 +5,8 @@ import {
 	ScrollView
 } from "std-widgets.slint";
 import {
-	HintedItem
+	HintedItem,
+	PopupScroll
 } from "./editablecombobox.slint";
 
 export component PopupListWindow inherits Window {
@@ -25,6 +26,10 @@ export component PopupListWindow inherits Window {
 
 	callback item-selected(int);
 
+	public function scroll-to-index(index: int, view-height: length) {
+		list.content-y = (index >= 0) ? -PopupScroll.offset(index, root.row-height, root.items.length, view-height) : 0px;
+	}
+
 	Rectangle {
 		background: Palette.alternate-background;
 		border-width: 2px;
@@ -32,7 +37,7 @@ export component PopupListWindow inherits Window {
 		border-color: Palette.background;
 	}
 
-	ScrollView {
+	list := ScrollView {
 		width: parent.width;
 		height: parent.height;
 		content-width: parent.width;

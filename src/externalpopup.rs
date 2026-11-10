@@ -4,7 +4,7 @@ use std::cell::Cell;
 use std::rc::{Rc, Weak};
 use std::time::{Duration, Instant};
 
-use slint::ComponentHandle;
+use slint::{ComponentHandle, Model};
 use slint::winit_030::{winit, EventResult, WinitWindowAccessor};
 
 use crate::{ComboBoxWindow, HintedItem, MainWindow, PopupListWindow};
@@ -190,6 +190,8 @@ impl ExternalPopup {
 			popup_x = popup_x.min(monitor_right - popup_width).max(monitor_left);
 		}
 
+		let selected_index = items.iter().position(|item| item.value == current_value).map_or(-1, |index| index as i32);
+
 		self.popup.set_items(items);
 		self.popup.set_current_value(current_value);
 		self.popup.set_hint_before(hint_before);
@@ -206,6 +208,8 @@ impl ExternalPopup {
 			return;
 		}
 		self.is_open.set(true);
+
+		self.popup.invoke_scroll_to_index(selected_index, popup_height as f32 / scale_factor);
 
 		// Some platforms ignore the position before the window exists.
 		popup_window.set_position(slint::PhysicalPosition::new(popup_x, popup_y));

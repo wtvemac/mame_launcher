@@ -32,6 +32,13 @@ global TooltipState {
 	property <Point> position;
 }
 
+// How far to scroll a dropdown list so the item at index is centered (within limits/clamp of the full list)
+export global PopupScroll {
+	public pure function offset(index: int, row-height: length, item-count: int, view-height: length) -> length {
+		return clamp(index * row-height - (view-height - row-height) / 2, 0px, max(0px, item-count * row-height - view-height));
+	}
+}
+
 export component EditableComboBox inherits Rectangle {
 	in property <bool> enabled: true;
 	in property <bool> editable: false;
@@ -96,6 +103,9 @@ export component EditableComboBox inherits Rectangle {
 	property <length> i-popup-space-above: root.absolute-position.y - root.i-popup-margin;
 	property <bool> i-popup-above: (root.i-popup-space-below < root.i-popup-full-height && root.i-popup-space-above > root.i-popup-space-below);
 	property <length> i-popup-height: max(root.height - root.popup-item-height-adjust, min(root.i-popup-full-height, (root.i-popup-above) ? root.i-popup-space-above : root.i-popup-space-below));
+
+	// Index of the item matching the current value (-1 if the value is edited with a non-list value).
+	property <int> i-selected-index: (i-ishinted) ? ((hintedmodel.length > i-index && hintedmodel[i-index].value == current-value) ? i-index : -1) : ((model.length > i-index && model[i-index] == current-value) ? i-index : -1);
 
 	callback selection-changed;
 	callback close-popup-window;
@@ -309,12 +319,18 @@ export component EditableComboBox inherits Rectangle {
 			border-color: Palette.background;
 		}
 		
-		// EMAC: add a scroll-to if selected item is out of view?
 		scroll-box := ScrollView {
 			width: parent.width;
 			height: parent.height;
 			content-width: parent.width;
 			content-height: (root.height - root.popup-item-height-adjust) * root.item-count;
+
+			// Scroll to the selected item after open
+			init => {
+				if (root.i-selected-index >= 0) {
+					self.content-y = -PopupScroll.offset(root.i-selected-index, root.height - root.popup-item-height-adjust, root.item-count, root.i-popup-height);
+				}
+			}
 
 			if i-ishinted: VerticalLayout {
 				spacing: 0px;
