@@ -4629,11 +4629,9 @@ fn get_mame_pid(ui_weak: slint::Weak<MainWindow>) -> Result<u32, Box<dyn std::er
 }
 
 fn set_mame_pid(ui_weak: slint::Weak<MainWindow>, pid: u32) -> Result<(), Box<dyn std::error::Error>> {
-	if pid > 0 {
-		let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-			ui.set_mame_pid(pid as i32);
-		});
-	}
+	let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+		ui.set_mame_pid(pid as i32);
+	});
 
 	Ok(())
 }
@@ -5024,7 +5022,16 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 
 		mame_command.current_dir(mame_directory_path.clone());
 
-		mame_command.arg(ui_mame.get_selected_box().to_string());
+		let selected_box = ui_mame.get_selected_box();
+		let running_machine_title = ui_mame.get_selectable_boxes()
+			.iter()
+			.find(|selectable_box| selectable_box.value == selected_box)
+			.map(|selectable_box| selectable_box.hint)
+			.filter(|hint| !hint.is_empty())
+			.unwrap_or(selected_box.clone());
+		ui.set_running_machine_title(running_machine_title);
+
+		mame_command.arg(selected_box.to_string());
 
 		mame_command.arg("-nomouse");
 		mame_command.arg("-skip_gameinfo");
