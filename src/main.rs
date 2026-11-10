@@ -156,6 +156,14 @@ const WTVPORT_BOXES: &[&str] = &[
 ];
 const WTVPORT_SLOT_NAME: &'static str = "wtvport1";
 const PARALLEL_SLOT_NAME: &'static str = "pport";
+const DEFAULT_SLOT_ORDER: [&'static str; 5] = [
+	"deskjet6xx",
+	"socket",
+	"hostlpt",
+
+	"printer",
+	"pekoe2"
+];
 const DEFAULT_PARALLEL_SOCKET_ENDPOINT: &'static str = "127.0.0.1:3000";
 // Parallel port socket endpoint value for the launcher's built-in WebTV Bridge (the "webtv-bridge" feature).
 const WEBTV_BRIDGE_SOCKET_ENDPOINT: &'static str = "webtv-bridge";
@@ -1364,7 +1372,18 @@ fn get_slot_options(config: &LauncherConfig, selected_machine: &MAMEMachineNode,
 		break;
 	}
 
-	slot_options.sort_by(|a, b| a.0.cmp(&b.0));
+	slot_options.sort_by(
+		| cmp_a, cmp_b | {
+			let a_preset_order = DEFAULT_SLOT_ORDER.iter().position(|&val| val == cmp_a.0.as_str()).unwrap_or(usize::MAX);
+			let b_preset_order = DEFAULT_SLOT_ORDER.iter().position(|&val| val == cmp_b.0.as_str()).unwrap_or(usize::MAX);
+
+			if a_preset_order == b_preset_order {
+				cmp_a.0.partial_cmp(&cmp_b.0).unwrap()
+			} else {
+				a_preset_order.cmp(&b_preset_order)
+			}
+		}
+	);
 
 	slot_options
 }
