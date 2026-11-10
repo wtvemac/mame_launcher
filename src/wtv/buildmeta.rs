@@ -13,7 +13,7 @@ use super::buildio::{
 	stream::BuildIOStream
 };
 
-use regex::Regex;
+use regex_lite::Regex;
 
 use mbrman::{
 	MBR

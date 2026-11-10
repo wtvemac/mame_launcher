@@ -11,7 +11,7 @@ use quick_xml::writer::Writer;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 use std::collections::HashMap;
-use regex::Regex;
+use regex_lite::Regex;
 use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 #[cfg(target_os = "windows")]

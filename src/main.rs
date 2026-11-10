@@ -31,7 +31,7 @@ use std::{
 	time::{Duration, Instant}
 };
 use rand::distr::{Alphanumeric, SampleString};
-use regex::Regex;
+use regex_lite::Regex;
 use native_dialog::{DialogBuilder, FileDialogBuilder};
 use sysinfo::{Pid, System};
 use rodio;

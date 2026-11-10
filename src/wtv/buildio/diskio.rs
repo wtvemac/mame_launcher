@@ -7,7 +7,7 @@ use std::{
 };
 use std::io::{Read, Write, Seek, SeekFrom};
 use chd::Chd;
-use regex::Regex;
+use regex_lite::Regex;
 
 const CHD_HEADER_SIZE: u32 = 0x0000007c;
 const CHD_METADATA_SIZE: u32 = 0x00000010;
