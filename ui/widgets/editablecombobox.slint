@@ -232,7 +232,7 @@ export component EditableComboBox inherits Rectangle {
 		x: (root.editable) ? (editbox.x + editbox.width) : 0px;
 		width: (root.editable) ? (down-arrow.width + 10px) : parent.width;
 		height: 100%;
-		enabled: root.current-value != "" && ((root.enabled && (model.length > 1 || hintedmodel.length > 1 || (hintedmodel.length == 1 && root.current-value != hintedmodel[0].value) || (model.length == 1 && root.current-value != model[0]))) || root.current-tooltip != "");
+		enabled: (root.enabled && (model.length > 1 || hintedmodel.length > 1 || (hintedmodel.length == 1 && root.current-value != hintedmodel[0].value) || (model.length == 1 && root.current-value != model[0]))) || (root.current-value != "" && root.current-tooltip != "");
 
 
 		clicked => {
@@ -274,7 +274,7 @@ export component EditableComboBox inherits Rectangle {
 			z: 1;
 			width: tooltip-layout.preferred-width;
 			height: tooltip-layout.preferred-height;
-			visible: parent.has-hover && root.current-tooltip != "";
+			visible: parent.has-hover && root.current-value != "" && root.current-tooltip != "";
 			opacity: 0.0;
 			background: #000;
 			border-width: 1px;
