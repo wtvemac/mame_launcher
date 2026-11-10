@@ -24,6 +24,7 @@ export global ComboBoxWindow {
 	in-out property <int> external-popup-selected-index: -1;
 	callback close-external-popup();
 	callback close-external-popup-if-unfocused();
+	callback update-external-popup(string, int);
 }
 
 global TooltipState {
@@ -37,6 +38,15 @@ export global PopupScroll {
 	public pure function offset(index: int, row-height: length, item-count: int, view-height: length) -> length {
 		return clamp(index * row-height - (view-height - row-height) / 2, 0px, max(0px, item-count * row-height - view-height));
 	}
+
+	public pure function offset-to-show(index: int, row-height: length, view-height: length, current-offset: length) -> length {
+		if (index * row-height < current-offset) {
+			return index * row-height;
+		} else if ((index + 1) * row-height > current-offset + view-height) {
+			return (index + 1) * row-height - view-height;
+		}
+		return current-offset;
+	}
 }
 
 export component EditableComboBox inherits Rectangle {
@@ -49,6 +59,8 @@ export component EditableComboBox inherits Rectangle {
 	in property <bool> hint-before: false;
 	in property <bool> display-hint-only: false;
 	in property <bool> use-external-popup: false;
+	// Close the list as soon as a keyboard selection is made
+	in property <bool> select-closes-popup: false;
 	
 	property <bool> i-ishinted: (hintedmodel.length > 0);
 	property <int> i-index: 0;
@@ -74,12 +86,12 @@ export component EditableComboBox inherits Rectangle {
 		if (root.i-external-popup-requested) {
 			root.i-external-popup-requested = false;
 			if (ComboBoxWindow.external-popup-selected-index >= 0 && ComboBoxWindow.external-popup-selected-index < root.hintedmodel.length) {
-				root.select-hinted-index(ComboBoxWindow.external-popup-selected-index);
+				root.select-hinted-index(ComboBoxWindow.external-popup-selected-index, true);
 			}
 		}
 	}
 
-	function select-hinted-index(index: int) {
+	function select-hinted-index(index: int, take-focus: bool) {
 		root.i-index = index;
 		root.current-value = root.hintedmodel[index].value;
 		root.current-hint = root.hintedmodel[index].hint;
@@ -87,13 +99,165 @@ export component EditableComboBox inherits Rectangle {
 		root.current-icon = root.hintedmodel[index].icon;
 
 		// Don't focus hint-only items so the hint stays displayed instead of the full value.
-		if(root.editable && !(root.hintedmodel[index].hint != "" && (root.display-hint-only || root.hintedmodel[index].display_hint_only))) {
+		if(take-focus && root.editable && !(root.hintedmodel[index].hint != "" && (root.display-hint-only || root.hintedmodel[index].display_hint_only))) {
 			editbox.focus();
 			editbox.clear-selection();
 			editbox.set-selection-offsets(500, 500);
 		}
 
 		root.selection-changed();
+	}
+
+	function select-model-index(index: int, take-focus: bool) {
+		root.i-index = index;
+		root.current-value = root.model[index];
+		root.current-hint = "";
+		root.current-tooltip = "";
+		root.current-icon = @image-url("");
+
+		if(take-focus && root.editable) {
+			editbox.focus();
+			editbox.clear-selection();
+			editbox.set-selection-offsets(500, 500);
+		}
+
+		root.selection-changed();
+	}
+
+	function select-index(index: int, take-focus: bool) {
+		if (root.select-closes-popup && root.i-handling-popup-key) {
+			root.close-popup();
+		}
+
+		if (root.i-ishinted) {
+			root.select-hinted-index(index, take-focus);
+		} else {
+			root.select-model-index(index, take-focus);
+		}
+
+		if (root.editable && !take-focus && editbox.has-focus) {
+			editbox.set-selection-offsets(500, 500);
+		}
+		if (root.i-external-popup-requested && !root.select-closes-popup) {
+			ComboBoxWindow.update-external-popup(root.current-value, index);
+		}
+	}
+
+	function step-selection(delta: int) {
+		if (root.item-count <= 0) {
+			return;
+		}
+		if (root.i-selected-index < 0) {
+			root.select-index((delta > 0) ? 0 : root.item-count - 1, false);
+		} else {
+			let next = clamp(root.i-selected-index + delta, 0, root.item-count - 1);
+			if (next != root.i-selected-index) {
+				root.select-index(next, false);
+			}
+		}
+	}
+
+	function open-popup() {
+		if (!root.i-can-open) {
+			return;
+		}
+
+		if (!editbox.has-focus) {
+			key-scope.focus();
+		}
+
+		if (root.i-use-external-popup) {
+			root.i-external-popup-requested = true;
+			ComboBoxWindow.show-external-popup(
+				root.absolute-position.x,
+				root.absolute-position.y,
+				root.absolute-position.y + root.height,
+				root.width,
+				root.i-popup-full-height,
+				root.height - root.popup-item-height-adjust,
+				root.hintedmodel,
+				root.current-value,
+				root.hint-before,
+				root.display-hint-only
+			);
+		} else {
+			popup.show();
+		}
+	}
+
+	function close-popup() {
+		if (root.i-external-popup-requested) {
+			ComboBoxWindow.close-external-popup();
+		} else {
+			popup.close();
+		}
+	}
+
+	// True while a key from the open list is being handled (so select-index knows the list is open).
+	property <bool> i-handling-popup-key: false;
+	function popup-key-pressed(event: KeyEvent) -> EventResult {
+		root.i-handling-popup-key = true;
+		let result = root.handle-popup-key(event);
+		root.i-handling-popup-key = false;
+		return result;
+	}
+
+	function handle-popup-key(event: KeyEvent) -> EventResult {
+		if (event.modifiers.control || event.modifiers.meta) {
+			return reject;
+		}
+		if (event.text == Key.UpArrow && event.modifiers.alt) || event.text == Key.F4 || event.text == Key.Return {
+			root.close-popup();
+			return accept;
+		} else if (event.text == Key.UpArrow) {
+			root.step-selection(-1);
+			return accept;
+		} else if (event.text == Key.DownArrow) {
+			root.step-selection(1);
+			return accept;
+		} else if (event.text == Key.PageUp) {
+			root.step-selection(-10);
+			return accept;
+		} else if (event.text == Key.PageDown) {
+			root.step-selection(10);
+			return accept;
+		} else if (event.text == Key.Home && !root.editable) {
+			root.step-selection(-root.item-count);
+			return accept;
+		} else if (event.text == Key.End && !root.editable) {
+			root.step-selection(root.item-count);
+			return accept;
+		}
+		return reject;
+	}
+
+	function key-pressed(event: KeyEvent) -> EventResult {
+		if (!root.enabled || root.item-count <= 0) {
+			return reject;
+		}
+		if (root.i-external-popup-requested) {
+			return root.popup-key-pressed(event);
+		}
+		if (event.modifiers.control || event.modifiers.meta) {
+			return reject;
+		}
+		if (event.text == Key.DownArrow && event.modifiers.alt) || event.text == Key.F4 || (!root.editable && (event.text == Key.Return || event.text == " ")) {
+			root.open-popup();
+			return accept;
+		} else if (event.text == Key.UpArrow) {
+			root.step-selection(-1);
+			return accept;
+		} else if (event.text == Key.DownArrow) {
+			root.step-selection(1);
+			return accept;
+		} else if (event.text == Key.Home && !root.editable) {
+			root.step-selection(-root.item-count);
+			return accept;
+		} else if (event.text == Key.End && !root.editable) {
+			root.step-selection(root.item-count);
+			return accept;
+		}
+		return reject;
 	}
 
 	// The popup opens below the combobox unless there's more room above. Either way it's limited to the space available in the window
@@ -105,6 +269,9 @@ export component EditableComboBox inherits Rectangle {
 	property <length> i-popup-height: max(root.height - root.popup-item-height-adjust, min(root.i-popup-full-height, (root.i-popup-above) ? root.i-popup-space-above : root.i-popup-space-below));
 
 	// Index of the item matching the current value (-1 if the value is edited with a non-list value).
+	// Whether theres anything to pick from the list (otherwise the down arrow is hidden and the list doesn't open)
+	property <bool> i-can-open: root.enabled && (model.length > 1 || hintedmodel.length > 1 || (hintedmodel.length == 1 && root.current-value != hintedmodel[0].value) || (model.length == 1 && root.current-value != model[0]));
+
 	property <int> i-selected-index: (i-ishinted) ? ((hintedmodel.length > i-index && hintedmodel[i-index].value == current-value) ? i-index : -1) : ((model.length > i-index && model[i-index] == current-value) ? i-index : -1);
 
 	callback selection-changed;
@@ -151,7 +318,7 @@ export component EditableComboBox inherits Rectangle {
 	horizontal-stretch: 1;
 	border-radius: 5px;
 	background: Palette.alternate-background;
-	opacity: popopen-area.has-hover || editbox.has-focus ? 1.00 : 0.70;
+	opacity: popopen-area.has-hover || editbox.has-focus || key-scope.has-focus ? 1.00 : 0.70;
 
 	close-popup-window => {
 		popup.close();
@@ -177,17 +344,36 @@ export component EditableComboBox inherits Rectangle {
 		overflow: elide;
 		wrap: no-wrap;
 	}
-	editbox := LineEdit {
-		text <=> root.current-value;
-		x: 1px;
-		y: ((parent.height - self.height) / 2);
-		width: (parent.width - down-arrow.width - self.x) + ((down-arrow.width > 0) ? -8px : -1px);
-		height: (root.editable) ? (parent.height - 2px) : 0px;
-		visible: root.editable;
-		enabled: (root.enabled);
-		horizontal-alignment: left;
-		font-size: nonedit-label.font-size;
-		placeholder-text: root.placeholder-text;
+	key-scope := FocusScope {
+		x: 0px;
+		y: 0px;
+		width: parent.width;
+		height: parent.height;
+		enabled: root.enabled;
+		focus-on-click: false;
+		focus-on-tab-navigation: !root.editable;
+
+		capture-key-pressed(event) => {
+			return root.key-pressed(event);
+		}
+
+		editbox := LineEdit {
+			text <=> root.current-value;
+			x: 1px;
+			y: ((parent.height - self.height) / 2);
+			width: (parent.width - down-arrow.width - self.x) + ((down-arrow.width > 0) ? -8px : -1px);
+			height: (root.editable) ? (parent.height - 2px) : 0px;
+			visible: root.editable;
+			enabled: (root.enabled);
+			horizontal-alignment: left;
+			font-size: nonedit-label.font-size;
+			placeholder-text: root.placeholder-text;
+		}
+	}
+	if !root.editable && key-scope.has-focus: Rectangle {
+		border-width: 1px;
+		border-radius: root.border-radius;
+		border-color: Palette.accent-background;
 	}
 	editbox-border := Rectangle {
 		x: editbox.x;
@@ -232,39 +418,19 @@ export component EditableComboBox inherits Rectangle {
 		source: @image-url("images/chevron-down.svg");
 		x: (parent.width - self.width - 4px);
 		y: (parent.height - self.height) / 2;
-		width: (root.enabled && (model.length > 1 || hintedmodel.length > 1 || (hintedmodel.length == 1 && root.current-value != hintedmodel[0].value) || (model.length == 1 && root.current-value != model[0]))) ? self.height : 0px;
+		width: (root.i-can-open) ? self.height : 0px;
 		height: 40%;
 		colorize: Palette.foreground;
 		image-fit: contain;
 	}
-	// EMAC: add up/down/enter keypress events for accessability?
 	popopen-area := TouchArea {
 		x: (root.editable) ? (editbox.x + editbox.width) : 0px;
 		width: (root.editable) ? (down-arrow.width + 10px) : parent.width;
 		height: 100%;
-		enabled: (root.enabled && (model.length > 1 || hintedmodel.length > 1 || (hintedmodel.length == 1 && root.current-value != hintedmodel[0].value) || (model.length == 1 && root.current-value != model[0]))) || (root.current-value != "" && root.current-tooltip != "");
-
+		enabled: root.i-can-open || (root.current-value != "" && root.current-tooltip != "");
 
 		clicked => {
-			if (root.enabled && (model.length > 1 || hintedmodel.length > 1 || (hintedmodel.length == 1 && root.current-value != hintedmodel[0].value) || (model.length == 1 && root.current-value != model[0]))) {
-				if (root.i-use-external-popup) {
-					root.i-external-popup-requested = true;
-					ComboBoxWindow.show-external-popup(
-						root.absolute-position.x,
-						root.absolute-position.y,
-						root.absolute-position.y + root.height,
-						root.width,
-						root.i-popup-full-height,
-						root.height - root.popup-item-height-adjust,
-						root.hintedmodel,
-						root.current-value,
-						root.hint-before,
-						root.display-hint-only
-					);
-				} else {
-					popup.show();
-				}
-			}
+			root.open-popup();
 		}
 
 		tooltip := Rectangle { 
@@ -311,6 +477,22 @@ export component EditableComboBox inherits Rectangle {
 		width: root.width;
 		height: root.i-popup-height;
 		close-policy: close-on-click-outside;
+		forward-focus: popup-keys;
+
+		popup-keys := FocusScope {
+			width: parent.width;
+			height: parent.height;
+			focus-on-click: false;
+			focus-on-tab-navigation: false;
+
+			key-pressed(event) => {
+				let result = root.popup-key-pressed(event);
+				if (!root.select-closes-popup && root.i-selected-index >= 0) {
+					scroll-box.content-y = -PopupScroll.offset-to-show(root.i-selected-index, root.height - root.popup-item-height-adjust, scroll-box.visible-height, -scroll-box.content-y);
+				}
+				return result;
+			}
+		}
 
 		Rectangle {
 			background: Palette.alternate-background;
@@ -358,7 +540,7 @@ export component EditableComboBox inherits Rectangle {
 					}
 					itemsel-area := TouchArea {
 						clicked => {
-							root.select-hinted-index(index);
+							root.select-hinted-index(index, true);
 
 							popup.close();
 						}
@@ -382,19 +564,7 @@ export component EditableComboBox inherits Rectangle {
 					}
 					itemsel-area-hinted := TouchArea {
 						clicked => {
-							root.i-index = index;
-							root.current-value = value;
-							root.current-hint = "";
-							root.current-tooltip = "";
-							root.current-icon = @image-url("");
-
-							if(root.editable) {
-								editbox.focus();
-								editbox.clear-selection();
-								editbox.set-selection-offsets(500, 500);
-							}
-
-							root.selection-changed();
+							root.select-model-index(index, true);
 
 							popup.close();
 						}

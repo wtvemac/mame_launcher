@@ -236,6 +236,7 @@ export component StartPage inherits Page {
 
 		EditableComboBox {
 			use-external-popup: true;
+			select-closes-popup: true;
 			hintedmodel: UIMAMEOptions.selectable_boxes;
 			current-value <=> UIMAMEOptions.selected_box;
 			selection-changed => {

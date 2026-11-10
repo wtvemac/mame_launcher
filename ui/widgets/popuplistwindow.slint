@@ -19,7 +19,7 @@ export component PopupListWindow inherits Window {
 	background: Palette.alternate-background;
 
 	in property <[HintedItem]> items: [];
-	in property <string> current-value: "";
+	in-out property <string> current-value: "";
 	in property <bool> hint-before: false;
 	in property <bool> display-hint-only: false;
 	in property <length> row-height: 32px;
@@ -28,6 +28,12 @@ export component PopupListWindow inherits Window {
 
 	public function scroll-to-index(index: int, view-height: length) {
 		list.content-y = (index >= 0) ? -PopupScroll.offset(index, root.row-height, root.items.length, view-height) : 0px;
+	}
+
+	public function show-index(index: int, view-height: length) {
+		if (index >= 0) {
+			list.content-y = -PopupScroll.offset-to-show(index, root.row-height, view-height, -list.content-y);
+		}
 	}
 
 	Rectangle {

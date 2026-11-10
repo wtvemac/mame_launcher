@@ -22,6 +22,7 @@ struct ExternalPopup {
 	popup: PopupListWindow,
 	is_open: Cell<bool>,
 	popup_events_hooked: Cell<bool>,
+	view_height: Cell<f32>,
 	closed_by_main_press: Cell<Option<Instant>>
 }
 
@@ -70,6 +71,7 @@ pub fn setup(ui: &MainWindow) -> Result<(), Box<dyn std::error::Error>> {
 		},
 		is_open: Cell::new(false),
 		popup_events_hooked: Cell::new(false),
+		view_height: Cell::new(0.0),
 		closed_by_main_press: Cell::new(None)
 	});
 
@@ -209,7 +211,8 @@ impl ExternalPopup {
 		}
 		self.is_open.set(true);
 
-		self.popup.invoke_scroll_to_index(selected_index, popup_height as f32 / scale_factor);
+		self.view_height.set(popup_height as f32 / scale_factor);
+		self.popup.invoke_scroll_to_index(selected_index, self.view_height.get());
 
 		// Some platforms ignore the position before the window exists.
 		popup_window.set_position(slint::PhysicalPosition::new(popup_x, popup_y));
@@ -285,6 +288,15 @@ impl ExternalPopup {
 		}
 	}
 
+	fn update(&self, current_value: slint::SharedString, selected_index: i32) {
+		if !self.is_open.get() {
+			return;
+		}
+
+		self.popup.set_current_value(current_value);
+		self.popup.invoke_show_index(selected_index, self.view_height.get());
+	}
+
 	fn close_if_unfocused(&self) {
 		if !self.is_open.get() {
 			return;
@@ -319,6 +331,12 @@ fn connect_close_callbacks(ui: &MainWindow, state: &Rc<ExternalPopup>) {
 	ui.global::<ComboBoxWindow>().on_close_external_popup(move || {
 		if let Some(state) = state_weak.upgrade() {
 			state.close(-1);
+		}
+	});
+	let state_weak = Rc::downgrade(state);
+	ui.global::<ComboBoxWindow>().on_update_external_popup(move |current_value, selected_index| {
+		if let Some(state) = state_weak.upgrade() {
+			state.update(current_value, selected_index);
 		}
 	});
 	let state_weak = Rc::downgrade(state);
