@@ -224,6 +224,18 @@ export component MainWindow inherits Window {
 			root.console-cursor-on = !root.console-cursor-on;
 		}
 	}
+	function console-user-scrolled() {
+		if(!root.console-user-scrolling) {
+			root.console-scroll-start-y = mame-console.content-y;
+		}
+
+		root.console-user-scrolling = true;
+		root.console-following = false;
+		root.console-scroll-content-height = mame-console.content-height;
+
+		console-scroll-settle.start();
+		console-scroll-settle.restart();
+	}
 	console-scroll-settle := Timer {
 		interval: 300ms;
 		running: false;
@@ -489,14 +501,7 @@ export component MainWindow inherits Window {
 						width: parent.width;
 						height: parent.height;
 						scrolled => {
-							if(!root.console-user-scrolling) {
-								root.console-scroll-start-y = self.content-y;
-							}
-							root.console-user-scrolling = true;
-							root.console-following = false;
-							root.console-scroll-content-height = self.content-height;
-							console-scroll-settle.start();
-							console-scroll-settle.restart();
+							root.console-user-scrolled();
 						}
 
 						for line[index] in root.mame-console-lines: console-line := Rectangle {
@@ -595,6 +600,15 @@ export component MainWindow inherits Window {
 						width: mame-console.visible-width - 14px;
 						height: mame-console.visible-height;
 						mouse-cursor: text;
+						scroll-event(event) => {
+							if(event.modifiers.shift && event.delta-x == 0 && event.delta-y != 0) {
+								mame-console.content-y = max(min(0px, mame-console.visible-height - mame-console.content-height), min(0px, mame-console.content-y + event.delta-y));
+								root.console-user-scrolled();
+								return accept;
+							} else {
+								return reject;
+							}
+						}
 						pointer-event(event) => {
 							if(event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
 								console-menu-area.show({x: self.mouse-x, y: self.mouse-y});
