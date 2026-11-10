@@ -174,16 +174,51 @@ export global UIMAMEOptions {
 
 	// Other Options
 	in-out property<bool> verbose_mode: false;
-	in-out property<bool> windowed_mode: true;
 	in-out property<bool> use_drc: true;
 	in-out property<bool> debug_mode: false;
 	in-out property<bool> validate_build_image: true;
 	in-out property<bool> console_input: false;
 	in-out property<bool> disable_sound: false;
-	in-out property<bool> capture_mame_window: true;
 	in-out property<bool> capture_platform_supported: false;
 	in-out property<bool> mame_supports_parent_window: false;
 	out property<bool> can_capture_mame_window: (capture_platform_supported && mame_supports_parent_window);
+	in-out property<string> windowing_mode: "captured";
+	out property<string> effective_windowing_mode: (windowing_mode == "captured" && !can_capture_mame_window) ? "window" : ((windowing_mode == "captured" || windowing_mode == "fullscreen") ? windowing_mode : "window");
+	out property<[HintedItem]> selectable_windowing_modes: can_capture_mame_window ? [
+	// Captured mode is supported
+		{
+			value: "captured",
+			hint: @tr("Captured in Launcher"),
+			tooltip: "",
+			display_hint_only: true
+		},
+		{
+			value: "window",
+			hint: @tr("Window"),
+			tooltip: "",
+			display_hint_only: true
+		},
+		{
+			value: "fullscreen",
+			hint: @tr("Fullscreen"),
+			tooltip: "",
+			display_hint_only: true
+		},
+	] : [
+	// Captured mode isn't supported
+		{
+			value: "window",
+			hint: @tr("Window"),
+			tooltip: "",
+			display_hint_only: true
+		},
+		{
+			value: "fullscreen",
+			hint: @tr("Fullscreen"),
+			tooltip: "",
+			display_hint_only: true
+		},
+	];
 	in-out property<length> captured_console_height: 220px;
 	in-out property<length> captured_window_width: 0px;
 	in-out property<length> captured_window_height: 0px;
@@ -641,24 +676,35 @@ export component StartPage inherits Page {
 							width: 50%;
 							spacing: 0px;
 							padding-right: 10px;
+							// This switch isn't functional, it's just here so the interface flows more consistently and doesn't have a block of switches and then a row with just a combobox.
 							Switch {
-								text: @tr("Windowed Mode");
+								text: @tr("Startup Mode");
 								width: 180px;
 								height: 28px;
-								checked <=> UIMAMEOptions.windowed_mode;
+								checked: true;
+								toggled => {
+									self.checked = true;
+								}
+							}
+							EditableComboBox {
+								property <string> i-effective-windowing-mode: UIMAMEOptions.effective_windowing_mode;
+								changed i-effective-windowing-mode => {
+									self.current-value = self.i-effective-windowing-mode;
+								}
+
+								height: 33px;
+								editable: false;
+								hintedmodel: UIMAMEOptions.selectable_windowing_modes;
+								current-value: UIMAMEOptions.effective_windowing_mode;
+								selection-changed => {
+									UIMAMEOptions.windowing_mode = self.current-value;
+								}
 							}
 						}
 						HorizontalLayout {
 							width: 50%;
 							spacing: 0px;
 							padding-right: 10px;
-							Switch {
-								text: @tr("Capture MAME Window");
-								width: 180px;
-								height: 28px;
-								enabled: UIMAMEOptions.can_capture_mame_window;
-								checked <=> UIMAMEOptions.capture_mame_window;
-							}
 						}
 					}
 					Row {

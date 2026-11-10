@@ -2927,13 +2927,16 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		////
 
 		ui_mame.set_verbose_mode(config_persistent_mame.verbose_mode.unwrap_or(false).into());
-		ui_mame.set_windowed_mode(config_persistent_mame.windowed_mode.unwrap_or(true).into());
 		ui_mame.set_use_drc(config_persistent_mame.use_drc.unwrap_or(true).into());
 		ui_mame.set_debug_mode(config_persistent_mame.debug_mode.unwrap_or(false).into());
 		ui_mame.set_validate_build_image(config_persistent_mame.validate_build_image.unwrap_or(true).into());
 		ui_mame.set_console_input(config_persistent_mame.console_input.unwrap_or(false).into());
 		ui_mame.set_disable_sound(config_persistent_mame.disable_sound.unwrap_or(false).into());
-		ui_mame.set_capture_mame_window(config_persistent_mame.capture_mame_window.unwrap_or(true).into());
+		let windowing_mode = config_persistent_mame.windowing_mode.clone().unwrap_or("captured".into());
+		ui_mame.set_windowing_mode(match windowing_mode.as_str() {
+			"captured" | "window" | "fullscreen" => windowing_mode.into(),
+			_ => "captured".into()
+		});
 		if let Some(captured_console_height) = config_persistent_mame.captured_console_height {
 			ui_mame.set_captured_console_height(captured_console_height);
 		}
@@ -3993,13 +3996,12 @@ fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool, new_bootroms: Opt
 				selected_hdimg_paths: selected_hdimg_paths,
 				selected_hdimg_enabled: selected_hdimg_enabled,
 				verbose_mode: Some(ui_mame.get_verbose_mode().into()),
-				windowed_mode: Some(ui_mame.get_windowed_mode().into()),
 				use_drc: Some(ui_mame.get_use_drc().into()),
 				debug_mode: Some(ui_mame.get_debug_mode().into()),
 				validate_build_image: Some(ui_mame.get_validate_build_image().into()),
 				console_input: Some(ui_mame.get_console_input().into()),
 				disable_sound: Some(ui_mame.get_disable_sound().into()),
-				capture_mame_window: Some(ui_mame.get_capture_mame_window().into()),
+				windowing_mode: Some(ui_mame.get_windowing_mode().into()),
 				captured_console_height: Some(ui_mame.get_captured_console_height()),
 				captured_window_width: if ui_mame.get_captured_window_width() > 0.0 { Some(ui_mame.get_captured_window_width()) } else { None },
 				captured_window_height: if ui_mame.get_captured_window_height() > 0.0 { Some(ui_mame.get_captured_window_height()) } else { None },
@@ -5056,8 +5058,8 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 		mame_command.arg("-skip_gameinfo");
 
 		// MAME draws inside the launcher above the console
-		let capture_mame_window = ui_mame.get_capture_mame_window() && ui_mame.get_can_capture_mame_window();
-		if capture_mame_window {
+		let windowing_mode = ui_mame.get_effective_windowing_mode();
+		if windowing_mode == "captured" {
 			ui.set_mame_captured(true);
 
 			match mamecapture::start(&ui) {
@@ -5081,7 +5083,7 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 			}
 		}
 
-		if !ui.get_mame_captured() && ui_mame.get_windowed_mode().into() {
+		if !ui.get_mame_captured() && windowing_mode != "fullscreen" {
 			mame_command.arg("-window");
 			mame_command.arg("-nomaximize");
 		}
