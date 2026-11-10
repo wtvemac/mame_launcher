@@ -230,7 +230,9 @@ export component StartPage inherits Page {
 		) : 0px);
 
 	TitledHorizontalBox {
-		title: @tr("Selected Box");
+		title: @markdown("Selected Box");
+		title-font-size: 16px;
+		padding-bottom: 3px;
 
 		EditableComboBox {
 			use-external-popup: true;
@@ -286,8 +288,10 @@ export component StartPage inherits Page {
 			spacing: 0px;
 
 			TitledHorizontalBox {
-				title: @tr("Selected System Data");
+				title: @markdown("Selected System Data");
 				box-spacing: 5px;
+				title-spacing: 0px;
+				title-font-size: 16px;
 				z: 1;
 
 				bootrom-section := VerticalLayout {
@@ -431,7 +435,8 @@ export component StartPage inherits Page {
 			}
 
 			TitledHorizontalBox {
-				title: (UIMAMEOptions.modem_moip_available) ? @tr("Selected Modem (TouchPPP, SIP or serial port)") : @tr("Selected Modem (TouchPPP or serial port)");
+				title: (UIMAMEOptions.modem_moip_available) ? @markdown("Selected Modem (TouchPPP, SIP or serial port)") : @markdown("Selected Modem (TouchPPP or serial port)");
+				title-font-size: 16px;
 
 				HorizontalLayout {
 					EditableComboBox {
@@ -460,7 +465,9 @@ export component StartPage inherits Page {
 			ports-collapsible := Collapsible {
 				expanded: UIMAMEOptions.selected_box != "msntv2";
 				TitledVerticalBox {
-					title: @tr("Ports and Devices");
+					title: @markdown("Ports and Devices");
+					title-font-size: 16px;
+					padding-bottom: 3px;
 
 					GridLayout {
 						width: 100%;
@@ -621,7 +628,8 @@ export component StartPage inherits Page {
 			}
 
 			TitledVerticalBox {
-				title: @tr("Other Options");
+				title: @markdown("Other Options");
+				title-font-size: 16px;
 	
 				GridLayout {
 					width: 100%;
