@@ -10,6 +10,7 @@ mod netstack;
 mod wtv;
 mod externalpopup;
 mod mamecapture;
+mod debuglink;
 #[cfg(webtv_bridge)]
 mod webtvbridge;
 
@@ -17,7 +18,7 @@ use std::{
 	collections::HashMap, 
 	fs::File,
 	io::{BufReader, Read, Write, Cursor, Seek, SeekFrom}, 
-	path::Path, process::{Command, Stdio},
+	path::{Path, PathBuf}, process::{Command, Stdio},
 	env,
 	process::{ChildStdout, ChildStderr},
 	net::TcpListener,
@@ -169,6 +170,8 @@ const DEFAULT_PARALLEL_SOCKET_ENDPOINT: &'static str = "127.0.0.1:3000";
 const WEBTV_BRIDGE_SOCKET_ENDPOINT: &'static str = "webtv-bridge";
 #[cfg(webtv_bridge)]
 const WEBTV_BRIDGE_STATE_DIR: &'static str = "webtv-bridge";
+// Parallel port socket endpoint value for the launcher's built-in debug link (WebTV's 1997 parallel port debug link).
+const DEBUG_LINK_SOCKET_ENDPOINT: &'static str = "debug-link";
 const SERIAL_PORT_PREFIX: &'static str = "serial.";
 const DEFAULT_SERIAL_PORT_OPTIONS: &'static str = "b115200,cs8";
 const DEBUG_READ_BUFFER_SIZE: usize = 1024;
@@ -2906,6 +2909,13 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 				tooltip: "".into(),
 				value: DEFAULT_PARALLEL_SOCKET_ENDPOINT.into(),
 				icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
+			},
+			HintedItem {
+				display_hint_only: false,
+				hint: "Debug Link (builtin)".into(),
+				tooltip: "Runs WebTV's 1997 parallel port debug link in the launcher.".into(),
+				value: DEBUG_LINK_SOCKET_ENDPOINT.into(),
+				icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
 			}
 		];
 		#[cfg(webtv_bridge)]
@@ -4798,6 +4808,50 @@ fn clear_console_text(ui: &MainWindow) {
 	ui.invoke_console_clear_selection();
 }
 
+// The box's debug console text as the console shows it.
+#[derive(Default)]
+struct DebugConsoleFilter {
+	last_byte: u8
+}
+
+impl DebugConsoleFilter {
+	// The text, and how many chars before it a backspace took back.
+	fn filter(&mut self, bytes: &[u8]) -> (String, usize) {
+		let mut new_bytes: Vec<u8> = vec![];
+		let mut rshift = 0;
+
+		for &b in bytes {
+			match b {
+				0x00..=0x07 | 0x0b..=0x0c | 0x0e..=0x1f | 0x7f..=0xff => { // ignored control characters
+					//
+				},
+				0x08 => { // handle delete key
+					if new_bytes.len() > 0 {
+						new_bytes.pop();
+					} else {
+						rshift += 1;
+					}
+				},
+				0x0a | 0x0d => { // newline
+					// Don't repeat newline chars.
+					if (self.last_byte == 0x0a || self.last_byte == 0x0d) && self.last_byte != b {
+						continue;
+					}
+
+					new_bytes.push(b);
+				},
+				_ => { // all other characters
+					new_bytes.push(b);
+				}
+			};
+
+			self.last_byte = b;
+		}
+
+		(String::from_utf8_lossy(&new_bytes).to_string(), rshift)
+	}
+}
+
 fn output_mame_debug(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx: Receiver<String>) -> Result<(), Box<dyn std::error::Error>> {
 	match TcpListener::bind("127.0.0.1:".to_owned() + &debug_bitb_port.to_string()) {
 		Ok(listener) => {
@@ -4810,7 +4864,7 @@ fn output_mame_debug(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx
 
 						let _ = mame.set_nonblocking(true);
 
-						let mut last_byte: u8 = 0x00;
+						let mut filter = DebugConsoleFilter::default();
 						let mut active_buf = [0; DEBUG_READ_BUFFER_SIZE];
 						let mut waiting_buf: Vec<u8> = vec![];
 						loop {
@@ -4831,39 +4885,10 @@ fn output_mame_debug(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx
 							};
 
 							if waiting_buf.len() > 0 {
-								let mut new_bytes: Vec<u8> = vec![];
-								let mut rshift  = 0;
-
-								waiting_buf.iter().for_each(|b| {
-									match b {
-										0x00..=0x07 | 0x0b..=0x0c | 0x0e..=0x1f | 0x7f..=0xff => { // ignored control characters
-											//
-										},
-										0x08 => { // handle delete key
-											if new_bytes.len() > 0 {
-												new_bytes.pop();
-											} else {
-												rshift += 1;
-											}
-										},
-										0x0a | 0x0d => { // newline
-											// Don't repeat newline chars.
-											if (last_byte == 0x0a || last_byte == 0x0d) && last_byte != *b {
-												return;
-											}
-
-											new_bytes.push(*b);
-										},
-										_ => { // all other characters
-											new_bytes.push(*b);
-										}
-									};
-
-									last_byte = b.clone();
-								});
+								let (text, rshift) = filter.filter(&waiting_buf);
 								waiting_buf.clear();
 
-								let _ = add_console_text(ui_weak.clone(), String::from_utf8_lossy(&new_bytes).to_string(), MAMEConsoleScrollMode::ConditionalScroll, rshift);
+								let _ = add_console_text(ui_weak.clone(), text, MAMEConsoleScrollMode::ConditionalScroll, rshift);
 							}
 
 							match drx.try_recv() {
@@ -4978,7 +5003,7 @@ fn spawn_mame_from_command(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u1
 				let ui_weak_cpy = ui_weak.clone();
 				let _ = ui_weak.clone().upgrade_in_event_loop(move |ui| {
 					let ui_mame = ui.global::<UIMAMEOptions>();
-					if !(ui_mame.get_verbose_mode().into() || ui_mame.get_console_input().into() || ui_mame.get_debug_mode().into()) {
+					if !(ui_mame.get_verbose_mode().into() || ui_mame.get_console_input().into() || ui_mame.get_debug_mode().into() || uses_debug_link(&ui_mame)) {
 						let _ = add_console_text(ui_weak_cpy.clone(), "\n\nMAME is now running...\n\n".into(), MAMEConsoleScrollMode::ForceScroll, 0);
 					}
 				});
@@ -5012,7 +5037,7 @@ fn spawn_mame_from_command(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u1
 			let _ = ui_weak.clone().upgrade_in_event_loop(move |ui| {
 				let ui_mame = ui.global::<UIMAMEOptions>();
 
-				if !(ui_mame.get_verbose_mode().into() || ui_mame.get_console_input().into() || ui_mame.get_debug_mode().into()) {
+				if !(ui_mame.get_verbose_mode().into() || ui_mame.get_console_input().into() || ui_mame.get_debug_mode().into() || uses_debug_link(&ui_mame)) {
 					let console_enabled = ui.get_mame_console_enabled();
 					if console_enabled {
 						ui.set_mame_console_enabled(false);
@@ -5163,9 +5188,21 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 		// Services that run alongside MAME and stop when it ends.
 		let mut mame_services: Vec<Box<dyn Send>> = vec![];
 
+		// The debug link brings its own console (the parallel port's), so the Console Input options don't apply.
+		let mut debug_link_active = false;
 		if use_parallel && selected_parallel_option == "socket" {
 			let selected_parallel_socket_endpoint = ui_mame.get_selected_parallel_socket_endpoint().to_string();
 			match added_bitbangers.get(&(":".to_owned() + PARALLEL_SLOT_NAME)).and_then(|brief_names| brief_names.first()) {
+				Some(brief_name) if selected_parallel_socket_endpoint == DEBUG_LINK_SOCKET_ENDPOINT => {
+					match start_debug_link(ui_weak.clone(), drx.clone()) {
+						Ok((port, link)) => {
+							mame_command.arg("-".to_owned() + brief_name).arg("socket.127.0.0.1:".to_owned() + &port.to_string());
+							mame_services.push(link);
+							debug_link_active = true;
+						},
+						Err(message) => console_warning(&message)
+					}
+				},
 				Some(brief_name) if selected_parallel_socket_endpoint == WEBTV_BRIDGE_SOCKET_ENDPOINT => {
 					match start_webtv_bridge(ui_weak.clone()) {
 						Ok((port, bridge)) => {
@@ -5269,7 +5306,7 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 		mame_command.args(split_custom_options(&ui_mame.get_custom_options()));
 
 		let mut debug_bitb_port= 0;
-		if ui_mame.get_console_input().into() {
+		if ui_mame.get_console_input().into() && !debug_link_active {
 			let found_debug_bitb = match Regex::new(r"^(?<slot_select>[^; ]+?)\; (?<bitb_select>.+?)$").unwrap().captures(ui_mame.get_selected_debug_bitb_startpoint().as_str()) {
 				Some(matches) => {
 					//mame_command.arg("-".to_owned() + &matches["slot_select"]).arg("null_modem");
@@ -5376,6 +5413,214 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 	}
 
 	Ok(())
+}
+
+// Whether MAME runs (or will run) with the debug link on the parallel port.
+fn uses_debug_link(ui_mame: &UIMAMEOptions<'_>) -> bool {
+	ui_mame.get_can_use_parallel() && ui_mame.get_enable_parallel()
+		&& ui_mame.get_selected_parallel_option() == "socket"
+		&& ui_mame.get_selected_parallel_socket_endpoint() == DEBUG_LINK_SOCKET_ENDPOINT
+}
+
+// The running debug link, for MAME's services. Stopping it gives the console its keys back.
+struct DebugLinkService {
+	_link: debuglink::DebugLink,
+	ui_weak: slint::Weak<MainWindow>
+}
+
+impl Drop for DebugLinkService {
+	fn drop(&mut self) {
+		let _ = self.ui_weak.upgrade_in_event_loop(|ui| {
+			ui.set_using_mame_debug(false);
+			ui.set_link_transfer_active(false);
+		});
+	}
+}
+
+// Where the debug link's file dialogs open: the last place one was used.
+static DEBUG_LINK_LOCATION: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+fn debug_link_location(ui: &MainWindow) -> String {
+	match DEBUG_LINK_LOCATION.lock().ok().and_then(|location| location.clone()) {
+		Some(location) => get_choose_file_location(location.to_string_lossy().to_string()),
+		None => get_choose_file_location(ui.global::<UIPaths>().get_last_opened_rom_path().into())
+	}
+}
+
+fn remember_debug_link_location(path: &Path) {
+	if let (Ok(mut location), Some(parent)) = (DEBUG_LINK_LOCATION.lock(), path.parent()) {
+		*location = Some(parent.to_path_buf());
+	}
+}
+
+fn set_link_transfer(ui: &MainWindow, title: &str, detail: &str, can_choose: bool, can_cancel: bool) {
+	ui.set_link_transfer_active(true);
+	ui.set_link_transfer_title(title.into());
+	ui.set_link_transfer_detail(detail.into());
+	ui.set_link_transfer_progress(0.0);
+	ui.set_link_transfer_indeterminate(false);
+	ui.set_link_transfer_can_choose(can_choose);
+	ui.set_link_transfer_can_cancel(can_cancel);
+}
+
+fn format_bytes(bytes: u64) -> String {
+	if bytes >= 1024 * 1024 {
+		format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+	} else if bytes >= 1024 {
+		format!("{:.1} KB", bytes as f64 / 1024.0)
+	} else {
+		format!("{} bytes", bytes)
+	}
+}
+
+// Asks for the file the box waits for and sends it to the debug link. The box keeps waiting if none is picked.
+fn choose_debug_link_download(ui_weak: slint::Weak<MainWindow>) {
+	let ui = ui_weak.unwrap();
+	let chooser = DialogBuilder::file()
+		.set_title("Choose the file to download to the box")
+		.set_location(&debug_link_location(&ui))
+		.set_filename("");
+
+	match chooser.open_single_file().show().unwrap_or(None) {
+		Some(path) => {
+			remember_debug_link_location(&path);
+			let name = path.file_name().map(|name| name.to_string_lossy().to_string()).unwrap_or("download".into());
+			ui.set_link_transfer_title(("Sending ".to_owned() + &name + " to the box").into());
+			ui.set_link_transfer_detail("Reading the file...".into());
+			ui.set_link_transfer_can_choose(false);
+
+			let ui_weak = ui_weak.clone();
+			let _ = std::thread::spawn(move || {
+				match fs::read(&path) {
+					Ok(data) => {
+						if !debuglink::send_command(debuglink::LinkCommand::Download { name, data }) {
+							let _ = add_console_text(ui_weak, "WARNING: The debug link isn't running, so the file wasn't sent.\n".into(), MAMEConsoleScrollMode::ForceScroll, 0);
+						}
+					},
+					Err(e) => {
+						let message = "WARNING: Couldn't read ".to_owned() + &path.to_string_lossy() + ": " + &e.to_string() + "\n";
+						let _ = add_console_text(ui_weak.clone(), message, MAMEConsoleScrollMode::ForceScroll, 0);
+						let _ = ui_weak.upgrade_in_event_loop(|ui| {
+							ui.set_link_transfer_detail("Couldn't read that file. Choose another one.".into());
+							ui.set_link_transfer_can_choose(true);
+						});
+					}
+				}
+			});
+		},
+		None => {
+			ui.set_link_transfer_detail("No file chosen yet. The box waits until one is.".into());
+			ui.set_link_transfer_can_choose(true);
+		}
+	}
+}
+
+// Asks where the box's upload goes. Cancelling discards it.
+fn choose_debug_link_upload_destination(ui_weak: slint::Weak<MainWindow>, name: String) {
+	let ui = ui_weak.unwrap();
+	let chooser = DialogBuilder::file()
+		.set_title("Save the box's upload")
+		.set_location(&debug_link_location(&ui))
+		.set_filename(&name);
+
+	let destination = chooser.save_single_file().show().unwrap_or(None);
+	if let Some(path) = destination.as_ref() {
+		remember_debug_link_location(path);
+		if ui.get_link_transfer_active() {
+			ui.set_link_transfer_title(("Receiving ".to_owned() + &name + " from the box").into());
+		}
+	}
+	debuglink::send_command(debuglink::LinkCommand::UploadDestination(destination));
+}
+
+fn handle_debug_link_event(ui_weak: &slint::Weak<MainWindow>, filter: &Mutex<DebugConsoleFilter>, event: debuglink::LinkEvent) {
+	use debuglink::LinkEvent;
+
+	match event {
+		LinkEvent::Log(line) => {
+			let _ = add_console_text(ui_weak.clone(), line + "\n", MAMEConsoleScrollMode::ConditionalScroll, 0);
+		},
+		LinkEvent::Console(bytes) => {
+			if let Ok(mut filter) = filter.lock() {
+				let (text, rshift) = filter.filter(&bytes);
+				let _ = add_console_text(ui_weak.clone(), text, MAMEConsoleScrollMode::ConditionalScroll, rshift);
+			}
+		},
+		LinkEvent::Connected => {},
+		LinkEvent::Disconnected => {
+			let _ = ui_weak.upgrade_in_event_loop(|ui| ui.set_link_transfer_active(false));
+		},
+		LinkEvent::DownloadRequested { request } => {
+			let ui_weak_cpy = ui_weak.clone();
+			let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+				let title = "The box is waiting for a download (".to_owned() + debuglink::request_name(request) + ")";
+				set_link_transfer(&ui, &title, "Choose the file to send.", false, false);
+				choose_debug_link_download(ui_weak_cpy);
+			});
+		},
+		LinkEvent::DownloadStarted { name, total } => {
+			let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+				let title = "Downloading ".to_owned() + &name + " to the box";
+				set_link_transfer(&ui, &title, &("0 of ".to_owned() + &format_bytes(total)), false, false);
+			});
+		},
+		LinkEvent::UploadStarted => {
+			let _ = ui_weak.upgrade_in_event_loop(|ui| {
+				set_link_transfer(&ui, "Receiving an upload from the box", "Waiting for its name...", false, true);
+				ui.set_link_transfer_indeterminate(true);
+			});
+		},
+		LinkEvent::UploadNamed { name } => {
+			let ui_weak_cpy = ui_weak.clone();
+			let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+				ui.set_link_transfer_title(("Receiving ".to_owned() + &name + " from the box").into());
+				choose_debug_link_upload_destination(ui_weak_cpy, name);
+			});
+		},
+		LinkEvent::Progress { done, total } => {
+			let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+				if !ui.get_link_transfer_active() {
+					return;
+				}
+				match total {
+					Some(total) if total > 0 => {
+						ui.set_link_transfer_indeterminate(false);
+						ui.set_link_transfer_progress((done as f64 / total as f64).min(1.0) as f32);
+						ui.set_link_transfer_detail((format_bytes(done) + " of " + &format_bytes(total)).into());
+					},
+					_ => {
+						ui.set_link_transfer_indeterminate(total.is_none());
+						ui.set_link_transfer_detail(format_bytes(done).into());
+					}
+				}
+			});
+		},
+		LinkEvent::TransferFinished { message } => {
+			let _ = add_console_text(ui_weak.clone(), " \n".to_owned() + &message + "\n", MAMEConsoleScrollMode::ForceScroll, 0);
+			let _ = ui_weak.upgrade_in_event_loop(|ui| ui.set_link_transfer_active(false));
+		}
+	}
+}
+
+// Starts the built-in debug link for the parallel port socket: the port MAME connects to, and the link (stops when dropped).
+// It takes the console's keys while MAME runs.
+fn start_debug_link(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result<(u16, Box<dyn Send>), String> {
+	let filter = Mutex::new(DebugConsoleFilter::default());
+	let events_ui_weak = ui_weak.clone();
+	let events: debuglink::EventFn = std::sync::Arc::new(move |event| handle_debug_link_event(&events_ui_weak, &filter, event));
+
+	match debuglink::DebugLink::start(events, drx) {
+		Ok(link) => {
+			let port = link.port();
+			if let Some(ui) = ui_weak.upgrade() {
+				ui.set_using_mame_debug(true);
+				ui.set_link_transfer_active(false);
+			}
+			let _ = add_console_text(ui_weak.clone(), " \nDebug Link started for the parallel port (127.0.0.1:".to_owned() + &port.to_string() + ")\n", MAMEConsoleScrollMode::ForceScroll, 0);
+			Ok((port, Box::new(DebugLinkService { _link: link, ui_weak })))
+		},
+		Err(error) => Err("Couldn't start the Debug Link (".to_owned() + &error.to_string() + "). The parallel port socket won't connect.")
+	}
 }
 
 // Starts the built-in WebTV Bridge for the parallel port socket: the port MAME connects to, and the bridge (stops when dropped).
@@ -6104,6 +6349,15 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 	ui.set_mame_console_lines(slint::ModelRc::new(ConsoleLines::default()));
 
 	ui_weak = ui.as_weak();
+	let link_ui_weak = ui.as_weak();
+	ui.on_link_transfer_choose(move || {
+		choose_debug_link_download(link_ui_weak.clone());
+	});
+
+	ui.on_link_transfer_cancel(move || {
+		debuglink::send_command(debuglink::LinkCommand::CancelUpload);
+	});
+
 	ui.on_copy_console_range(move |start_row, start_col, end_row, end_col| {
 		let ui = ui_weak.unwrap();
 		let lines = ui.get_mame_console_lines();
