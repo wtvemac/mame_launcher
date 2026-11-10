@@ -2616,6 +2616,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 	// wtvmame FART API options
 	let mame_supports_wtvpointer = LauncherConfig::mame_supports_option(&mame_path, "wtvpointer");
 	let mame_supports_wtvnet = LauncherConfig::mame_supports_option(&mame_path, "wtvnet");
+	let mame_supports_sm_record = LauncherConfig::mame_supports_option(&mame_path, "sm_record");
 	let audio_in_devices = get_audio_in_devices(audio_in_sound_module.as_deref().unwrap_or(""));
 	let video_in_devices = get_video_in_devices();
 
@@ -2828,6 +2829,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		ui_mame.set_mame_supports_parent_window(mame_supports_parent_window);
 		ui_mame.set_mame_supports_wtvpointer(mame_supports_wtvpointer);
 		ui_mame.set_mame_supports_wtvnet(mame_supports_wtvnet);
+		ui_mame.set_mame_supports_sm_record(mame_supports_sm_record);
 		ui_mame.set_audio_in_sound_module(audio_in_sound_module.clone().unwrap_or("".into()).into());
 		let mut selectable_audio_in_endpoints: Vec<HintedItem> = vec![
 			HintedItem {
@@ -2943,6 +2945,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		ui_mame.set_captured_window_width(config_persistent_mame.captured_window_width.unwrap_or(0.0));
 		ui_mame.set_captured_window_height(config_persistent_mame.captured_window_height.unwrap_or(0.0));
 		ui_mame.set_use_decoupled_sound(config_persistent_mame.use_decoupled_sound.unwrap_or(false).into());
+		ui_mame.set_softmodem_record(config_persistent_mame.softmodem_record.unwrap_or(false).into());
 		ui_mame.set_enable_wtvpointer(config_persistent_mame.enable_wtvpointer.unwrap_or(true).into());
 		ui_mame.set_enable_wtvnet(config_persistent_mame.enable_wtvnet.unwrap_or(true).into());
 		ui_mame.set_enable_lirc(config_persistent_mame.enable_lirc.unwrap_or(false).into());
@@ -4006,6 +4009,7 @@ fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool, new_bootroms: Opt
 				captured_window_width: if ui_mame.get_captured_window_width() > 0.0 { Some(ui_mame.get_captured_window_width()) } else { None },
 				captured_window_height: if ui_mame.get_captured_window_height() > 0.0 { Some(ui_mame.get_captured_window_height()) } else { None },
 				use_decoupled_sound: Some(ui_mame.get_use_decoupled_sound().into()),
+				softmodem_record: Some(ui_mame.get_softmodem_record().into()),
 				enable_wtvpointer: Some(ui_mame.get_enable_wtvpointer().into()),
 				enable_wtvnet: Some(ui_mame.get_enable_wtvnet().into()),
 				enable_lirc: Some(ui_mame.get_enable_lirc().into()),
@@ -5247,6 +5251,10 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 			} else {
 				console_warning("This MAME doesn't support decoupled sound. Using the default audio timer.");
 			}
+		}
+
+		if ui_mame.get_can_use_softmodem_record() && ui_mame.get_softmodem_record() {
+			mame_command.arg("-sm_record");
 		}
 
 		let bitbanger_for_slot = |slot_select: &str, bitb_select: &str| -> String {

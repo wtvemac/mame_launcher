@@ -224,6 +224,9 @@ export global UIMAMEOptions {
 	in-out property<length> captured_window_height: 0px;
 	in-out property<bool> use_decoupled_sound: false;
 	out property<bool> can_use_decoupled_sound: (selected_box == "msntv2");
+	in-out property<bool> softmodem_record: false;
+	in-out property<bool> mame_supports_sm_record: false;
+	out property<bool> can_use_softmodem_record: (mame_supports_sm_record && modem_moip_available);
 	in-out property<bool> can_use_lirc: (selected_lirc_startpoint != "");
 	in-out property<bool> enable_lirc: false;
 
@@ -705,6 +708,12 @@ export component StartPage inherits Page {
 							width: 50%;
 							spacing: 0px;
 							padding-right: 10px;
+							Switch {
+								text: @tr("Verbose Mode");
+								width: 180px;
+								height: 28px;
+								checked <=> UIMAMEOptions.verbose_mode;
+							}
 						}
 					}
 					Row {
@@ -722,12 +731,20 @@ export component StartPage inherits Page {
 						HorizontalLayout {
 							width: 50%;
 							spacing: 0px;
-							padding-right: 10px;
 							Switch {
-								text: @tr("Verbose Mode");
+								text: @tr("Console Input");
 								width: 180px;
 								height: 28px;
-								checked <=> UIMAMEOptions.verbose_mode;
+								checked <=> UIMAMEOptions.console_input;
+							}
+							EditableComboBox {
+								visible: UIMAMEOptions.console_input && UIMAMEOptions.selectable_debug_bitb_startpoints.length > 0;
+								enabled: UIMAMEOptions.console_input && UIMAMEOptions.selectable_debug_bitb_startpoints.length > 0;
+								height: 33px;
+								editable: true;
+								hintedmodel: UIMAMEOptions.selectable_debug_bitb_endpoints;
+								current-value <=> UIMAMEOptions.selected_debug_bitb_endpoint;
+						
 							}
 						}
 					}
@@ -747,19 +764,20 @@ export component StartPage inherits Page {
 						HorizontalLayout {
 							width: 50%;
 							spacing: 0px;
+							padding-right: 10px;
 							Switch {
-								text: @tr("Console Input");
+								text: @tr("Debug Mode");
 								width: 180px;
 								height: 28px;
-								checked <=> UIMAMEOptions.console_input;
+								checked <=> UIMAMEOptions.debug_mode;
 							}
 							EditableComboBox {
-								visible: UIMAMEOptions.console_input && UIMAMEOptions.selectable_debug_bitb_startpoints.length > 0;
-								enabled: UIMAMEOptions.console_input && UIMAMEOptions.selectable_debug_bitb_startpoints.length > 0;
+								visible: UIMAMEOptions.console_input && UIMAMEOptions.selectable_debug_bitb_startpoints.length > 1;
+								enabled: UIMAMEOptions.console_input && UIMAMEOptions.selectable_debug_bitb_startpoints.length > 1;
 								height: 33px;
-								editable: true;
-								hintedmodel: UIMAMEOptions.selectable_debug_bitb_endpoints;
-								current-value <=> UIMAMEOptions.selected_debug_bitb_endpoint;
+								editable: false;
+								hintedmodel: UIMAMEOptions.selectable_debug_bitb_startpoints;
+								current-value <=> UIMAMEOptions.selected_debug_bitb_startpoint;
 						
 							}
 						}
@@ -791,19 +809,11 @@ export component StartPage inherits Page {
 							spacing: 0px;
 							padding-right: 10px;
 							Switch {
-								text: @tr("Debug Mode");
+								text: @tr("Softmodem Record");
 								width: 180px;
 								height: 28px;
-								checked <=> UIMAMEOptions.debug_mode;
-							}
-							EditableComboBox {
-								visible: UIMAMEOptions.console_input && UIMAMEOptions.selectable_debug_bitb_startpoints.length > 1;
-								enabled: UIMAMEOptions.console_input && UIMAMEOptions.selectable_debug_bitb_startpoints.length > 1;
-								height: 33px;
-								editable: false;
-								hintedmodel: UIMAMEOptions.selectable_debug_bitb_startpoints;
-								current-value <=> UIMAMEOptions.selected_debug_bitb_startpoint;
-						
+								enabled: UIMAMEOptions.can_use_softmodem_record;
+								checked <=> UIMAMEOptions.softmodem_record;
 							}
 						}
 					}
