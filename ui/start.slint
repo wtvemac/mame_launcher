@@ -290,7 +290,7 @@ export component StartPage inherits Page {
 			TitledHorizontalBox {
 				title: @markdown("Selected System Data");
 				box-spacing: 5px;
-				title-spacing: 0px;
+				title-spacing: (UIMAMEOptions.can_use_wtvpointer || UIMAMEOptions.can_use_wtvnet) ? 0px : 5px;
 				title-font-size: 16px;
 				z: 1;
 
