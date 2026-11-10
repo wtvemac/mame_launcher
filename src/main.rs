@@ -12,6 +12,8 @@ mod externalpopup;
 mod mamecapture;
 mod debuglink;
 mod pekoe2;
+#[cfg(all(unix, not(target_os = "macos")))]
+mod desktopentry;
 #[cfg(webtv_bridge)]
 mod webtvbridge;
 
@@ -6177,6 +6179,10 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 	let _ = slint::BackendSelector::new()
 		.with_winit_window_attributes_hook(externalpopup::window_attributes_hook)
 		.select();
+
+	// Linux app icon support (via .desktop file)
+	#[cfg(all(unix, not(target_os = "macos")))]
+	desktopentry::setup();
 
 	let ui = MainWindow::new().unwrap();
 
