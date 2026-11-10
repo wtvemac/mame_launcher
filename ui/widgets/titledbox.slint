@@ -1,14 +1,15 @@
 // By: Eric MacDonald (eMac)
 
 import { 
-	HorizontalBox
+	HorizontalBox,
+	Palette
 } from "std-widgets.slint";
 
 export component TitledVerticalBox inherits VerticalLayout {
-	in property<string> title: "title";
+	in property<styled-text> title: @markdown("title");
 	in property<length> title-spacing: 5px;
 	in property<length> title-font-size: 14px;
-	in property<int> title-font-weight: 700;
+	in property<brush> title-color: Palette.foreground;
 	in property<length> box-indent: 5px;
 	in property<length> box-spacing: 0px;
 
@@ -16,10 +17,10 @@ export component TitledVerticalBox inherits VerticalLayout {
 	spacing: root.title-spacing;
 	padding-bottom: 10px;
 
-	Text {
+	StyledText {
 		text: root.title;
-		font-size: root.title-font-size;
-		font-weight: root.title-font-weight;
+		default-font-size: root.title-font-size;
+		default-color: root.title-color;
 	}
 	VerticalLayout {
 		vertical-stretch: 0;
@@ -32,10 +33,11 @@ export component TitledVerticalBox inherits VerticalLayout {
 }
 
 export component TitledHorizontalBox inherits VerticalLayout {
-	in property<string> title: "title";
+	in property<styled-text> title: @markdown("title");
 	in property<length> title-spacing: 5px;
 	in property<length> title-font-size: 14px;
 	in property<int> title-font-weight: 700;
+	in property<brush> title-color: Palette.foreground;
 	in property<length> box-indent: 5px;
 	in property<length> box-spacing: 0px;
 
@@ -43,10 +45,10 @@ export component TitledHorizontalBox inherits VerticalLayout {
 	spacing: root.title-spacing;
 	padding-bottom: 10px;
 
-	Text {
-		text: root.title;
-		font-size: root.title-font-size;
-		font-weight: root.title-font-weight;
+	StyledText {
+		text: @markdown("\{root.title}");
+		default-font-size: root.title-font-size;
+		default-color: root.title-color;
 	}
 	HorizontalBox {
 		vertical-stretch: 0;
