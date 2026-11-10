@@ -5499,6 +5499,13 @@ fn end_mame(ui_weak: slint::Weak<MainWindow>) {
 			});
 
 		});
+	} else {
+		let _ = ui_weak.clone().upgrade_in_event_loop(move |ui| {
+			if ui.get_mame_console_enabled() {
+				ui.set_mame_console_enabled(false);
+				clear_console_text(&ui);
+			}
+		});
 	}
 }
 
