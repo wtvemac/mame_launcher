@@ -11,6 +11,7 @@ mod wtv;
 mod externalpopup;
 mod mamecapture;
 mod debuglink;
+mod pekoe2;
 #[cfg(webtv_bridge)]
 mod webtvbridge;
 
@@ -172,6 +173,7 @@ const WEBTV_BRIDGE_SOCKET_ENDPOINT: &'static str = "webtv-bridge";
 const WEBTV_BRIDGE_STATE_DIR: &'static str = "webtv-bridge";
 // Parallel port socket endpoint value for the launcher's built-in debug link (WebTV's 1997 parallel port debug link).
 const DEBUG_LINK_SOCKET_ENDPOINT: &'static str = "debug-link";
+const PEKOE2_WTVPORT_OPTION: &'static str = "pekoe2";
 const SERIAL_PORT_PREFIX: &'static str = "serial.";
 const DEFAULT_SERIAL_PORT_OPTIONS: &'static str = "b115200,cs8";
 const DEBUG_READ_BUFFER_SIZE: usize = 1024;
@@ -4852,15 +4854,18 @@ impl DebugConsoleFilter {
 	}
 }
 
-fn output_mame_debug(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx: Receiver<String>) -> Result<(), Box<dyn std::error::Error>> {
+fn output_mame_debug(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx: Option<Receiver<String>>) -> Result<(), Box<dyn std::error::Error>> {
 	match TcpListener::bind("127.0.0.1:".to_owned() + &debug_bitb_port.to_string()) {
 		Ok(listener) => {
 			let _ = std::thread::spawn(move || {
 				match listener.accept() {
 					Ok((mut mame, _)) => {
-						let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-							ui.set_using_mame_debug(true);
-						});
+						let takes_keys = drx.is_some();
+						if takes_keys {
+							let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+								ui.set_using_mame_debug(true);
+							});
+						}
 
 						let _ = mame.set_nonblocking(true);
 
@@ -4888,11 +4893,12 @@ fn output_mame_debug(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx
 								let (text, rshift) = filter.filter(&waiting_buf);
 								waiting_buf.clear();
 
+								pekoe2::console_text(&text);
 								let _ = add_console_text(ui_weak.clone(), text, MAMEConsoleScrollMode::ConditionalScroll, rshift);
 							}
 
-							match drx.try_recv() {
-								Ok(received) => {
+							match drx.as_ref().map(|drx| drx.try_recv()) {
+								Some(Ok(received)) => {
 									let bytes = received.as_bytes();
 									if bytes.len() == 1 && bytes[0] == 0x0a {
 										// send 0x0d instead of 0x0a for enter because the WebTV OS responds to that better.
@@ -4905,9 +4911,11 @@ fn output_mame_debug(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx
 							};
 						}
 
-						let _ = ui_weak.upgrade_in_event_loop(move |ui| {
-							ui.set_using_mame_debug(false);
-						});
+						if takes_keys {
+							let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+								ui.set_using_mame_debug(false);
+							});
+						}
 					},
 					Err(e) => {
 						let _ = add_console_text(ui_weak.clone(), ("ERROR: Couldn't accept debug console client!\n".to_owned() + &e.to_string()).into(), MAMEConsoleScrollMode::ForceScroll, 0);
@@ -4993,7 +5001,7 @@ fn spawn_mame_from_command(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u1
 		mame_command.stdout(Stdio::piped());
 
 		if debug_bitb_port > 0 {
-			let _ = output_mame_debug(ui_weak.clone(), debug_bitb_port, drx);
+			let _ = output_mame_debug(ui_weak.clone(), debug_bitb_port, Some(drx));
 		}
 
 		let process_has_error = match mame_command.spawn() {
@@ -5359,6 +5367,37 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 			}
 		}
 
+		// Special Pekoe2 device that gets attached to the WebTV Port. There's a UART, parallel port for download receieve and a PCMIA card (no idea how PCMIA works on there)
+		// The parallel port ins't controlled like a full host-side parallel port. It's essentially just used to recieve builds and is a bitb stream device in wtvmame
+		if ui_mame.get_can_use_wtvport() && ui_mame.get_enable_wtvport() && ui_mame.get_selected_wtvport_option() == PEKOE2_WTVPORT_OPTION {
+			match added_bitbangers.get(&(":".to_owned() + WTVPORT_SLOT_NAME)) {
+				Some(brief_names) if brief_names.len() >= 2 => {
+					match portpicker::pick_unused_port() {
+						Some(port) => {
+							let keys = if !debug_link_active && debug_bitb_port == 0 {
+								Some(drx.clone())
+							} else {
+								None
+							};
+
+							let _ = output_mame_debug(ui_weak.clone(), port, keys);
+
+							mame_command.arg("-".to_owned() + &brief_names[0]).arg("socket.127.0.0.1:".to_owned() + &port.to_string());
+						},
+						None => console_warning("Couldn't find an available TCP port for the Pekoe2 UART!")
+					}
+					match start_pekoe2(ui_weak.clone()) {
+						Ok((port, link)) => {
+							mame_command.arg("-".to_owned() + &brief_names[1]).arg("socket.127.0.0.1:".to_owned() + &port.to_string());
+							mame_services.push(link);
+						},
+						Err(message) => console_warning(&message)
+					}
+				},
+				_ => console_warning("MAME didn't give me any Pekoe2 serial and parallel bitb ports!")
+			}
+		}
+
 		// Boxes with a MoIP bridge use -moip for sip: modem endpoints and -bitb for ever other modem endpoint.
 		let selected_modem_moip_startpoint: String = ui_mame.get_selected_modem_moip_startpoint().to_string();
 		let selected_modem_bitb_startpoint: String = ui_mame.get_selected_modem_bitb_startpoint().to_string();
@@ -5437,6 +5476,14 @@ impl Drop for DebugLinkService {
 	}
 }
 
+#[derive(Clone, Copy)]
+enum DownloadTarget {
+	DebugLink,
+	Pekoe2
+}
+
+static DOWNLOAD_TARGET: Mutex<DownloadTarget> = Mutex::new(DownloadTarget::DebugLink);
+
 // Where the debug link's file dialogs open: the last place one was used.
 static DEBUG_LINK_LOCATION: Mutex<Option<PathBuf>> = Mutex::new(None);
 
@@ -5490,11 +5537,26 @@ fn choose_debug_link_download(ui_weak: slint::Weak<MainWindow>) {
 			ui.set_link_transfer_can_choose(false);
 
 			let ui_weak = ui_weak.clone();
+			let target = DOWNLOAD_TARGET.lock().map(|target| *target).unwrap_or(DownloadTarget::DebugLink);
 			let _ = std::thread::spawn(move || {
 				match fs::read(&path) {
+					Ok(data) if data.is_empty() => {
+						let message = "WARNING: ".to_owned() + &path.to_string_lossy() + " is empty!\n";
+						let _ = add_console_text(ui_weak.clone(), message, MAMEConsoleScrollMode::ForceScroll, 0);
+
+						let _ = ui_weak.upgrade_in_event_loop(|ui| {
+							ui.set_link_transfer_detail("That file is empty. Choose another one.".into());
+							ui.set_link_transfer_can_choose(true);
+						});
+					},
 					Ok(data) => {
-						if !debuglink::send_command(debuglink::LinkCommand::Download { name, data }) {
-							let _ = add_console_text(ui_weak, "WARNING: The debug link isn't running, so the file wasn't sent.\n".into(), MAMEConsoleScrollMode::ForceScroll, 0);
+						let sent = match target {
+							DownloadTarget::DebugLink => debuglink::send_command(debuglink::LinkCommand::Download { name, data }),
+							DownloadTarget::Pekoe2 => pekoe2::send_command(pekoe2::Pekoe2Command::Download { name, data })
+						};
+
+						if !sent {
+							let _ = add_console_text(ui_weak, "WARNING: The download path isn't running (Pekoe2 or debug-link)\n".into(), MAMEConsoleScrollMode::ForceScroll, 0);
 						}
 					},
 					Err(e) => {
@@ -5541,8 +5603,9 @@ fn handle_debug_link_event(ui_weak: &slint::Weak<MainWindow>, filter: &Mutex<Deb
 			let _ = add_console_text(ui_weak.clone(), line + "\n", MAMEConsoleScrollMode::ConditionalScroll, 0);
 		},
 		LinkEvent::Console(bytes) => {
-			if let Ok(mut filter) = filter.lock() {
-				let (text, rshift) = filter.filter(&bytes);
+			let filtered = filter.lock().ok().map(|mut filter| filter.filter(&bytes));
+			if let Some((text, rshift)) = filtered {
+				pekoe2::console_text(&text);
 				let _ = add_console_text(ui_weak.clone(), text, MAMEConsoleScrollMode::ConditionalScroll, rshift);
 			}
 		},
@@ -5551,6 +5614,14 @@ fn handle_debug_link_event(ui_weak: &slint::Weak<MainWindow>, filter: &Mutex<Deb
 			let _ = ui_weak.upgrade_in_event_loop(|ui| ui.set_link_transfer_active(false));
 		},
 		LinkEvent::DownloadRequested { request } => {
+			if let Ok(mut target) = DOWNLOAD_TARGET.lock() {
+				*target = if request == debuglink::REQ_PEKOE2 {
+					DownloadTarget::Pekoe2
+				} else {
+					DownloadTarget::DebugLink
+				};
+			}
+
 			let ui_weak_cpy = ui_weak.clone();
 			let _ = ui_weak.upgrade_in_event_loop(move |ui| {
 				let title = "The box is waiting for a download (".to_owned() + debuglink::request_name(request) + ")";
@@ -5620,6 +5691,28 @@ fn start_debug_link(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> 
 			Ok((port, Box::new(DebugLinkService { _link: link, ui_weak })))
 		},
 		Err(error) => Err("Couldn't start the Debug Link (".to_owned() + &error.to_string() + "). The parallel port socket won't connect.")
+	}
+}
+
+struct Pekoe2Service {
+	_link: pekoe2::Pekoe2Link,
+	ui_weak: slint::Weak<MainWindow>
+}
+
+impl Drop for Pekoe2Service {
+	fn drop(&mut self) {
+		let _ = self.ui_weak.upgrade_in_event_loop(|ui| ui.set_link_transfer_active(false));
+	}
+}
+
+fn start_pekoe2(ui_weak: slint::Weak<MainWindow>) -> Result<(u16, Box<dyn Send>), String> {
+	let filter = Mutex::new(DebugConsoleFilter::default());
+	let events_ui_weak = ui_weak.clone();
+	let events: debuglink::EventFn = std::sync::Arc::new(move |event| handle_debug_link_event(&events_ui_weak, &filter, event));
+
+	match pekoe2::Pekoe2Link::start(events) {
+		Ok(link) => Ok((link.port(), Box::new(Pekoe2Service { _link: link, ui_weak }))),
+		Err(error) => Err("Couldn't start the Pekoe2's parallel port (".to_owned() + &error.to_string() + "). Downloads won't work")
 	}
 }
 

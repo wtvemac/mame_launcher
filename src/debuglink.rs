@@ -83,6 +83,7 @@ const REQ_DOWNLOAD_ID: u8 = 0x83;
 const REQ_DOWNLOAD_T3: u8 = 0x85;
 const REQ_UPLOAD: u8 = 0x88;
 const REQUESTS: [u8; 4] = [REQ_DOWNLOAD, REQ_DOWNLOAD_ID, REQ_DOWNLOAD_T3, REQ_UPLOAD];
+pub const REQ_PEKOE2: u8 = 0x00;
 
 // Download: type byte (ignored by the box), big-endian 32-bit length, data
 const DOWNLOAD_TYPE: u8 = 0x00;
@@ -156,6 +157,7 @@ pub fn request_name(request: u8) -> &'static str {
 		REQ_DOWNLOAD_ID => "dde id",
 		REQ_DOWNLOAD_T3 => "dde t3",
 		REQ_UPLOAD => "ud/udr",
+		REQ_PEKOE2 => "dd over the Pekoe2 parallel port",
 		_ => "unknown"
 	}
 }
