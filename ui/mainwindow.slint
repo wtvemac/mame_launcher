@@ -618,7 +618,11 @@ export component MainWindow inherits Window {
 						height: mame-console.visible-height;
 						mouse-cursor: text;
 						scroll-event(event) => {
-							if(event.modifiers.shift && event.delta-x == 0 && event.delta-y != 0) {
+							if(self.pressed && (event.delta-y != 0 || event.delta-x != 0)) {
+								mame-console.content-y = max(min(0px, mame-console.visible-height - mame-console.content-height), min(0px, mame-console.content-y + ((event.delta-y != 0) ? event.delta-y : event.delta-x)));
+								root.console-following = false;
+								return accept;
+							} else if(event.modifiers.shift && event.delta-x == 0 && event.delta-y != 0) {
 								mame-console.content-y = max(min(0px, mame-console.visible-height - mame-console.content-height), min(0px, mame-console.content-y + event.delta-y));
 								root.console-user-scrolled();
 								return accept;
