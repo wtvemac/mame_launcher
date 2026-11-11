@@ -7,7 +7,8 @@ import {
 	VerticalBox,
 	ListView,
 	Spinner,
-	Button
+	Button,
+	LineEdit
 } from "std-widgets.slint";
 import {
 	StartPage, UIMAMEOptions,
@@ -193,6 +194,8 @@ export component MainWindow inherits Window {
 	in-out property<bool> link-transfer-indeterminate: false;
 	in-out property<bool> link-transfer-can-choose: false;
 	in-out property<bool> link-transfer-can-cancel: false;
+	in-out property<bool> link-transfer-needs-address: false;
+	in-out property<string> link-transfer-address: "";
 	property<length> link-strip-height: 48px;
 
 	in-out property<bool> console-following: true;
@@ -284,6 +287,7 @@ export component MainWindow inherits Window {
 	callback close-mame();
 	callback link-transfer-choose();
 	callback link-transfer-cancel();
+	callback link-transfer-send-address(string);
 	callback do-fart();
 
 	status-message := VerticalLayout {
@@ -721,6 +725,21 @@ export component MainWindow inherits Window {
 								font-size: 11px;
 								vertical-alignment: center;
 							}
+						}
+					}
+
+					if root.link-transfer-needs-address: LineEdit {
+						width: 130px;
+						text <=> root.link-transfer-address;
+						accepted(text) => {
+							root.link-transfer-send-address(text);
+						}
+					}
+
+					if root.link-transfer-needs-address: Button {
+						text: @tr("Send");
+						clicked => {
+							root.link-transfer-send-address(root.link-transfer-address);
 						}
 					}
 

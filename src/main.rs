@@ -4895,7 +4895,7 @@ fn output_mame_debug(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx
 								let (text, rshift) = filter.filter(&waiting_buf);
 								waiting_buf.clear();
 
-								pekoe2::console_text(&text);
+								pekoe2::console_text(&text, rshift);
 								let _ = add_console_text(ui_weak.clone(), text, MAMEConsoleScrollMode::ConditionalScroll, rshift);
 							}
 
@@ -5478,13 +5478,33 @@ impl Drop for DebugLinkService {
 	}
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum DownloadTarget {
 	DebugLink,
-	Pekoe2
+	Pekoe2,
+	Pekoe2Ram,
+	Pekoe2Image
 }
 
 static DOWNLOAD_TARGET: Mutex<DownloadTarget> = Mutex::new(DownloadTarget::DebugLink);
+
+enum PendingDownload {
+	Ram {
+		name: String,
+		data: Vec<u8>
+	},
+	Image {
+		name: String,
+		width: u32,
+		height: u32,
+		pixels: Vec<u8>
+	}
+}
+
+static PENDING_PEKOE2_DOWNLOAD: Mutex<Option<PendingDownload>> = Mutex::new(None);
+
+// The last frame buffer address used for dlimage
+static LAST_FRAME_BUFFER: Mutex<String> = Mutex::new(String::new());
 
 // Where the debug link's file dialogs open: the last place one was used.
 static DEBUG_LINK_LOCATION: Mutex<Option<PathBuf>> = Mutex::new(None);
@@ -5510,6 +5530,7 @@ fn set_link_transfer(ui: &MainWindow, title: &str, detail: &str, can_choose: boo
 	ui.set_link_transfer_indeterminate(false);
 	ui.set_link_transfer_can_choose(can_choose);
 	ui.set_link_transfer_can_cancel(can_cancel);
+	ui.set_link_transfer_needs_address(false);
 }
 
 fn format_bytes(bytes: u64) -> String {
@@ -5525,12 +5546,27 @@ fn format_bytes(bytes: u64) -> String {
 // Asks for the file the box waits for and sends it to the debug link. The box keeps waiting if none is picked.
 fn choose_debug_link_download(ui_weak: slint::Weak<MainWindow>) {
 	let ui = ui_weak.unwrap();
-	let chooser = DialogBuilder::file()
-		.set_title("Choose the file to download to the box")
-		.set_location(&debug_link_location(&ui))
-		.set_filename("");
+
+	let target = DOWNLOAD_TARGET.lock().map(|target| *target).unwrap_or(DownloadTarget::DebugLink);
+
+	let chooser = if target == DownloadTarget::Pekoe2Image {
+		DialogBuilder::file()
+			.set_title("Choose the image to show on the box")
+			.set_location(&debug_link_location(&ui))
+			.set_filename("")
+			.add_filter("PNG, JPEG or raw YUYV image", &["png", "jpg", "jpeg", "yuyv"])
+	} else {
+		DialogBuilder::file()
+			.set_title("Choose the file to download to the box")
+			.set_location(&debug_link_location(&ui))
+			.set_filename("")
+	};
 
 	match chooser.open_single_file().show().unwrap_or(None) {
+		Some(path) if target == DownloadTarget::Pekoe2Image => {
+			remember_debug_link_location(&path);
+			send_pekoe2_image(&ui, &path);
+		},
 		Some(path) => {
 			remember_debug_link_location(&path);
 			let name = path.file_name().map(|name| name.to_string_lossy().to_string()).unwrap_or("download".into());
@@ -5539,7 +5575,6 @@ fn choose_debug_link_download(ui_weak: slint::Weak<MainWindow>) {
 			ui.set_link_transfer_can_choose(false);
 
 			let ui_weak = ui_weak.clone();
-			let target = DOWNLOAD_TARGET.lock().map(|target| *target).unwrap_or(DownloadTarget::DebugLink);
 			let _ = std::thread::spawn(move || {
 				match fs::read(&path) {
 					Ok(data) if data.is_empty() => {
@@ -5551,10 +5586,25 @@ fn choose_debug_link_download(ui_weak: slint::Weak<MainWindow>) {
 							ui.set_link_transfer_can_choose(true);
 						});
 					},
+					Ok(data) if target == DownloadTarget::Pekoe2Ram => {
+						let address = pekoe2::ram_link_address(&data).map(|address| format!("{:#010x}", address)).unwrap_or_default();
+
+						if let Ok(mut pending) = PENDING_PEKOE2_DOWNLOAD.lock() {
+							*pending = Some(PendingDownload::Ram { name: name.clone(), data });
+						}
+
+						let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+							ui.set_link_transfer_title(("Where in the box's RAM should ".to_owned() + &name + " go?").into());
+							ui.set_link_transfer_detail("0x80000000-0x8fffffff or 0xa0000000-0xafffffff".into());
+							ui.set_link_transfer_address(address.into());
+							ui.set_link_transfer_needs_address(true);
+							ui.set_link_transfer_can_choose(true);
+						});
+					},
 					Ok(data) => {
 						let sent = match target {
 							DownloadTarget::DebugLink => debuglink::send_command(debuglink::LinkCommand::Download { name, data }),
-							DownloadTarget::Pekoe2 => pekoe2::send_command(pekoe2::Pekoe2Command::Download { name, data })
+							_ => pekoe2::send_command(pekoe2::Pekoe2Command::Download { name, data })
 						};
 
 						if !sent {
@@ -5576,6 +5626,93 @@ fn choose_debug_link_download(ui_weak: slint::Weak<MainWindow>) {
 			ui.set_link_transfer_detail("No file chosen yet. The box waits until one is.".into());
 			ui.set_link_transfer_can_choose(true);
 		}
+	}
+}
+
+fn send_pekoe2_image(ui: &MainWindow, path: &Path) {
+	let name = path.file_name().map(|name| name.to_string_lossy().to_string()).unwrap_or("image".into());
+	let is_raw = path.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("yuyv"));
+
+	let converted = if is_raw {
+		fs::read(path)
+			.map_err(|e| "Couldn't read ".to_owned() + &name + ": " + &e.to_string())
+			.and_then(|data| pekoe2::raw_frame_buffer_image(&name, &data))
+	} else {
+		match slint::Image::load_from_path(path).ok().and_then(|image| image.to_rgba8()) {
+			Some(buffer) if buffer.width() > 0 && buffer.height() > 0 => {
+				let (width, height, pixels) = pekoe2::frame_buffer_image(buffer.as_bytes(), buffer.width(), buffer.height());
+				let note = (width != buffer.width() || height != buffer.height())
+					.then(|| format!("{} is {}x{}, scaled to {}x{} to fit the screen", name, buffer.width(), buffer.height(), width, height));
+				Ok((width, height, pixels, note))
+			},
+			_ => Err("Couldn't read ".to_owned() + &name + " as an image")
+		}
+	};
+
+	match converted {
+		Ok((width, height, pixels, note)) => {
+			if let Some(note) = note {
+				let _ = add_console_text(ui.as_weak(), "PEKOE2: ".to_owned() + &note + "\n", MAMEConsoleScrollMode::ConditionalScroll, 0);
+			}
+
+			let address = LAST_FRAME_BUFFER.lock().map(|address| address.clone()).unwrap_or_default();
+
+			ui.set_link_transfer_title(("Frame buffer address for ".to_owned() + &name + " (" + &width.to_string() + "x" + &height.to_string() + ")").into());
+			ui.set_link_transfer_detail("May be able to find it via 'app>dsl a400300c' on LC2 builds".into());
+
+			if let Ok(mut pending) = PENDING_PEKOE2_DOWNLOAD.lock() {
+				*pending = Some(PendingDownload::Image { name, width, height, pixels });
+			}
+
+			ui.set_link_transfer_address(address.into());
+			ui.set_link_transfer_needs_address(true);
+			ui.set_link_transfer_can_choose(true);
+		},
+		Err(reason) => {
+			ui.set_link_transfer_detail((reason + ". Choose another one.").into());
+			ui.set_link_transfer_can_choose(true);
+		}
+	}
+}
+
+fn send_pekoe2_address(ui: &MainWindow, text: &str) {
+	let text = text.trim();
+	let parsed = u32::from_str_radix(text.trim_start_matches("0x").trim_start_matches("0X"), 16).ok();
+	let size = PENDING_PEKOE2_DOWNLOAD.lock().ok().and_then(|pending| pending.as_ref().map(|pending| match pending {
+		PendingDownload::Ram { data, .. } => data.len(),
+		PendingDownload::Image { pixels, .. } => pixels.len()
+	})).unwrap_or(0);
+
+	let Some(address) = parsed else {
+		ui.set_link_transfer_detail(("'".to_owned() + text + "' isn't a hex address").into());
+		return;
+	};
+
+	if let Some(reason) = pekoe2::ram_address_error(address, size) {
+		ui.set_link_transfer_detail(reason.into());
+		return;
+	}
+
+	let Some(pending) = PENDING_PEKOE2_DOWNLOAD.lock().ok().and_then(|mut pending| pending.take()) else {
+		ui.set_link_transfer_detail("Choose the file to send first.".into());
+		return;
+	};
+
+	ui.set_link_transfer_needs_address(false);
+	ui.set_link_transfer_can_choose(false);
+
+	let command = match pending {
+		PendingDownload::Ram { name, data } => pekoe2::Pekoe2Command::Ram { name, data, address },
+		PendingDownload::Image { name, width, height, pixels } => {
+			if let Ok(mut last) = LAST_FRAME_BUFFER.lock() {
+				*last = format!("{:#010x}", address);
+			}
+			pekoe2::Pekoe2Command::Image { name, width, height, pixels, address }
+		}
+	};
+
+	if !pekoe2::send_command(command) {
+		let _ = add_console_text(ui.as_weak(), "WARNING: The Pekoe2 download path isn't running\n".into(), MAMEConsoleScrollMode::ForceScroll, 0);
 	}
 }
 
@@ -5607,7 +5744,7 @@ fn handle_debug_link_event(ui_weak: &slint::Weak<MainWindow>, filter: &Mutex<Deb
 		LinkEvent::Console(bytes) => {
 			let filtered = filter.lock().ok().map(|mut filter| filter.filter(&bytes));
 			if let Some((text, rshift)) = filtered {
-				pekoe2::console_text(&text);
+				pekoe2::console_text(&text, rshift);
 				let _ = add_console_text(ui_weak.clone(), text, MAMEConsoleScrollMode::ConditionalScroll, rshift);
 			}
 		},
@@ -5617,10 +5754,19 @@ fn handle_debug_link_event(ui_weak: &slint::Weak<MainWindow>, filter: &Mutex<Deb
 		},
 		LinkEvent::DownloadRequested { request } => {
 			if let Ok(mut target) = DOWNLOAD_TARGET.lock() {
-				*target = if request == debuglink::REQ_PEKOE2 {
-					DownloadTarget::Pekoe2
-				} else {
-					DownloadTarget::DebugLink
+				*target = match request {
+					debuglink::REQ_PEKOE2 | debuglink::REQ_PEKOE2_FLASH | debuglink::REQ_PEKOE2_COMPARE => {
+						DownloadTarget::Pekoe2
+					},
+					debuglink::REQ_PEKOE2_RAM => {
+						DownloadTarget::Pekoe2Ram
+					},
+					debuglink::REQ_PEKOE2_IMAGE => {
+						DownloadTarget::Pekoe2Image
+					},
+					_ => {
+						DownloadTarget::DebugLink
+					}
 				};
 			}
 
@@ -6451,6 +6597,13 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 	let link_ui_weak = ui.as_weak();
 	ui.on_link_transfer_choose(move || {
 		choose_debug_link_download(link_ui_weak.clone());
+	});
+
+	let address_ui_weak = ui.as_weak();
+	ui.on_link_transfer_send_address(move |text| {
+		if let Some(ui) = address_ui_weak.upgrade() {
+			send_pekoe2_address(&ui, &text);
+		}
 	});
 
 	ui.on_link_transfer_cancel(move || {

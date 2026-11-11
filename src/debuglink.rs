@@ -84,6 +84,10 @@ const REQ_DOWNLOAD_T3: u8 = 0x85;
 const REQ_UPLOAD: u8 = 0x88;
 const REQUESTS: [u8; 4] = [REQ_DOWNLOAD, REQ_DOWNLOAD_ID, REQ_DOWNLOAD_T3, REQ_UPLOAD];
 pub const REQ_PEKOE2: u8 = 0x00;
+pub const REQ_PEKOE2_FLASH: u8 = 0x01;
+pub const REQ_PEKOE2_RAM: u8 = 0x02;
+pub const REQ_PEKOE2_IMAGE: u8 = 0x03;
+pub const REQ_PEKOE2_COMPARE: u8 = 0x04;
 
 // Download: type byte (ignored by the box), big-endian 32-bit length, data
 const DOWNLOAD_TYPE: u8 = 0x00;
@@ -158,6 +162,10 @@ pub fn request_name(request: u8) -> &'static str {
 		REQ_DOWNLOAD_T3 => "dde t3",
 		REQ_UPLOAD => "ud/udr",
 		REQ_PEKOE2 => "dd over the Pekoe2 parallel port",
+		REQ_PEKOE2_FLASH => "flash over the Pekoe2 parallel port",
+		REQ_PEKOE2_RAM => "dram over the Pekoe2 parallel port",
+		REQ_PEKOE2_IMAGE => "dlimage over the Pekoe2 parallel port",
+		REQ_PEKOE2_COMPARE => "dcf over the Pekoe2 parallel port",
 		_ => "unknown"
 	}
 }
