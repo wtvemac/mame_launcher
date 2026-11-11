@@ -117,6 +117,7 @@ fn detect_support(state_weak: Weak<ExternalPopup>, retries_left: u32) {
 					let state_weak = Rc::downgrade(&state);
 					main.window().on_winit_window_event(move |_window, event| {
 						crate::mamecapture::on_main_window_event(event);
+						crate::workarea::on_main_window_event(event);
 
 						if let Some(state) = state_weak.upgrade() {
 							state.on_main_window_event(event);

@@ -109,6 +109,12 @@ export component MainWindow inherits Window {
 	property<bool> content-animating: abs(root.content-final-height - root.content-min-height) > 0.5px;
 	property<length> launcher-height: max(root.launcher-height-hold, (root.content-animating) ? max(root.content-final-height, root.height) : root.content-final-height);
 	in-out property<length> launcher-height-hold: 0px;
+	in property<length> launcher-max-height: 1000000px;
+	property<length> advanced-max-height: max(150px, root.launcher-max-height - (tab-widget.y + root.tab-bar-height + start-page.fixed-height));
+	changed launcher-height => {
+		root.launcher-height-changed();
+	}
+	callback launcher-height-changed();
 	out property<length> advanced-expanded-content-height: root.content-min-height + start-page.advanced-expanded-height;
 	icon: @image-url("images/icon.png");
 	default-font-family: (mame-console-enabled) ? "MLMonaco" : "MLHelvetica";
@@ -310,8 +316,8 @@ export component MainWindow inherits Window {
 		x: 0px;
 		y: 0px;
 		width: 100%;
-		height: 42px;
-		padding: 4px;
+		height: 30px;
+		padding: 3px;
 
 		Rectangle {
 			width: parent.width - (parent.padding * 2);
@@ -377,6 +383,7 @@ export component MainWindow inherits Window {
 			visible: root.shown-tab == 0;
 			// Yellow warnings (red means MAME is broken, which switches to the setup tab).
 			has-warning: root.launcher-state-message != "" && !root.mame-broken;
+			advanced-max-height: root.advanced-max-height;
 			opacity: (root.mame-broken) ? 0.2 : 1.0;
 		}
 		setup-page := SetupPage {

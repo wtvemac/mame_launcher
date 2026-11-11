@@ -10,6 +10,7 @@ mod netstack;
 mod wtv;
 mod externalpopup;
 mod mamecapture;
+mod workarea;
 mod debuglink;
 mod pekoe2;
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -6455,6 +6456,9 @@ fn resize_window_when_allowed(ui_weak: slint::Weak<MainWindow>, width: f32, heig
 	slint::Timer::single_shot(std::time::Duration::from_millis(50), move || {
 		let Some(ui) = ui_weak.upgrade() else { return };
 
+		let (width, height) = workarea::fit_size(&ui, width, height);
+		workarea::keep_on_screen_later();
+
 		let window_size = ui.window().size().to_logical(ui.window().scale_factor());
 		if (window_size.width - width).abs() <= 1.0 && (window_size.height - height).abs() <= 1.0 {
 			restore_window_size_limits(&ui);
@@ -6521,6 +6525,7 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 	let _ = externalpopup::setup(&ui);
 
 	mamecapture::setup(&ui);
+	workarea::setup(&ui);
 	let ui_weak_capture = ui.as_weak();
 	ui.on_mame_area_changed(move || {
 		if let Some(ui) = ui_weak_capture.upgrade() {
