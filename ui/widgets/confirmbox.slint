@@ -1,0 +1,91 @@
+// By: Eric MacDonald (eMac)
+
+import {
+	Button,
+	Palette
+} from "std-widgets.slint";
+
+export component ConfirmBox inherits Rectangle {
+	x: 0px;
+	y: 0px;
+	width: 100%;
+	height: 100%;
+	background: #000000d9;
+
+	in property<string> title: "";
+	in property<string> message: "";
+	in property<string> accept-text: @tr("Yes");
+	in property<string> reject-text: @tr("No");
+	in property<length> edge-padding: 20px;
+
+	callback accepted();
+	callback rejected();
+
+	TouchArea {
+		x: 0px;
+		y: 0px;
+		width: 100%;
+		height: 100%;
+	}
+
+	key-handler := FocusScope {
+		x: 0px;
+		y: 0px;
+		width: 100%;
+		height: 100%;
+		init => {
+			self.focus();
+		}
+		key-pressed(event) => {
+			if (event.text == Key.Escape) {
+				root.rejected();
+				return accept;
+			}
+			return reject;
+		}
+
+		panel := Rectangle {
+			width: min(440px, root.width - (root.edge-padding * 2));
+			height: panel-layout.preferred-height;
+			x: (root.width - self.width) / 2;
+			y: max(root.edge-padding, (root.height - self.height) / 2);
+			background: Palette.background;
+			border-color: #990000;
+			border-width: 2px;
+			border-radius: 6px;
+
+			panel-layout := VerticalLayout {
+				padding: 15px;
+				spacing: 12px;
+
+				if root.title != "" : Text {
+					text: root.title;
+					font-size: 16px;
+					font-weight: 800;
+					wrap: word-wrap;
+				}
+				Text {
+					text: root.message;
+					wrap: word-wrap;
+				}
+				HorizontalLayout {
+					spacing: 8px;
+					alignment: end;
+					Button {
+						text: root.reject-text;
+						clicked => {
+							root.rejected();
+						}
+					}
+					Button {
+						text: root.accept-text;
+						primary: true;
+						clicked => {
+							root.accepted();
+						}
+					}
+				}
+			}
+		}
+	}
+}

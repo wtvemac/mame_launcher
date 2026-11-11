@@ -23,12 +23,14 @@ export global UIPaths {
 	in-out property<string> last_opened_img_path: "";
 	in-out property<bool> rommy_enabled: false;
 	in-out property<bool> mame_folder_exists: false;
+	in-out property<bool> nuke_confirm_shown: false;
 
 	callback choose-mame();
 	callback choose-python();
 	callback choose-rommy();
 	callback open-url-path(string);
 	callback view-mame-folder();
+	callback nuke-config();
 }
 
 export component SetupPage inherits Page {
@@ -205,4 +207,12 @@ export component SetupPage inherits Page {
 	}
 
 	Rectangle { }
+
+	if !root.mame-broken : Button {
+		text: @tr("Nuke Configuration");
+		primary: true;
+		clicked => {
+			UIPaths.nuke_confirm_shown = true;
+		}
+	}
 }

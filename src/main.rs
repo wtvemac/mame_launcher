@@ -97,6 +97,7 @@ const ALWAYS_GENERATE_ID_FILES: bool = true;
 const SSID_ROM_FILE: &'static str = "ds2401.bin";
 const MSNTV2_ETHERNET_EEPROM_FILE: &'static str = "pci_1e.0_slot8_i82801_eth_eeprom";
 const MSNTV2_ALWAYS_RESET_EEPROM: bool = true;
+const MSNTV2_CMOS_FILE: &'static str = "pci_1f.0_rtc";
 const MSNTV2_ETHERNET_DEVICE_TAG: &'static str = ":pci:1e.0:slot8:i82801_eth";
 const DEFAULT_BOOTORM_FILE_NAME: &'static str = "bootrom.o";
 const DEFAULT_MSNTV2_BOOTORM_FILE_NAME: &'static str = "bios-emac-mame-only.bin";
@@ -4397,6 +4398,36 @@ fn start_approm_import(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn s
 	Ok(())
 }
 
+fn revert_box_disk(config: &LauncherConfig, machine: &MAMEMachineNode) -> bool {
+	let machine_name = machine.name.clone().unwrap_or("".into());
+
+	let disk_name = match machine.disk.as_ref().and_then(|disks| disks.first()) {
+		Some(disk) => {
+			disk.name.clone().unwrap_or("".into())
+		},
+		None => {
+			return false
+		}
+	};
+
+	if machine_name == "" || disk_name == "" {
+		return false;
+	}
+
+	let mame_executable_path = Paths::resolve_mame_path(config.persistent.paths.mame_path.clone());
+	let mame_directory_path = LauncherConfig::get_parent(mame_executable_path).unwrap_or("".into());
+
+	let preset_img_path = mame_directory_path + "/roms/" + &machine_name + "/" + &disk_name + ".chd";
+
+	let diff_file_path = CompressedHunkDiskIO::find_diff_file(preset_img_path).unwrap_or("".into());
+
+	if diff_file_path != "" && Path::new(&diff_file_path).exists() {
+		std::fs::rename(&diff_file_path, diff_file_path.clone() + ".bak").is_ok()
+	} else {
+		false
+	}
+}
+
 fn revert_approm(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error::Error>> {
 	let _ = std::thread::spawn(move || {
 		enable_loading(&ui_weak, "Reverting".into());
@@ -4405,43 +4436,74 @@ fn revert_approm(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::er
 			Ok(config) => {
 				let selected_box = config.persistent.mame_options.selected_box.clone().unwrap_or("".into());
 
-				for machine in config.mame.machine.unwrap_or(vec![]).iter() {
-					let machine_name = 
-						machine.name
-						.clone()
-						.unwrap_or("".into());
-
-					if machine_name == *selected_box {
-						if machine.disk.iter().count() > 0 {
-							match machine.disk.clone() {
-								Some(disks) => {
-									let disk_name = disks[0].name.clone().unwrap_or("".into());
-									let disk_file = disk_name.clone() + ".chd";
-
-									let config_persistent_paths = config.persistent.paths.clone();
-									let mame_executable_path = Paths::resolve_mame_path(config_persistent_paths.mame_path.clone());
-									let mame_directory_path = LauncherConfig::get_parent(mame_executable_path.clone()).unwrap_or("".into());
-
-									let preset_img_path = mame_directory_path.clone() + "/roms/" + &selected_box + "/" + &disk_file;
-
-									let diff_file_path = CompressedHunkDiskIO::find_diff_file(preset_img_path.clone()).unwrap_or("".into());
-
-									if diff_file_path != "" && Path::new(&diff_file_path).exists() {
-										let _ = std::fs::rename(&diff_file_path, diff_file_path.clone() + ".bak");
-
-										let _ = load_config(ui_weak.clone());
-									}
-								},
-								_ => {
-									//
-								}
-							}
+				for machine in config.mame.machine.clone().unwrap_or(vec![]).iter() {
+					if machine.name.clone().unwrap_or("".into()) == selected_box {
+						if revert_box_disk(&config, machine) {
+							let _ = load_config(ui_weak.clone());
 						}
 					}
 				}
 			},
 			_ => { }
 		};
+
+		disable_loading(&ui_weak);
+	});
+
+	Ok(())
+}
+
+fn nuke_config(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error::Error>> {
+	let ui = ui_weak.unwrap();
+
+	if ui.get_loading_depth() > 0 {
+		return Ok(());
+	}
+
+	ui.set_loading_message("Nuking".into());
+	ui.set_loading_depth(ui.get_loading_depth() + 1);
+
+	let _ = std::thread::spawn(move || {
+
+		match LauncherConfig::new() {
+			Ok(config) => {
+				let mut persistent_config = LauncherConfig::default_persistent_config();
+				persistent_config.paths.mame_path = config.persistent.paths.mame_path.clone();
+				let _ = LauncherConfig::save_persistent_config(&persistent_config);
+
+				let mame_executable_path = Paths::resolve_mame_path(config.persistent.paths.mame_path.clone());
+				let mame_directory_path = LauncherConfig::get_parent(mame_executable_path).unwrap_or("".into());
+				let cfg_directory = LauncherConfig::get_mame_cfg_directory(&mame_directory_path);
+
+				let box_regex = Regex::new(r"^(wtv\d+[a-zA-Z0-9]+|msn[a-zA-Z0-9]{3})$").unwrap();
+				for machine in config.mame.machine.clone().unwrap_or(vec![]).iter() {
+					let machine_name = machine.name.clone().unwrap_or("".into());
+
+					if machine.runnable.clone().unwrap_or("".into()) != "no" && box_regex.is_match(machine_name.as_str()) {
+						let _ = revert_box_disk(&config, machine);
+
+						let _ = std::fs::remove_file(cfg_directory.join(machine_name.clone() + ".cfg"));
+					}
+				}
+
+				let msntv2_nvram_regex = Regex::new(r"^msntv2(_\d+)?$").unwrap();
+				if let Ok(nvram_entries) = std::fs::read_dir(Path::new(&mame_directory_path).join("nvram")) {
+					for nvram_entry in nvram_entries.flatten() {
+						if nvram_entry.path().is_dir() && msntv2_nvram_regex.is_match(&nvram_entry.file_name().to_string_lossy()) {
+							let _ = std::fs::remove_file(nvram_entry.path().join(MSNTV2_ETHERNET_EEPROM_FILE));
+							let _ = std::fs::remove_file(nvram_entry.path().join(MSNTV2_CMOS_FILE));
+						}
+					}
+				}
+			},
+			_ => { }
+		};
+
+		let _ = populate_config(&ui_weak);
+
+		let _ = ui_weak.upgrade_in_event_loop(move |ui| {
+			ui.set_current_tab(0);
+		});
 
 		disable_loading(&ui_weak);
 	});
@@ -6681,6 +6743,11 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 
 	ui.global::<UIPaths>().on_open_url_path(move |url| {
 		let _ = open::that(url.to_string());
+	});
+
+	ui_weak = ui.as_weak();
+	ui.global::<UIPaths>().on_nuke_config(move || {
+		let _ = nuke_config(ui_weak.clone());
 	});
 
 	ui_weak = ui.as_weak();

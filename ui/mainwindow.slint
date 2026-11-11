@@ -19,6 +19,9 @@ import {
 	LoadingBox
 } from "./widgets/loadingbox.slint";
 import {
+	ConfirmBox
+} from "./widgets/confirmbox.slint";
+import {
 	ComboBoxWindow
 } from "./widgets/editablecombobox.slint";
 import {
@@ -450,6 +453,18 @@ export component MainWindow inherits Window {
 		}
 		double-clicked => {
 			UIMAMEOptions.captured_console_height = root.captured-default-console-height;
+		}
+	}
+
+	if UIPaths.nuke_confirm_shown : ConfirmBox {
+		title: @tr("Nuke Configuration");
+		message: @tr("Nuking your configuration will wipe any changes you've made using this launcher and revert data you've written to a few of your box's disks. Are you sure you want to proceed?");
+		accepted => {
+			UIPaths.nuke_confirm_shown = false;
+			UIPaths.nuke-config();
+		}
+		rejected => {
+			UIPaths.nuke_confirm_shown = false;
 		}
 	}
 

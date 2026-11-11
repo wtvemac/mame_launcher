@@ -553,7 +553,7 @@ impl LauncherConfig {
 			.unwrap_or(vec![])
 	}
 
-	fn get_mame_cfg_directory(mame_directory: &String) -> PathBuf {
+	pub fn get_mame_cfg_directory(mame_directory: &String) -> PathBuf {
 		let mut cfg_directory: String = DEFAULT_MAME_CFG_DIRECTORY.into();
 
 		if let Ok(mame_ini_text) = fs::read_to_string(Path::new(mame_directory).join("mame.ini")) {
@@ -946,7 +946,7 @@ impl LauncherConfig {
 		Ok(())
 	}
 
-	fn default_persistent_config() -> PersistentConfig {
+	pub fn default_persistent_config() -> PersistentConfig {
 		PersistentConfig {
 			paths: Paths {
 				mame_path: Some("".into()),
