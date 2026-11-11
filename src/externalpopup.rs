@@ -322,6 +322,8 @@ impl ExternalPopup {
 			let combobox_window = main.global::<ComboBoxWindow>();
 			combobox_window.set_external_popup_selected_index(selected_index);
 			combobox_window.set_external_popup_serial(combobox_window.get_external_popup_serial().wrapping_add(1));
+
+			let _ = slint::invoke_from_event_loop(|| {});
 		}
 	}
 }
