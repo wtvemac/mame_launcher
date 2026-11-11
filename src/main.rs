@@ -6571,6 +6571,53 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 	});
 
 	ui_weak = ui.as_weak();
+	let paste_dtx = dtx.clone();
+	let paste_queue: std::rc::Rc<std::cell::RefCell<std::collections::VecDeque<char>>> = Default::default();
+	let paste_timer = std::rc::Rc::new(slint::Timer::default());
+	ui.on_paste_to_mame(move |text| {
+		let ui = ui_weak.unwrap();
+		if !ui.get_mame_console_enabled() {
+			return;
+		}
+
+		let text = text.replace("\r\n", "\n").replace('\r', "\n");
+
+		if ui.get_using_mame_debug() {
+			let dtx = paste_dtx.clone();
+			std::thread::spawn(move || {
+				for c in text.chars() {
+					if dtx.send(c.to_string()).is_err() {
+						break;
+					}
+				}
+			});
+		} else {
+			paste_queue.borrow_mut().extend(text.chars().filter(|c| *c == '\n' || (c.is_ascii() && !c.is_ascii_control())));
+
+			if !paste_timer.running() {
+				let ui_weak = ui.as_weak();
+				let paste_queue = paste_queue.clone();
+				let timer_weak = std::rc::Rc::downgrade(&paste_timer);
+				paste_timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(1), move || {
+					let next = paste_queue.borrow_mut().pop_front();
+					match (next, ui_weak.upgrade()) {
+						(Some(c), Some(ui)) if ui.get_mame_console_enabled() => {
+							let shiftmod = c.is_ascii_uppercase() || "~!@#$%^&*()_+{}|:\"<>?".contains(c);
+							ui.invoke_send_key_to_mame(c.to_string().into(), shiftmod);
+						},
+						_ => {
+							paste_queue.borrow_mut().clear();
+							if let Some(timer) = timer_weak.upgrade() {
+								timer.stop();
+							}
+						}
+					}
+				});
+			}
+		}
+	});
+
+	ui_weak = ui.as_weak();
 	ui.on_send_key_to_mame(move |text, shiftmod| {
 		let ui = ui_weak.unwrap();
 		if ui.get_mame_console_enabled() {
