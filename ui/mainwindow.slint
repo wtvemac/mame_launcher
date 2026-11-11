@@ -90,7 +90,7 @@ export component MainWindow inherits Window {
 	}
 	callback mame-area-changed();
 	property<length> tab-bar-height: 32px;
-	// The selected tab 0 = Start MAME, 1 = Set Me Up, 2 = About
+	// The selected tab 0 = Start MAME, 1 = Configuration, 2 = About
 	in-out property<int> current-tab: (root.mame-broken) ? 1 : 0;
 	// The setup tab only shows advanced options expanded or on a fatal error
 	property<bool> setup-tab-visible: UIMAMEOptions.show_advanced_options || root.mame-broken;
@@ -325,7 +325,7 @@ export component MainWindow inherits Window {
 		}
 	}
 
-	// 0 = Start MAME, 1 = Set Me Up, 2 = About
+	// 0 = Start MAME, 1 = Configuration, 2 = About
 	tab-widget := Rectangle {
 		x: 0px;
 		y: (root.launcher-state-message != "") ? status-message.height + 3px : 3px;
@@ -349,7 +349,7 @@ export component MainWindow inherits Window {
 				}
 			}
 			if root.setup-tab-visible: LauncherTab {
-				title: @tr("Set me up");
+				title: @tr("Configuration");
 				is-current: root.shown-tab == 1;
 				hide-right-border: root.shown-tab == 2;
 				clicked => {
