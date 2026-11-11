@@ -171,6 +171,9 @@ export global UIMAMEOptions {
 	out property<bool> parallel_socket_selected: (can_use_parallel && enable_parallel && selected_parallel_option == "socket");
 	in-out property<[HintedItem]> selectable_parallel_socket_endpoints: [];
 	in-out property<string> selected_parallel_socket_endpoint: "";
+	out property<bool> parallel_hostlpt_selected: (can_use_parallel && enable_parallel && selected_parallel_option == "hostlpt");
+	in-out property<[HintedItem]> selectable_parallel_hostlpt_devices: [];
+	in-out property<string> selected_parallel_hostlpt_device: "";
 
 	// Other Options
 	in-out property<bool> verbose_mode: false;
@@ -264,7 +267,10 @@ export component StartPage inherits Page {
 		(advanced-collapsible.target-height - advanced-collapsible.height)
 		+ ((advanced-collapsible.expanded) ? (
 			(ports-collapsible.target-height - ports-collapsible.height)
-			+ ((ports-collapsible.expanded) ? (socket-collapsible.target-height - socket-collapsible.height) : 0px)
+			+ ((ports-collapsible.expanded) ? (
+				(socket-collapsible.target-height - socket-collapsible.height)
+				+ (hostlpt-collapsible.target-height - hostlpt-collapsible.height)
+			) : 0px)
 		) : 0px);
 
 	TitledHorizontalBox {
@@ -655,6 +661,25 @@ export component StartPage inherits Page {
 													editable: true;
 													hintedmodel: UIMAMEOptions.selectable_parallel_socket_endpoints;
 													current-value <=> UIMAMEOptions.selected_parallel_socket_endpoint;
+												}
+											}
+										}
+									}
+									hostlpt-collapsible := Collapsible {
+										expanded: UIMAMEOptions.parallel_hostlpt_selected;
+										GridLayout {
+											VerticalLayout {
+												Text {
+													text: @tr("Host Parallel Port");
+													height: 28px;
+													vertical-alignment: center;
+													horizontal-alignment: left;
+												}
+												EditableComboBox {
+													height: 33px;
+													editable: true;
+													hintedmodel: UIMAMEOptions.selectable_parallel_hostlpt_devices;
+													current-value <=> UIMAMEOptions.selected_parallel_hostlpt_device;
 												}
 											}
 										}

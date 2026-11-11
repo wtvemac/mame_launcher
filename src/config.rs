@@ -324,6 +324,7 @@ pub struct MAMEOptions {
     pub enable_wtvport: Option<bool>,
     pub selected_parallel_option: Option<String>,
     pub selected_parallel_socket_endpoint: Option<String>,
+    pub selected_parallel_hostlpt_device: Option<String>,
     pub enable_parallel: Option<bool>,
     pub custom_options: Option<String>,
     pub show_advanced_options: Option<bool>
@@ -991,6 +992,7 @@ impl LauncherConfig {
 				enable_wtvport: Some(false),
 				selected_parallel_option: None,
 				selected_parallel_socket_endpoint: None,
+				selected_parallel_hostlpt_device: None,
 				enable_parallel: Some(false),
 				custom_options: Some("".into()),
 				show_advanced_options: Some(false)

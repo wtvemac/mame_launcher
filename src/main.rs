@@ -169,6 +169,9 @@ const DEFAULT_SLOT_ORDER: [&'static str; 5] = [
 	"pekoe2"
 ];
 const DEFAULT_PARALLEL_SOCKET_ENDPOINT: &'static str = "127.0.0.1:3000";
+const PARALLEL_HOSTLPT_OPTION: &'static str = "hostlpt";
+const HOSTLPT_MEDIA_OPTION: &'static str = "hostlpt";
+const DEFAULT_PARALLEL_HOSTLPT_DEVICE: &'static str = "/dev/parport0";
 // Parallel port socket endpoint value for the launcher's built-in WebTV Bridge (the "webtv-bridge" feature).
 const WEBTV_BRIDGE_SOCKET_ENDPOINT: &'static str = "webtv-bridge";
 #[cfg(webtv_bridge)]
@@ -1703,6 +1706,43 @@ fn get_serial_port_endpoints() -> Vec<HintedItem> {
 	serial_port_endpoints
 }
 
+fn get_hostlpt_devices() -> Vec<HintedItem> {
+	#[allow(unused_mut)]
+	let mut hostlpt_devices: Vec<HintedItem> = vec![];
+
+	#[cfg(target_os = "linux")]
+	{
+		let mut port_numbers: Vec<u32> = match std::fs::read_dir("/dev") {
+			Ok(entries) => entries
+				.filter_map(|entry| entry.ok())
+				.filter_map(|entry| entry.file_name().to_str().and_then(|name| name.strip_prefix("parport")).and_then(|number| number.parse::<u32>().ok()))
+				.collect(),
+			Err(_) => vec![]
+		};
+		port_numbers.sort();
+
+		for port_number in port_numbers {
+			let device_path = format!("/dev/parport{}", port_number);
+			let proc_path = format!("/proc/sys/dev/parport/parport{}", port_number);
+			let base_addr = std::fs::read_to_string(proc_path.clone() + "/base-addr").ok()
+				.and_then(|text| text.split_whitespace().next().and_then(|addr| addr.parse::<u64>().ok()));
+			let modes = std::fs::read_to_string(proc_path + "/modes").ok().map(|text| text.trim().to_string()).unwrap_or("".into());
+
+			hostlpt_devices.push(
+				HintedItem {
+					display_hint_only: false,
+					hint: (format!("Parallel Port {}", port_number) + &base_addr.map(|addr| format!(" (0x{:x})", addr)).unwrap_or("".into())).into(),
+					tooltip: (if modes != "" { "Modes: ".to_owned() + &modes } else { "".into() }).into(),
+					value: device_path.into(),
+					icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
+				}
+			);
+		}
+	}
+
+	hostlpt_devices
+}
+
 fn populate_selected_box_bootroms(ui_weak: &slint::Weak<MainWindow>, config: &LauncherConfig, selected_machine: &MAMEMachineNode, supress_warnings: bool) -> Result<(usize, BuildStorageType, BuildStorageState), Box<dyn std::error::Error>> {
 	let config_persistent_mame = config.persistent.mame_options.clone();
 
@@ -2935,6 +2975,11 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		ui_mame.set_selectable_parallel_socket_endpoints(slint::ModelRc::new(slint::VecModel::from(selectable_parallel_socket_endpoints)));
 		let selected_parallel_socket_endpoint = config_persistent_mame.selected_parallel_socket_endpoint.clone().unwrap_or("".into());
 		ui_mame.set_selected_parallel_socket_endpoint(if selected_parallel_socket_endpoint != "" { selected_parallel_socket_endpoint.into() } else { DEFAULT_PARALLEL_SOCKET_ENDPOINT.into() });
+		let selectable_parallel_hostlpt_devices = get_hostlpt_devices();
+		let default_hostlpt_device: String = selectable_parallel_hostlpt_devices.first().map(|item| item.value.to_string()).unwrap_or(DEFAULT_PARALLEL_HOSTLPT_DEVICE.into());
+		ui_mame.set_selectable_parallel_hostlpt_devices(slint::ModelRc::new(slint::VecModel::from(selectable_parallel_hostlpt_devices)));
+		let selected_parallel_hostlpt_device = config_persistent_mame.selected_parallel_hostlpt_device.clone().unwrap_or("".into());
+		ui_mame.set_selected_parallel_hostlpt_device(if selected_parallel_hostlpt_device != "" { selected_parallel_hostlpt_device.into() } else { default_hostlpt_device.into() });
 
 		////
 		//
@@ -4039,6 +4084,7 @@ fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool, new_bootroms: Opt
 				enable_wtvport: Some(ui_mame.get_enable_wtvport().into()),
 				selected_parallel_option: Some(ui_mame.get_selected_parallel_option().into()),
 				selected_parallel_socket_endpoint: Some(ui_mame.get_selected_parallel_socket_endpoint().into()),
+				selected_parallel_hostlpt_device: Some(ui_mame.get_selected_parallel_hostlpt_device().into()),
 				enable_parallel: Some(ui_mame.get_enable_parallel().into()),
 				custom_options: Some(ui_mame.get_custom_options().into()),
 				show_advanced_options: Some(ui_mame.get_show_advanced_options().into())
@@ -5233,6 +5279,15 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 				},
 				Some(_) => console_warning("No parallel port socket endpoint selected. The parallel port socket won't connect."),
 				None => console_warning("Couldn't find the parallel port socket in MAME. The parallel port socket won't connect.")
+			}
+		}
+
+		if use_parallel && selected_parallel_option == PARALLEL_HOSTLPT_OPTION {
+			let selected_parallel_hostlpt_device = ui_mame.get_selected_parallel_hostlpt_device().trim().to_string();
+			if selected_parallel_hostlpt_device != "" {
+				mame_command.arg("-".to_owned() + HOSTLPT_MEDIA_OPTION).arg(&selected_parallel_hostlpt_device);
+			} else {
+				console_warning("No host parallel port selected. The parallel port won't be attached to anything.");
 			}
 		}
 
