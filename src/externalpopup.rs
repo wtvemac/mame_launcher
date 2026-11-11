@@ -28,6 +28,9 @@ struct ExternalPopup {
 
 pub fn window_attributes_hook(attributes: winit::window::WindowAttributes) -> winit::window::WindowAttributes {
 	if !CREATING_POPUP_WINDOW.with(|creating| creating.get()) {
+		#[cfg(target_os = "windows")]
+		let attributes = attributes.with_transparent(false);
+
 		return attributes;
 	}
 
