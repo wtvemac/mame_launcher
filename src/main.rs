@@ -4990,7 +4990,11 @@ fn output_mame_stdio(ui_weak: slint::Weak<MainWindow>, stdout: Option<ChildStdou
 	Ok(process_has_error.load(Relaxed))
 }
 
+static MAME_THREAD_ACTIVE: AtomicBool = AtomicBool::new(false);
+static MAME_RESTART_PENDING: AtomicBool = AtomicBool::new(false);
+
 fn spawn_mame_from_command(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u16, drx: Receiver<String>, mut mame_command: Command, network_stack: Option<NetworkStack>, mame_services: Vec<Box<dyn Send>>) -> Result<(), Box<dyn std::error::Error>> {
+	MAME_THREAD_ACTIVE.store(true, Relaxed);
 	let _ = std::thread::spawn(move || {
 		let mut full_mame_command_line: String;
 
@@ -5057,6 +5061,8 @@ fn spawn_mame_from_command(ui_weak: slint::Weak<MainWindow>, debug_bitb_port: u1
 				}
 			});
 		}
+
+		MAME_THREAD_ACTIVE.store(false, Relaxed);
 	});
 
 	Ok(())
@@ -5958,6 +5964,51 @@ fn start_netstack(ui_weak: slint::Weak<MainWindow>, mame_executable_path: &Strin
 	}
 }
 
+fn launch_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) {
+	enable_loading(&ui_weak, "Starting MAME".into());
+
+	let _ = check_custom_ssid(ui_weak.clone());
+
+	let _ = start_mame(ui_weak.clone(), drx);
+
+	disable_loading(&ui_weak);
+}
+
+fn restart_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) {
+	if MAME_RESTART_PENDING.swap(true, Relaxed) {
+		return;
+	}
+
+	let mame_pid = get_mame_pid(ui_weak.clone()).unwrap_or(0);
+
+	let _ = std::thread::spawn(move || {
+		enable_loading(&ui_weak, "Restarting MAME".into());
+
+		if mame_pid > 0 {
+			if let Ok(sys) = System::new_all() {
+				if let Some(process) = sys.process(Pid::from(mame_pid as usize)) {
+					process.kill();
+				}
+			}
+		}
+
+		// Wait for the old MAME thread to stop its services
+		let wait_start = Instant::now();
+		while MAME_THREAD_ACTIVE.load(Relaxed) && wait_start.elapsed() < Duration::from_secs(10) {
+			std::thread::sleep(Duration::from_millis(50));
+		}
+
+		disable_loading(&ui_weak);
+
+		// Queued after the old MAME's cleanup on the event loop.
+		let ui_weak_cpy = ui_weak.clone();
+		let _ = ui_weak.upgrade_in_event_loop(move |_ui| {
+			MAME_RESTART_PENDING.store(false, Relaxed);
+			launch_mame(ui_weak_cpy, drx);
+		});
+	});
+}
+
 fn end_mame(ui_weak: slint::Weak<MainWindow>) {
 	let mame_pid = get_mame_pid(ui_weak.clone()).unwrap_or(0);
 
@@ -6463,14 +6514,9 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 	});
 
 	ui_weak = ui.as_weak();
+	let start_drx = drx.clone();
 	ui.global::<UIMAMEOptions>().on_start_mame(move || {
-		enable_loading(&ui_weak, "Starting MAME".into());
-
-		let _ = check_custom_ssid(ui_weak.clone());
-
-		let _ = start_mame(ui_weak.clone(), drx.clone());
-
-		disable_loading(&ui_weak);
+		launch_mame(ui_weak.clone(), start_drx.clone());
 	});
 
 	ui_weak = ui.as_weak();
@@ -6705,6 +6751,12 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 	ui_weak = ui.as_weak();
 	ui.on_close_mame(move || {
 		end_mame(ui_weak.clone());
+	});
+
+	ui_weak = ui.as_weak();
+	let restart_drx = drx.clone();
+	ui.on_restart_mame(move || {
+		restart_mame(ui_weak.clone(), restart_drx.clone());
 	});
 
 	ui_weak = ui.as_weak();

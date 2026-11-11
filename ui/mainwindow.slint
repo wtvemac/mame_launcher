@@ -297,6 +297,7 @@ export component MainWindow inherits Window {
 	callback paste-to-mame(string);
 	pure callback console-word-span(int, int) -> ConsoleWordSpan;
 	callback close-mame();
+	callback restart-mame();
 	callback link-transfer-choose();
 	callback link-transfer-cancel();
 	callback link-transfer-send-address(string);
@@ -798,7 +799,7 @@ export component MainWindow inherits Window {
 			}
 
 			console-scroll-to-end := Rectangle {
-				x: console-close.x - self.width - 12px;
+				x: console-restart.x - self.width - 12px;
 				y: 8px;
 				width: 24px;
 				height: 24px;
@@ -820,6 +821,33 @@ export component MainWindow inherits Window {
 						width: parent.width;
 						clicked => {
 							root.scroll-to-end();
+						}
+					}
+				}
+			}
+			console-restart := Rectangle {
+				x: console-close.x - self.width - 12px;
+				y: 8px;
+				width: 24px;
+				height: 24px;
+				background: #111111;
+				border-width: 1px;
+				border-radius: 5px;
+				border-color: #111111;
+				Image {
+					x: 0px;
+					y: 0px;
+					height: parent.height;
+					width: parent.width;
+					source: @image-url("images/console-restart.svg");
+					colorize: (console-restart-ta.has-hover) ? #fff : #aaa;
+					console-restart-ta := TouchArea {
+						x: 0px;
+						y: 0px;
+						height: parent.height;
+						width: parent.width;
+						clicked => {
+							root.restart-mame();
 						}
 					}
 				}
