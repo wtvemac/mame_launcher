@@ -1545,6 +1545,21 @@ fn find_audio_input_tags(selected_machine: &MAMEMachineNode) -> Vec<String> {
 		.collect()
 }
 
+fn get_mame_folder(mame_path: &String) -> Option<PathBuf> {
+	if mame_path == "" {
+		return None;
+	} else {
+		let mame_executable: PathBuf = std::path::absolute(mame_path).ok()?.components().collect();
+		let mame_folder = mame_executable.parent()?.to_path_buf();
+
+		if mame_folder.is_dir() {
+			return Some(mame_folder);
+		} else {
+			return None;
+		}
+	}
+}
+
 fn get_audio_in_sound_module(mame_path: &String) -> Option<String> {
 	if cfg!(target_os = "linux") {
 		let sound_modules = LauncherConfig::mame_sound_modules(mame_path);
@@ -2666,6 +2681,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 	let mame_supports_sm_record = LauncherConfig::mame_supports_option(&mame_path, "sm_record");
 	let audio_in_devices = get_audio_in_devices(audio_in_sound_module.as_deref().unwrap_or(""));
 	let video_in_devices = get_video_in_devices();
+	let mame_folder_exists = get_mame_folder(&mame_path).is_some();
 
 	let ui_weak_cpy = ui_weak.clone();
 	let _ = ui_weak.upgrade_in_event_loop(move |ui| {
@@ -2708,6 +2724,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		}
 
 		ui_paths.set_mame_path(config_persistent_paths.mame_path.unwrap_or("".into()).into());
+		ui_paths.set_mame_folder_exists(mame_folder_exists);
 		ui_paths.set_python_path(python_path.into());
 		ui_paths.set_rommy_path(config_persistent_paths.rommy_path.unwrap_or("".into()).into());
 		ui_paths.set_last_opened_exe_path(config_persistent_paths.last_opened_exe_path.unwrap_or("".into()).into());
@@ -6664,6 +6681,16 @@ fn start_ui() -> Result<(), slint::PlatformError> {
 
 	ui.global::<UIPaths>().on_open_url_path(move |url| {
 		let _ = open::that(url.to_string());
+	});
+
+	ui_weak = ui.as_weak();
+	ui.global::<UIPaths>().on_view_mame_folder(move || {
+		let ui = ui_weak.unwrap();
+		let mame_path = Paths::resolve_mame_path(Some(ui.global::<UIPaths>().get_mame_path().into()));
+
+		if let Some(mame_folder) = get_mame_folder(&mame_path) {
+			let _ = open::that(mame_folder);
+		}
 	});
 
 	ui_weak = ui.as_weak();

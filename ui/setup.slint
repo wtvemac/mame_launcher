@@ -22,14 +22,18 @@ export global UIPaths {
 	in-out property<string> last_opened_rom_path: "";
 	in-out property<string> last_opened_img_path: "";
 	in-out property<bool> rommy_enabled: false;
+	in-out property<bool> mame_folder_exists: false;
 
 	callback choose-mame();
 	callback choose-python();
 	callback choose-rommy();
 	callback open-url-path(string);
+	callback view-mame-folder();
 }
 
 export component SetupPage inherits Page {
+	in property<bool> mame-broken: false;
+
 	TitledVerticalBox {
 		title: @markdown("WebTV MAME Path");
 		box-spacing: 15px;
@@ -88,6 +92,12 @@ export component SetupPage inherits Page {
 			EditableComboBox {
 				current-value <=> UIPaths.mame_path;
 				placeholder-text: @tr("/path/to/webtv1");
+			}
+			if !root.mame-broken && UIPaths.mame_folder_exists : Button {
+				text: @tr("View Folder");
+				clicked => {
+					UIPaths.view-mame-folder();
+				}
 			}
 			Button {
 				text: @tr("Search");
