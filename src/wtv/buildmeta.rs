@@ -1167,16 +1167,40 @@ impl BuildMeta {
 	fn calculate_dword_checksum(&mut self, start: u64, length: u32, skip: Option<u32>) -> Result<u32, Box<dyn std::error::Error>> {
 		let mut checksum: u32 = 0x00;
 
+		const CHUNK_SIZE: usize = 0x10000;
+
 		let _ = self.io.seek(start)?;
 
 		if length <= 0x4000000 { // If we're trying to checksum data larger than 64MB then something bad's probably happened.
-			for dword_index in 0..length {
-				let mut code_chunk = [0x00; 0x04];
-				let _ = self.io.read(&mut code_chunk)?;
+			let mut chunk = vec![0x00; CHUNK_SIZE];
+			let mut remaining = (length as usize) * 4;
+			let mut dword_index: u32 = 0;
 
-				if skip == None || dword_index != skip.unwrap_or(0) {
-					checksum = checksum.wrapping_add(u32::from_be_bytes(code_chunk));
+			while remaining > 0 {
+				let want = remaining.min(CHUNK_SIZE);
+
+				let mut filled = 0;
+				while filled < want {
+					match self.io.read(&mut chunk[filled..want])? {
+						0 => break,
+						n => filled += n
+					}
 				}
+				chunk[filled..want].fill(0x00);
+
+				for code_chunk in chunk[..want].chunks_exact(4) {
+					if skip != Some(dword_index) {
+						checksum = checksum.wrapping_add(u32::from_be_bytes(code_chunk.try_into().unwrap()));
+					}
+
+					dword_index += 1;
+				}
+
+				if filled < want {
+					break;
+				}
+
+				remaining -= want;
 			}
 		}
 

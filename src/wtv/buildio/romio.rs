@@ -12,6 +12,21 @@ pub struct ROMIO {
 	f1: Option<File>
 }
 
+impl ROMIO {
+	fn read_full(file: &mut File, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
+		let mut filled = 0;
+
+		while filled < buf.len() {
+			match file.read(&mut buf[filled..])? {
+				0 => break,
+				n => filled += n
+			}
+		}
+
+		Ok(filled)
+	}
+}
+
 impl BuildIO for ROMIO {
 	fn file_path(&mut self) -> Result<String, Box<dyn std::error::Error>> {
 		Ok(self.file_path.clone())
@@ -95,7 +110,11 @@ impl BuildIO for ROMIO {
 	}
 
 	fn read(&mut self, buf: &mut [u8]) -> Result<usize, Box<dyn std::error::Error>> {
-		let corrected_size = buf.len().min((self.len().unwrap_or(0).wrapping_sub(self.stream_position().unwrap_or(0))) as usize);
+		let logical_position = match self.collation {
+			BuildIODataCollation::StrippedROMs => self.stream_position().unwrap_or(0) * 2,
+			_ => self.stream_position().unwrap_or(0)
+		};
+		let corrected_size = buf.len().min(self.len().unwrap_or(0).saturating_sub(logical_position) as usize);
 
 		if self.collation == BuildIODataCollation::StrippedROMs {
 			if buf.len() < 0x4 {
@@ -103,22 +122,30 @@ impl BuildIO for ROMIO {
 			} else if (buf.len() & 1) == 1 {
 				Err("Buffer needs to be a multiple of 2.".into())
 			} else {
-				let mut rsize: usize = 0x0;
+				let words = corrected_size / 4;
+				let tail = (corrected_size % 4) >= 2;
+				let n0 = (words * 2) + if tail { 2 } else { 0 };
+				let n1 = words * 2;
 
-				if self.collation == BuildIODataCollation::StrippedROMs {
-					for index in (0..corrected_size).step_by(4) {
-						rsize += self.f0.read(&mut buf[(index + 0)..(index + 2)])?;
+				let mut buf0 = vec![0x00 as u8; n0];
+				let mut buf1 = vec![0x00 as u8; n1];
 
-						// Stop reading if the buffer is a miltiple of 2 but not a multiple of 4. For example, like reading into a 62 byte buffer.
-						if (index + 4) <= corrected_size {
-							rsize += self.f1.as_ref().unwrap().read(&mut buf[(index + 2)..(index + 4)])?;
-						}
+				let r0 = ROMIO::read_full(&mut self.f0, &mut buf0)?;
+				let r1 = ROMIO::read_full(self.f1.as_mut().unwrap(), &mut buf1)?;
+
+				for index in 0..(words + if tail { 1 } else { 0 }) {
+					let half = index * 2;
+					let whole = index * 4;
+
+					if half + 2 <= r0 {
+						buf[whole..(whole + 2)].copy_from_slice(&buf0[half..(half + 2)]);
 					}
-				} else {
-					rsize += self.f0.read(buf)?;
+					if index < words && half + 2 <= r1 {
+						buf[(whole + 2)..(whole + 4)].copy_from_slice(&buf1[half..(half + 2)]);
+					}
 				}
 
-				Ok(rsize)
+				Ok(r0 + r1)
 			}
 		} else {
 			Ok(self.f0.read(&mut buf[0..corrected_size])?)
