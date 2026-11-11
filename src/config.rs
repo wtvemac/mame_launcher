@@ -957,7 +957,7 @@ impl LauncherConfig {
 				last_opened_img_path: Some("".into())
 			},
 			mame_options: MAMEOptions {
-				selected_box: Some("wtv1sony".into()),
+				selected_box: Some("wtv1bf0".into()),
 				selected_bootroms: None,
 				selected_modem_bitb_endpoint: None,
 				selected_modem_moip_endpoint: None,
