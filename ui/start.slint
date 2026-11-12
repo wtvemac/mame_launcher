@@ -106,7 +106,7 @@ export global UIMAMEOptions {
 			value: "sip:hacktv:hacktv@moip.mywire.org:16151"
 		}
 	];
-	in-out property<string> selected_modem_moip_endpoint: "sip:redialed:redialed2@sip.webtv.zone:16555";
+	in-out property<string> selected_modem_moip_endpoint: "wtv.ooguy.com:1122";
 	in-out property<string> selected_modem_moip_startpoint: "";
 	out property<bool> modem_moip_available: (selected_modem_moip_startpoint != "");
 	out property<bool> modem_moip_selected: (modem_moip_available && selected_modem_moip_endpoint.starts-with("sip:"));

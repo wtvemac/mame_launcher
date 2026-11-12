@@ -2786,12 +2786,16 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		let selected_modem_bitb_endpoint = config_persistent_mame.selected_modem_bitb_endpoint.unwrap_or("".into());
 		if selected_modem_bitb_endpoint != "" {
 			ui_mame.set_selected_modem_bitb_endpoint(selected_modem_bitb_endpoint.clone().into());
+		} else {
+			ui_mame.set_selected_modem_bitb_endpoint(PUBLIC_TOUCHPP_ADDRESS.into());
 		}
 
 		ui_mame.set_selectable_modem_moip_box_endpoints(slint::ModelRc::new(slint::VecModel::from(selectable_modem_moip_box_endpoints)));
 		let selected_modem_moip_endpoint = config_persistent_mame.selected_modem_moip_endpoint.unwrap_or("".into());
 		if selected_modem_moip_endpoint != "" {
 			ui_mame.set_selected_modem_moip_endpoint(selected_modem_moip_endpoint.clone().into());
+		} else {
+			ui_mame.set_selected_modem_moip_endpoint(PUBLIC_TOUCHPP_ADDRESS.into());
 		}
 
 		////
