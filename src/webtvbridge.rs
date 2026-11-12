@@ -75,6 +75,8 @@ const STARTUP_STATES: &[&str] = &["off", "armed", "wifi", "loading", "patching",
 
 pub type LogFn = Arc<dyn Fn(&str) + Send + Sync>;
 
+pub const SETTINGS_FILE: &'static str = "settings.bin";
+
 #[derive(Clone)]
 pub struct BridgeOptions {
 	pub state_dir: PathBuf, // settings.bin and the per-instance firmware copies
@@ -886,7 +888,7 @@ struct Platform {
 impl Platform {
 	fn new(options: &BridgeOptions, stop: Arc<AtomicBool>, ports: Arc<Mutex<HashMap<u16, u16>>>) -> Platform {
 		Platform {
-			settings_path: options.state_dir.join("settings.bin"),
+			settings_path: options.state_dir.join(SETTINGS_FILE),
 			http_port: options.http_port,
 			console_port: options.console_port,
 			ports,

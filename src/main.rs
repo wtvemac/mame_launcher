@@ -4500,6 +4500,9 @@ fn nuke_config(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::erro
 			_ => { }
 		};
 
+		#[cfg(webtv_bridge)]
+		let _ = std::fs::remove_file(webtv_bridge_state_dir().join(webtvbridge::SETTINGS_FILE));
+
 		let _ = populate_config(&ui_weak);
 
 		let _ = ui_weak.upgrade_in_event_loop(move |ui| {
@@ -6005,11 +6008,19 @@ fn start_pekoe2(ui_weak: slint::Weak<MainWindow>) -> Result<(u16, Box<dyn Send>)
 	}
 }
 
+#[cfg(webtv_bridge)]
+fn webtv_bridge_state_dir() -> PathBuf {
+	let executable_dir = env::current_exe()
+		.ok()
+		.and_then(|path| LauncherConfig::get_parent_from_pathbuf(path).ok())
+			.unwrap_or(".".into());
+	Path::new(&executable_dir).join(WEBTV_BRIDGE_STATE_DIR)
+}
+
 // Starts the built-in WebTV Bridge for the parallel port socket: the port MAME connects to, and the bridge (stops when dropped).
 #[cfg(webtv_bridge)]
 fn start_webtv_bridge(ui_weak: slint::Weak<MainWindow>) -> Result<(u16, Box<dyn Send>), String> {
-	let executable_dir = env::current_exe().ok().and_then(|path| LauncherConfig::get_parent_from_pathbuf(path).ok()).unwrap_or(".".into());
-	let state_dir = Path::new(&executable_dir).join(WEBTV_BRIDGE_STATE_DIR);
+	let state_dir = webtv_bridge_state_dir();
 
 	let log_ui_weak = ui_weak.clone();
 	let log: webtvbridge::LogFn = std::sync::Arc::new(move |line: &str| {
