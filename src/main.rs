@@ -161,6 +161,13 @@ const WTVPORT_BOXES: &[&str] = &[
 	"wtv2phil"
 ];
 const WTVPORT_SLOT_NAME: &'static str = "wtvport1";
+const USB_BOXES: &[&str] = &[
+	"wtv2utv",
+	"wtv2uvd"
+];
+const USB_ETHERNET_OPTIONS: &[&str] = &[
+	"adm8511"
+];
 const PARALLEL_SLOT_NAME: &'static str = "pport";
 const DEFAULT_SLOT_ORDER: [&'static str; 5] = [
 	"deskjet6xx",
@@ -1473,6 +1480,19 @@ fn get_slot_option_bitbanger_count(config_machines: &Vec<MAMEMachineNode>, devna
 	count
 }
 
+// The first USB port slot in the machine (wtvmame names them "usb1", "usb2" ...)
+fn get_first_usb_slot_name(selected_machine: &MAMEMachineNode) -> Option<String> {
+	let usb_slot_regex = Regex::new(r"(^|:)usb\d+$").unwrap();
+
+	selected_machine.slot.clone().unwrap_or(vec![]).iter()
+		.filter_map(|xslot| xslot.name.clone())
+		.filter(|slot_name| usb_slot_regex.is_match(slot_name))
+		.min_by_key(|slot_name| {
+			let port_number: u32 = slot_name.rsplit("usb").next().and_then(|number| number.parse().ok()).unwrap_or(u32::MAX);
+			port_number
+		})
+}
+
 fn get_bitbanger_brief_names(config_machines: &Vec<MAMEMachineNode>, selected_machine: &MAMEMachineNode, selected_slot_options: &Vec<(String, String)>) -> (HashMap<String, String>, HashMap<String, Vec<String>>) {
 	let mut bitbangers: Vec<(Option<String>, Option<String>)> = vec![];
 
@@ -2450,6 +2470,17 @@ fn populate_selected_box_slots(ui_weak: &slint::Weak<MainWindow>, config: &Launc
 		vec![]
 	};
 	let can_use_wtvport = wtvport_options.len() > 0;
+
+	// USB port slot options
+	let has_usb_port = USB_BOXES.contains(&machine_name.as_str());
+	let usb_slot_name = if has_usb_port { get_first_usb_slot_name(selected_machine) } else { None };
+	let usb_options: Vec<(String, String)> = match &usb_slot_name {
+		Some(usb_slot_name) => get_slot_options(config, selected_machine, usb_slot_name),
+		None => vec![]
+	};
+	let can_use_usb = usb_options.len() > 0;
+	let usb_slot_name = usb_slot_name.unwrap_or("".into());
+
 	// wtv1 boxes don't have a parallel port, it's added with the printer adapter.
 	let wtvport_has_parallel = can_use_wtvport && machine_name.starts_with("wtv1");
 	let parallel_options = if machine_name.starts_with("wtv1") || machine_name.starts_with("wtv2") {
@@ -2545,6 +2576,28 @@ fn populate_selected_box_slots(ui_weak: &slint::Weak<MainWindow>, config: &Launc
 		ui_mame.set_selectable_wtvport_options(slint::ModelRc::new(slint::VecModel::from(selectable_wtvport_options)));
 		ui_mame.set_can_use_wtvport(can_use_wtvport);
 		ui_mame.set_wtvport_has_parallel(wtvport_has_parallel);
+
+		// USB port
+		let selected_usb_option = ui_mame.get_selected_usb_option().to_string();
+		let mut selectable_usb_options: Vec<HintedItem> = vec![];
+		for (option_name, option_description) in usb_options.iter() {
+			selectable_usb_options.push(
+				HintedItem {
+					display_hint_only: false,
+					hint: (if option_description != "" { option_description } else { option_name }).clone().into(),
+					tooltip: "".into(),
+					value: option_name.clone().into(),
+					icon: slint::Image::from_rgb8(slint::SharedPixelBuffer::new(0, 0))
+				}
+			);
+		}
+		if !usb_options.iter().any(|(option_name, _)| *option_name == selected_usb_option) {
+			ui_mame.set_selected_usb_option(usb_options.first().map(|(option_name, _)| option_name.clone()).unwrap_or("".into()).into());
+		}
+		ui_mame.set_selectable_usb_options(slint::ModelRc::new(slint::VecModel::from(selectable_usb_options)));
+		ui_mame.set_has_usb_port(has_usb_port);
+		ui_mame.set_can_use_usb(can_use_usb);
+		ui_mame.set_usb_slot_name(usb_slot_name.into());
 
 		// Parallel port
 		let selected_parallel_option = ui_mame.get_selected_parallel_option().to_string();
@@ -2965,8 +3018,9 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		let selected_cacard_endpoint = config_persistent_mame.selected_cacard_endpoint.clone().unwrap_or("".into());
 		ui_mame.set_selected_cacard_endpoint(if selected_cacard_endpoint != "" { selected_cacard_endpoint.into() } else { default_card_endpoint.clone().into() });
 
-		// WebTV Port and Parallel Port
+		// WebTV Port, USB port and Parallel Port
 		ui_mame.set_selected_wtvport_option(config_persistent_mame.selected_wtvport_option.clone().unwrap_or("".into()).into());
+		ui_mame.set_selected_usb_option(config_persistent_mame.selected_usb_option.clone().unwrap_or("".into()).into());
 		ui_mame.set_selected_parallel_option(config_persistent_mame.selected_parallel_option.clone().unwrap_or("".into()).into());
 		#[allow(unused_mut)]
 		let mut selectable_parallel_socket_endpoints: Vec<HintedItem> = vec![
@@ -3036,6 +3090,7 @@ fn populate_config(ui_weak: &slint::Weak<MainWindow>) -> Result<(), Box<dyn std:
 		ui_mame.set_enable_smartcard(config_persistent_mame.enable_smartcard.unwrap_or(false).into());
 		ui_mame.set_enable_cacard(config_persistent_mame.enable_cacard.unwrap_or(false).into());
 		ui_mame.set_enable_wtvport(config_persistent_mame.enable_wtvport.unwrap_or(false).into());
+		ui_mame.set_enable_usb(config_persistent_mame.enable_usb.unwrap_or(false).into());
 		ui_mame.set_enable_parallel(config_persistent_mame.enable_parallel.unwrap_or(false).into());
 
 		ui_mame.set_custom_options(config_persistent_mame.custom_options.unwrap_or("".into()).into());
@@ -4105,6 +4160,8 @@ fn save_config(ui_weak: slint::Weak<MainWindow>, reload: bool, new_bootroms: Opt
 				enable_cacard: Some(ui_mame.get_enable_cacard().into()),
 				selected_wtvport_option: Some(ui_mame.get_selected_wtvport_option().into()),
 				enable_wtvport: Some(ui_mame.get_enable_wtvport().into()),
+				selected_usb_option: Some(ui_mame.get_selected_usb_option().into()),
+				enable_usb: Some(ui_mame.get_enable_usb().into()),
 				selected_parallel_option: Some(ui_mame.get_selected_parallel_option().into()),
 				selected_parallel_socket_endpoint: Some(ui_mame.get_selected_parallel_socket_endpoint().into()),
 				selected_parallel_hostlpt_device: Some(ui_mame.get_selected_parallel_hostlpt_device().into()),
@@ -5302,10 +5359,28 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 			mame_command.arg("-wtvnet");
 		}
 
-		let network_stack = if selected_box == "msntv2" || use_wtvnet {
-			start_netstack(ui_weak.clone(), &mame_executable_path, &mame_directory_path, &mut mame_command, &selected_box)
+		// The first USB slot
+		let usb_slot_name = ui_mame.get_usb_slot_name().to_string();
+		let selected_usb_option = if ui_mame.get_has_usb_port() && ui_mame.get_can_use_usb() && usb_slot_name != "" {
+			if ui_mame.get_enable_usb() { Some(ui_mame.get_selected_usb_option().to_string()) } else { Some("".to_string()) }
 		} else {
 			None
+		};
+
+		// The launcher network goes to the USB ethernet adapter when it's enabled (whether -wtvnet is used or not)
+		let network_device = if selected_box == "msntv2" {
+			Some(MSNTV2_ETHERNET_DEVICE_TAG.to_string())
+		} else if let Some(usb_ethernet_option) = selected_usb_option.as_deref().filter(|option| USB_ETHERNET_OPTIONS.contains(option)) {
+			Some(":".to_owned() + usb_slot_name.trim_start_matches(':') + ":" + usb_ethernet_option)
+		} else if use_wtvnet {
+			Some(":wtvnet".to_string())
+		} else {
+			None
+		};
+
+		let network_stack = match &network_device {
+			Some(network_device) => start_netstack(ui_weak.clone(), &mame_executable_path, &mame_directory_path, &mut mame_command, &selected_box, network_device),
+			None => None
 		};
 
 		let config_machines = LauncherConfig::get_mame_config(&mame_executable_path).ok().and_then(|config_mame| config_mame.machine).unwrap_or(vec![]);
@@ -5320,6 +5395,10 @@ fn start_mame(ui_weak: slint::Weak<MainWindow>, drx: Receiver<String>) -> Result
 		if ui_mame.get_can_use_wtvport() && ui_mame.get_enable_wtvport() && selected_wtvport_option != "" {
 			selected_slot_options.push((WTVPORT_SLOT_NAME.to_string(), selected_wtvport_option));
 		}
+		if let Some(selected_usb_option) = selected_usb_option {
+			selected_slot_options.push((usb_slot_name.clone(), selected_usb_option));
+		}
+
 		let selected_parallel_option = ui_mame.get_selected_parallel_option().to_string();
 		let use_parallel = ui_mame.get_can_use_parallel() && ui_mame.get_enable_parallel() && selected_parallel_option != "";
 		if use_parallel {
@@ -6046,7 +6125,7 @@ fn start_webtv_bridge(_ui_weak: slint::Weak<MainWindow>) -> Result<(u16, Box<dyn
 	Err("This launcher was built without the WebTV Bridge (the \"webtv-bridge\" feature). The parallel port socket won't connect.".into())
 }
 
-fn start_netstack(ui_weak: slint::Weak<MainWindow>, mame_executable_path: &String, mame_directory_path: &String, mame_command: &mut Command, selected_box: &str) -> Option<NetworkStack> {
+fn start_netstack(ui_weak: slint::Weak<MainWindow>, mame_executable_path: &String, mame_directory_path: &String, mame_command: &mut Command, selected_box: &str, network_device: &str) -> Option<NetworkStack> {
 	let network_options = match LauncherConfig::get_persistent_config() {
 		Ok(config) => config.network,
 		_ => None
@@ -6062,7 +6141,6 @@ fn start_netstack(ui_weak: slint::Weak<MainWindow>, mame_executable_path: &Strin
 		return None;
 	}
 
-	let network_device = if selected_box == "msntv2" { MSNTV2_ETHERNET_DEVICE_TAG } else { ":wtvnet" };
 	if let Err(e) = LauncherConfig::set_mame_network_interface(mame_directory_path, selected_box, network_device, 0) {
 		let _ = add_console_text(ui_weak.clone(), "WARNING: Couldn't select the ethernet network device in MAME's config. Ethernet may not work.\n".to_owned() + &e.to_string() + "\n", MAMEConsoleScrollMode::ForceScroll, 0);
 	}

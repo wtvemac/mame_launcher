@@ -162,6 +162,14 @@ export global UIMAMEOptions {
 	in-out property<bool> can_use_wtvport: false;
 	in-out property<bool> enable_wtvport: false;
 
+	// USB Port
+	in-out property<bool> has_usb_port: false;
+	in-out property<string> usb_slot_name: "";
+	in-out property<[HintedItem]> selectable_usb_options: [];
+	in-out property<string> selected_usb_option: "";
+	in-out property<bool> can_use_usb: false;
+	in-out property<bool> enable_usb: false;
+
 	// Parallel Port
 	in-out property<[HintedItem]> selectable_parallel_options: [];
 	in-out property<string> selected_parallel_option: "";
@@ -625,20 +633,41 @@ export component StartPage inherits Page {
 									width: 50%;
 									spacing: 0px;
 									padding-right: 10px;
-									Switch {
-										text: @tr("Use WebTV Port");
-										width: 180px;
-										height: 28px;
-										enabled: UIMAMEOptions.can_use_wtvport;
-										checked <=> UIMAMEOptions.enable_wtvport;
+									if !UIMAMEOptions.has_usb_port : HorizontalLayout {
+										spacing: 0px;
+										Switch {
+											text: @tr("Use WebTV Port");
+											width: 180px;
+											height: 28px;
+											enabled: UIMAMEOptions.can_use_wtvport;
+											checked <=> UIMAMEOptions.enable_wtvport;
+										}
+										EditableComboBox {
+											visible: UIMAMEOptions.enable_wtvport && UIMAMEOptions.can_use_wtvport;
+											enabled: UIMAMEOptions.can_use_wtvport;
+											height: 33px;
+											editable: false;
+											hintedmodel: UIMAMEOptions.selectable_wtvport_options;
+											current-value <=> UIMAMEOptions.selected_wtvport_option;
+										}
 									}
-									EditableComboBox {
-										visible: UIMAMEOptions.enable_wtvport && UIMAMEOptions.can_use_wtvport;
-										enabled: UIMAMEOptions.can_use_wtvport;
-										height: 33px;
-										editable: false;
-										hintedmodel: UIMAMEOptions.selectable_wtvport_options;
-										current-value <=> UIMAMEOptions.selected_wtvport_option;
+									if UIMAMEOptions.has_usb_port : HorizontalLayout {
+										spacing: 0px;
+										Switch {
+											text: @tr("Use USB Port");
+											width: 180px;
+											height: 28px;
+											enabled: UIMAMEOptions.can_use_usb;
+											checked <=> UIMAMEOptions.enable_usb;
+										}
+										EditableComboBox {
+											visible: UIMAMEOptions.enable_usb && UIMAMEOptions.can_use_usb;
+											enabled: UIMAMEOptions.can_use_usb;
+											height: 33px;
+											editable: false;
+											hintedmodel: UIMAMEOptions.selectable_usb_options;
+											current-value <=> UIMAMEOptions.selected_usb_option;
+										}
 									}
 								}
 								VerticalLayout {
