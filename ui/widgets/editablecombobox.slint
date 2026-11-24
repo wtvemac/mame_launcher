@@ -76,6 +76,7 @@ export component EditableComboBox inherits Rectangle {
 	out property <int> item-count: ((i-ishinted) ? hintedmodel.length : model.length);
 
 	property <bool> i-current-hint-only: (current-hint != "" && i-value == current-value && (display-hint-only || (i-ishinted && hintedmodel.length > i-index && hintedmodel[i-index].display_hint_only)));
+	property <bool> i-hint-overlay-shown: (root.editable && root.i-current-hint-only && !editbox.has-focus);
 
 	property <length> popup-item-height-adjust: 6px;
 
@@ -364,6 +365,7 @@ export component EditableComboBox inherits Rectangle {
 			width: (parent.width - down-arrow.width - self.x) + ((down-arrow.width > 0) ? -8px : -1px);
 			height: (root.editable) ? (parent.height - 2px) : 0px;
 			visible: root.editable;
+			opacity: (root.i-hint-overlay-shown) ? 0 : 1;
 			enabled: (root.enabled);
 			horizontal-alignment: left;
 			font-size: nonedit-label.font-size;
@@ -384,20 +386,22 @@ export component EditableComboBox inherits Rectangle {
 		border-color: (use-border-style) ? Palette.alternate-background : transparent;
 		background: transparent;
 	}
-	if root.editable && root.i-current-hint-only && !editbox.has-focus: Rectangle {
-		x: editbox.x + 1px;
-		y: editbox.y + 1px;
-		width: editbox.width - 2px;
-		height: editbox.height - 3px;
+	if root.i-hint-overlay-shown: Rectangle {
+		x: editbox.x;
+		y: editbox.y;
+		width: editbox.width;
+		height: editbox.height;
 		border-radius: 4px;
 		background: root.background;
 		Rectangle {
 			border-radius: parent.border-radius;
 			background: Palette.control-background;
+			border-width: 1px;
+			border-color: Palette.border;
 		}
 		Text {
 			text: root.current-hint;
-			x: 11px;
+			x: 12px;
 			width: parent.width - self.x - 2px;
 			height: parent.height;
 			vertical-alignment: center;
