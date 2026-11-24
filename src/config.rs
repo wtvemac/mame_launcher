@@ -270,16 +270,28 @@ pub struct Paths {
 impl Paths {
 	#[allow(dead_code)]
 	pub fn resolve_mame_path(mame_path: Option<String>) -> String {
-		#[allow(unused_mut)]
-		let mut mame_path = mame_path.unwrap_or("".into());
+		let mame_path = mame_path.unwrap_or("".into());
 
-		#[cfg(target_os = "macos")]
-		if mame_path.len() > 0 && &mame_path[0..1] == "." {
-			let executable_dir = 
-			LauncherConfig::get_parent_from_pathbuf(env::current_exe().unwrap_or("".into()))
-			.unwrap_or("".into());
+		if mame_path.is_empty() || !Path::new(&mame_path).is_relative() {
+			return mame_path;
+		}
 
-			mame_path = executable_dir + "/" + &mame_path;
+		if let Ok(current_exe) = env::current_exe() {
+			if let Some(executable_dir) = current_exe.parent() {
+				let mame_path_try: PathBuf = executable_dir.join(&mame_path).components().collect();
+
+				if mame_path_try.exists() {
+					return mame_path_try.to_string_lossy().into();
+				}
+			}
+		}
+
+		if let Ok(absolute_path) = std::path::absolute(&mame_path) {
+			let mame_path_try: PathBuf = absolute_path.components().collect();
+
+			if mame_path_try.exists() {
+				return mame_path_try.to_string_lossy().into();
+			}
 		}
 
 		return mame_path;
