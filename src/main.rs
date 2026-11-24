@@ -4425,7 +4425,9 @@ fn start_approm_import(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn s
 					let rommy_path: String = ui_paths.get_rommy_path().into();
 					let selected_box = ui_mame.get_selected_box().clone().to_string();
 
-					if rommy_enabled && selected_box != "msntv2" && !Regex::new(r"\.(o|bin|img)$").unwrap().is_match(&selected_file_path) {
+					if ui_mame.get_can_choose_hdimg() && is_disk_image(&selected_file_path) {
+						let _ = set_hdimg(ui_weak, selected_file_path);
+					} else if rommy_enabled && selected_box != "msntv2" && !Regex::new(r"\.(o|bin|img)$").unwrap().is_match(&selected_file_path) {
 						let validate_build_image = ui_mame.get_validate_build_image();
 						let ui_weak_cpy = ui_weak.clone();
 						let _ = std::thread::spawn(move || {
@@ -4579,7 +4581,6 @@ fn nuke_config(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::erro
 fn choose_hdimg(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error::Error>> {
 	let ui = ui_weak.unwrap();
 	let ui_paths = ui.global::<UIPaths>();
-	let ui_mame = ui.global::<UIMAMEOptions>();
 
 	let last_opened_img_path = get_choose_file_location(ui_paths.get_last_opened_img_path().into());
 
@@ -4607,37 +4608,72 @@ fn choose_hdimg(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::err
 		}
 
 		if selected_file_path != "" && Path::new(&selected_file_path).exists() {
-			ui_paths.set_last_opened_img_path(LauncherConfig::get_parent(selected_file_path.clone()).unwrap_or("".into()).into());
-
-			match LauncherConfig::get_persistent_config() {
-				Ok(config) => {
-					let selected_box = ui_mame.get_selected_box().clone().to_string();
-
-					let mut selected_hdimg_paths = match config.mame_options.selected_hdimg_paths {
-						Some(hdimg_paths) => hdimg_paths,
-						_ => HashMap::new()
-					};
-					selected_hdimg_paths.insert(selected_box.clone(), selected_file_path.clone());
-					ui_mame.set_selected_hdimg_path(selected_file_path.clone().into());
-
-					let mut selected_hdimg_enabled = match config.mame_options.selected_hdimg_enabled {
-						Some(hdimg_enabled) => hdimg_enabled,
-						_ => HashMap::new()
-					};
-					selected_hdimg_enabled.insert(selected_box.clone(), true);
-					ui_mame.set_selected_hdimg_enabled(true);
-
-					let _ = save_config(ui_weak.clone(), true, None, Some(selected_hdimg_paths), Some(selected_hdimg_enabled));
-				},
-				_ => {
-					//
-				}
-			};
-
+			let _ = set_hdimg(ui_weak.clone(), selected_file_path);
 		}
 	}
 
 	Ok(())
+}
+
+fn set_hdimg(ui_weak: slint::Weak<MainWindow>, selected_file_path: String) -> Result<(), Box<dyn std::error::Error>> {
+	let ui = ui_weak.unwrap();
+	let ui_paths = ui.global::<UIPaths>();
+	let ui_mame = ui.global::<UIMAMEOptions>();
+
+	ui_paths.set_last_opened_img_path(LauncherConfig::get_parent(selected_file_path.clone()).unwrap_or("".into()).into());
+
+	match LauncherConfig::get_persistent_config() {
+		Ok(config) => {
+			let selected_box = ui_mame.get_selected_box().clone().to_string();
+
+			let mut selected_hdimg_paths = match config.mame_options.selected_hdimg_paths {
+				Some(hdimg_paths) => hdimg_paths,
+				_ => HashMap::new()
+			};
+			selected_hdimg_paths.insert(selected_box.clone(), selected_file_path.clone());
+			ui_mame.set_selected_hdimg_path(selected_file_path.clone().into());
+
+			let mut selected_hdimg_enabled = match config.mame_options.selected_hdimg_enabled {
+				Some(hdimg_enabled) => hdimg_enabled,
+				_ => HashMap::new()
+			};
+			selected_hdimg_enabled.insert(selected_box.clone(), true);
+			ui_mame.set_selected_hdimg_enabled(true);
+
+			let _ = save_config(ui_weak.clone(), true, None, Some(selected_hdimg_paths), Some(selected_hdimg_enabled));
+		},
+		_ => {
+			//
+		}
+	};
+
+	Ok(())
+}
+
+// Users (MattMan atm but I see others) sometimes pick a whole disk image with "Replace Build". Detect that so we can treat it as "Choose Disk Image" instead.
+fn is_disk_image(file_path: &String) -> bool {
+	if Regex::new(r"(?i)\.(chd|dif)$").unwrap().is_match(file_path.as_str()) {
+		return true;
+	}
+
+	for collation in [BuildIODataCollation::ByteSwapped16, BuildIODataCollation::ByteSwapped1632, BuildIODataCollation::Raw] {
+		match BuildMeta::open_disk(file_path.clone(), Some(collation), false, false) {
+			Ok(build_meta) => {
+				match build_meta.layout {
+					BuildMetaLayout::LC2DiskLayout
+					| BuildMetaLayout::WebstarDiskLayout
+					| BuildMetaLayout::UTVDiskLayout
+					| BuildMetaLayout::MSNTV2DiskLayout => {
+						return true;
+					},
+					_ => { }
+				}
+			},
+			_ => { }
+		}
+	}
+
+	false
 }
 
 fn unset_hdimg(ui_weak: slint::Weak<MainWindow>) -> Result<(), Box<dyn std::error::Error>> {
@@ -4710,7 +4746,7 @@ fn choose_build_file(ui_weak: slint::Weak<MainWindow>) -> Result<String, Box<dyn
 				.set_title("Choose NK.BIN OS image")
 				.set_location(&last_opened_rom_path)
 				.set_filename("")
-				.add_filter("MSNTV2 OS Image", &["sig", "bin", "SIG", "BIN"]);
+				.add_filter("MSNTV2 OS Image", &["sig", "bin", "SIG", "BIN", "img"]);
 		} else {
 			chooser = 
 				DialogBuilder::file()
